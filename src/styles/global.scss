@@ -1,0 +1,163 @@
+html {
+  --uno: scheme-light select-none overscroll-none antialiased;
+
+  // 每个窗口都是固定尺寸的应用外壳，滚动一律发生在内部容器里。文档自己绝不滚动：
+  // 窗口尺寸还没落定的那一两帧（如预览窗口先以兜底尺寸建出来再 resize），内容会短暂
+  // 撑爆视口，露出一圈原生滚动条。
+  overflow: hidden;
+
+  &.dark {
+    --uno: scheme-dark;
+  }
+
+  body {
+    --uno: text-sm text-ant-text;
+
+    overflow: hidden;
+
+    img {
+      -webkit-user-drag: none;
+    }
+
+    * {
+      outline: none;
+    }
+  }
+}
+
+// Window-level material surface: one backdrop per window, never per settings row.
+// The native backdrop (DWM Mica/Acrylic, NSVisualEffectView) does the blurring and the
+// web layer only tints; a backdrop-filter on the window root would sample the
+// transparent canvas and blur nothing, so it is intentionally absent.
+.kp-material-surface {
+  background-color: var(--ant-color-bg-container);
+  isolation: isolate;
+  transition:
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+// Layout ownership stays with the window shell (always rendered through
+// `WindowMaterialSurface`, so it always carries `data-tone`). global.scss loads after
+// virtual:uno.css, so an unscoped `position` / `overflow` here wins over the utility
+// classes of floating surfaces — that is what pulled the preview panel back into flow.
+.kp-material-surface[data-tone] {
+  overflow: hidden;
+  position: relative;
+}
+
+// Default keeps each window's own solid tone; the mica/acrylic rules below take over.
+.kp-material-surface[data-material="default"][data-tone="layout"] {
+  background-color: var(--ant-color-bg-layout);
+}
+
+.kp-material-surface[data-material="default"][data-tone="elevated"] {
+  background-color: var(--ant-color-bg-elevated);
+}
+
+.kp-material-surface[data-material="mica"] {
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 58%,
+    transparent
+  );
+  background-image: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--ant-color-primary) 10%, transparent),
+    transparent 42%,
+    color-mix(in srgb, var(--ant-color-white) 5%, transparent)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ant-color-white) 12%, transparent);
+}
+
+.kp-material-surface[data-material="acrylic"] {
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 34%,
+    transparent
+  );
+  background-image: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--ant-color-primary) 16%, transparent),
+    color-mix(in srgb, var(--ant-color-bg-container) 20%, transparent) 48%,
+    color-mix(in srgb, var(--ant-color-white) 10%, transparent)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ant-color-white) 18%, transparent);
+}
+
+// Preference chrome must let the window-level material show through; controls
+// and setting cards keep their own surfaces for contrast and readability.
+.kp-preference-chrome,
+.kp-preference-panel,
+.kp-preference-panel-header {
+  background-color: var(--ant-color-bg-container);
+}
+
+.kp-material-surface[data-material="mica"] .kp-preference-chrome {
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 34%,
+    transparent
+  );
+}
+
+.kp-material-surface[data-material="mica"] .kp-preference-panel {
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 48%,
+    transparent
+  );
+}
+
+.kp-material-surface[data-material="mica"] .kp-preference-panel-header {
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 28%,
+    transparent
+  );
+}
+
+.kp-material-surface[data-material="acrylic"] .kp-preference-chrome {
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 20%,
+    transparent
+  );
+}
+
+.kp-material-surface[data-material="acrylic"] .kp-preference-panel {
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 32%,
+    transparent
+  );
+}
+
+.kp-material-surface[data-material="acrylic"] .kp-preference-panel-header {
+  background-color: color-mix(
+    in srgb,
+    var(--ant-color-bg-container) 18%,
+    transparent
+  );
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .kp-material-surface[data-material="mica"],
+  .kp-material-surface[data-material="acrylic"] {
+    background-color: var(--ant-color-bg-container);
+    background-image: none;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kp-material-surface {
+    transition: none;
+  }
+}
+
+.os-scrollbar-handle {
+  --os-handle-bg: var(--ant-color-text-quaternary);
+  --os-handle-bg-hover: var(--ant-color-text-tertiary);
+  --os-handle-bg-active: var(--ant-color-text-secondary);
+}
