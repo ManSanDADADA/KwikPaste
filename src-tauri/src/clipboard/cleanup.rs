@@ -1,18 +1,24 @@
-//! 历史清理后台任务：按 `clipboard.history.retention` + `maxCount` 定期裁剪。
+//! 历史清理后台任务：按 `clipboard.history.retention` + `maxCount` 定期裁剪，
+//! 存储上限设为自动清理时再按占用裁剪。
 //!
 //! 启动即跑一次；之后按用户设置的清理周期触发，每次都从 `SettingsStore` 取最新配置——
 //! 用户在偏好里调时长 / 上限后不必重启即可生效。置顶与收藏项一律保留（由 [`cleanup_history`] 保证）。
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::json;
+use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::storage::ImageStore;
 use super::watcher::CLIPBOARD_UPDATED_EVENT;
-use crate::db::items::cleanup_history;
-use crate::settings::{Retention, RetentionUnit, SettingsStore};
+use crate::core::disk::{dir_size, file_size};
+use crate::db::items::{
+    cleanup_history, cleanup_oldest_until, reusable_page_bytes, CleanupOutcome,
+};
+use crate::settings::{Retention, RetentionUnit, SettingsStore, StorageLimitAction};
 
 /// 调度器检查设置与到期状态的频率；真正清理只在用户设置周期到期后执行。
 const SCHEDULER_TICK_INTERVAL: Duration = Duration::from_secs(60);
@@ -21,12 +27,16 @@ const SCHEDULER_TICK_INTERVAL: Duration = Duration::from_secs(60);
 pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         run_once(&app).await;
+        enforce_storage_limit(&app).await;
         let mut last_cleanup_at = Instant::now();
         let mut ticker = tokio::time::interval(SCHEDULER_TICK_INTERVAL);
         ticker.tick().await;
 
         loop {
             ticker.tick().await;
+            // 存储上限不跟随清理周期（默认只在启动时清理），否则新图片写入后要到下次启动才回到上限以内。
+            enforce_storage_limit(&app).await;
+
             let Some(interval) = cleanup_interval(&app) else {
                 continue;
             };
@@ -56,18 +66,76 @@ async fn run_once(app: &AppHandle) {
 
     let pool = app.state::<crate::db::DatabaseState>().pool().await;
     match cleanup_history(&pool, cutoff, max).await {
-        Ok(outcome) if outcome.removed == 0 => {}
-        Ok(outcome) => {
-            remove_images(app, &outcome.image_files);
-            log::info!("history cleanup removed {} item(s)", outcome.removed);
-            if let Err(err) = app.emit(
-                CLIPBOARD_UPDATED_EVENT,
-                json!({ "cleanup": outcome.removed }),
-            ) {
-                log::warn!("emit cleanup event failed: {err}");
-            }
-        }
+        Ok(outcome) => apply_outcome(app, &outcome, "history"),
         Err(err) => log::warn!("history cleanup failed: {err}"),
+    }
+}
+
+/// 存储上限设为自动清理且占用超出时，从最旧的普通记录删起，直到回到上限以内。
+async fn enforce_storage_limit(app: &AppHandle) {
+    let history = match app.try_state::<SettingsStore>() {
+        Some(store) => store.snapshot().clipboard.history,
+        None => return,
+    };
+    if history.storage_limit_action != StorageLimitAction::Cleanup {
+        return;
+    }
+
+    let pool = app.state::<crate::db::DatabaseState>().pool().await;
+    let used = match storage_bytes_in_use(app, &pool).await {
+        Ok(used) => used,
+        Err(err) => {
+            log::warn!("measure storage for limit cleanup failed: {err}");
+            return;
+        }
+    };
+    let limit = history.storage_limit_bytes();
+    if used <= limit {
+        return;
+    }
+
+    let image_bytes = |file_name: &str| {
+        app.try_state::<ImageStore>()
+            .map_or(0, |store| store.stored_bytes(file_name))
+    };
+    match cleanup_oldest_until(&pool, used - limit, image_bytes).await {
+        Ok(outcome) if outcome.removed == 0 => {
+            // 每分钟都会走到这里，只记 debug，避免超限期间刷满日志文件。
+            log::debug!("storage stays over the limit: history cleanup cannot free enough space");
+        }
+        Ok(outcome) => apply_outcome(app, &outcome, "storage limit"),
+        Err(err) => log::warn!("storage limit cleanup failed: {err}"),
+    }
+}
+
+/// 数据实际占用：数据目录总大小减去 SQLite 可复用的空闲页和 WAL 旁路文件。
+/// 偏好页展示与存储上限清理共用这一口径——删行后数据库文件不会立即缩小，
+/// 按目录原始大小判断会让下一轮把已释放的空间再算一遍而继续误删，侧栏也会一直显示超限。
+pub async fn storage_bytes_in_use(app: &AppHandle, pool: &SqlitePool) -> crate::core::Result<u64> {
+    let total = dir_size(&crate::core::paths::app_data_dir(app)?)?;
+    let db_path = crate::db::db_path(app)?;
+
+    let mut reusable = reusable_page_bytes(pool).await?;
+    for suffix in ["-wal", "-shm"] {
+        reusable += file_size(Path::new(&format!("{}{}", db_path.display(), suffix)))?;
+    }
+
+    Ok(total.saturating_sub(reusable))
+}
+
+/// 清理完成后删除对应图片文件并通知前端刷新列表；没删到记录时什么都不做。
+fn apply_outcome(app: &AppHandle, outcome: &CleanupOutcome, reason: &str) {
+    if outcome.removed == 0 {
+        return;
+    }
+
+    remove_images(app, &outcome.image_files);
+    log::info!("{reason} cleanup removed {} item(s)", outcome.removed);
+    if let Err(err) = app.emit(
+        CLIPBOARD_UPDATED_EVENT,
+        json!({ "cleanup": outcome.removed }),
+    ) {
+        log::warn!("emit cleanup event failed: {err}");
     }
 }
 

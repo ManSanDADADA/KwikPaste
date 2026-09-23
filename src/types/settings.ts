@@ -61,6 +61,8 @@ export type CaptureKind = "files" | "image" | "html" | "rtf" | "text";
 
 export type RetentionUnit = "hours" | "days" | "weeks" | "months" | "forever";
 
+export type StorageLimitAction = "remind" | "cleanup";
+
 export type WindowPosition = "remember" | "followCursor" | "center";
 
 export type WindowOpenRangeSelection = "preserve" | ClipboardRange;
@@ -147,6 +149,8 @@ export interface History {
   retention: Retention;
   maxCount: number;
   cleanupIntervalHours: number;
+  storageLimitMb: number;
+  storageLimitAction: StorageLimitAction;
 }
 
 export interface Search {

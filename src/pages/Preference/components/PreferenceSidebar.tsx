@@ -16,8 +16,10 @@ interface PreferenceSidebarProps {
   activeTabId: PreferenceTabId;
   appName: string;
   appVersion: string;
+  storageLimitMb: number;
   storageState: PreferenceStorageState;
   storageUsage: StorageUsage | null;
+  onStorageSelect: () => void;
   onTabSelect: (tabId: PreferenceTabId) => void;
 }
 
@@ -30,8 +32,10 @@ const PreferenceSidebar: FC<PreferenceSidebarProps> = (props) => {
     activeTabId,
     appName,
     appVersion,
+    storageLimitMb,
     storageState,
     storageUsage,
+    onStorageSelect,
     onTabSelect,
   } = props;
   const appNameLabel = appName.length > 0 ? appName : APP_NAME_PLACEHOLDER;
@@ -111,7 +115,9 @@ const PreferenceSidebar: FC<PreferenceSidebarProps> = (props) => {
       </nav>
 
       <PreferenceStorageUsagePanel
+        onClick={onStorageSelect}
         state={storageState}
+        storageLimitMb={storageLimitMb}
         storageUsage={storageUsage}
       />
     </aside>

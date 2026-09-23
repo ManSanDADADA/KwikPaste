@@ -341,6 +341,14 @@ mod tests {
         assert!(parsed.clipboard.content.delete_pinned_confirm);
         assert!(!parsed.clipboard.content.update_on_reuse);
         assert_eq!(parsed.clipboard.history.cleanup_interval_hours, 0);
+        assert_eq!(
+            parsed.clipboard.history.storage_limit_mb,
+            crate::settings::DEFAULT_STORAGE_LIMIT_MB
+        );
+        assert_eq!(
+            parsed.clipboard.history.storage_limit_action,
+            crate::settings::StorageLimitAction::Remind
+        );
         assert!(parsed.clipboard.window.scroll_to_top_on_open);
         assert_eq!(
             parsed.clipboard.window.select_range_on_open,
@@ -353,6 +361,44 @@ mod tests {
         assert_eq!(
             parsed.clipboard.window.select_group_on_open,
             crate::settings::WINDOW_OPEN_SELECTION_PRESERVE
+        );
+    }
+
+    #[test]
+    fn released_history_settings_gain_storage_limit_defaults() {
+        let released = r#"{
+            "clipboard": {
+                "history": {
+                    "retention": {"value": 7, "unit": "days"},
+                    "maxCount": 500,
+                    "cleanupIntervalHours": 6
+                }
+            }
+        }"#;
+        let parsed: Settings = serde_json::from_str(released).unwrap();
+        let history = parsed.clipboard.history;
+
+        assert_eq!(history.max_count, 500);
+        assert_eq!(history.cleanup_interval_hours, 6);
+        assert_eq!(
+            history.storage_limit_mb,
+            crate::settings::DEFAULT_STORAGE_LIMIT_MB
+        );
+        assert_eq!(
+            history.storage_limit_action,
+            crate::settings::StorageLimitAction::Remind
+        );
+    }
+
+    #[test]
+    fn storage_limit_bytes_never_drops_below_minimum() {
+        let mut history = crate::settings::History::default();
+        assert_eq!(history.storage_limit_bytes(), 1024 * 1024 * 1024);
+
+        history.storage_limit_mb = 0;
+        assert_eq!(
+            history.storage_limit_bytes(),
+            u64::from(crate::settings::MIN_STORAGE_LIMIT_MB) * 1024 * 1024
         );
     }
 

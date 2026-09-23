@@ -495,7 +495,10 @@ pub enum PreviewHoverDelayMs {
     Ms1000,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub const DEFAULT_STORAGE_LIMIT_MB: u32 = 1024;
+pub const MIN_STORAGE_LIMIT_MB: u32 = 100;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct History {
     pub retention: Retention,
@@ -503,6 +506,39 @@ pub struct History {
     pub max_count: u32,
     /// 自动清理周期（小时）。`0` = 关闭周期清理，但启动时仍清理一次。
     pub cleanup_interval_hours: u32,
+    /// 本地存储上限（MB），偏好页的存储占用以它为满格。
+    pub storage_limit_mb: u32,
+    /// 占用超过 `storage_limit_mb` 后的处理方式。
+    pub storage_limit_action: StorageLimitAction,
+}
+
+impl Default for History {
+    fn default() -> Self {
+        Self {
+            retention: Retention::default(),
+            max_count: 0,
+            cleanup_interval_hours: 0,
+            storage_limit_mb: DEFAULT_STORAGE_LIMIT_MB,
+            storage_limit_action: StorageLimitAction::Remind,
+        }
+    }
+}
+
+impl History {
+    /// 存储上限字节数；手改配置写入过小的值时按下限计，避免自动清理把普通记录删光。
+    pub fn storage_limit_bytes(&self) -> u64 {
+        u64::from(self.storage_limit_mb.max(MIN_STORAGE_LIMIT_MB)) * 1024 * 1024
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum StorageLimitAction {
+    /// 只在偏好页提醒，不删除任何数据。
+    #[default]
+    Remind,
+    /// 从最旧的普通记录开始自动清理，直到回到上限以内；收藏与置顶保留。
+    Cleanup,
 }
 
 /// 历史保留时长。`unit = Forever` 时忽略 `value`。

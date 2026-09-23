@@ -51,9 +51,7 @@
     "useCustomIcon": "Use custom SVG"
   },
   "header": {
-    "clearRecords": "Clear records",
     "logoAlt": "KwikPaste logo",
-    "moreActions": "More actions",
     "openPreference": "Preferences",
     "pin": "Pin window",
     "searchPlaceholder": "Search clipboard...",

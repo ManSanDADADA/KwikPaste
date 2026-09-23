@@ -12,6 +12,7 @@ import {
   type CleanCacheResult,
   changeStorageLocation,
   cleanResourceCache,
+  clearClipboardItems,
   type ExportHistoryBackupResult,
   getWindowLifecycleSnapshot,
   inspectHistoryBackup,
@@ -43,6 +44,7 @@ const BACKUP_EXTENSION = "kwikpastebak";
 const ABOUT_CHECK_UPDATES_SETTING_ID = "about.checkUpdates";
 const ABOUT_GITHUB_SETTING_ID = "about.github";
 const CLEAN_CACHE_SETTING_ID = "localData.cleanCache";
+const CLEAR_HISTORY_SETTING_ID = "localData.clearHistory";
 const CUSTOM_GROUPS_SETTING_ID = "organizing.customGroups";
 const DATA_DIRECTORY_SETTING_ID = "localData.dataDirectory";
 const EXPORT_BACKUP_SETTING_ID = "backup.exportHistory";
@@ -145,6 +147,13 @@ const ActionControl: FC<ActionControlProps> = (props) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  /**
+   * 确认弹窗与收藏 / 置顶保留选项由命令包装负责；存储占用由 Rust 的清理事件统一刷新。
+   */
+  const clearHistory = async () => {
+    await runWithKeepalive("clear-history", clearClipboardItems);
   };
 
   const resetPreferenceSettings = async () => {
@@ -372,6 +381,11 @@ const ActionControl: FC<ActionControlProps> = (props) => {
 
     if (setting.id === CLEAN_CACHE_SETTING_ID) {
       confirmCleanCache();
+      return;
+    }
+
+    if (setting.id === CLEAR_HISTORY_SETTING_ID) {
+      await clearHistory();
       return;
     }
 

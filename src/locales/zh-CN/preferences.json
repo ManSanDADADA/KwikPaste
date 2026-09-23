@@ -429,6 +429,11 @@
           "description": "移除不再被历史记录引用的图片、缩略图和图标缓存。",
           "title": "清理缓存"
         },
+        "clearHistory": {
+          "controlLabel": "清空记录",
+          "description": "删除全部剪贴板历史，收藏和置顶记录默认保留。",
+          "title": "清空记录"
+        },
         "dataDirectory": {
           "controlLabel": "打开",
           "description": "打开历史数据库、设置文件和资源缓存所在目录。",
@@ -438,6 +443,18 @@
           "controlLabel": "打开",
           "description": "打开用于排查问题的运行日志目录。",
           "title": "日志目录"
+        },
+        "storageLimit": {
+          "description": "左下角存储占用以此为满格，超出后按下一项处理。",
+          "title": "存储上限"
+        },
+        "storageLimitAction": {
+          "description": "自动清理会从最旧的普通记录删起，直到回到上限以内；收藏和置顶始终保留。",
+          "options": {
+            "cleanup": "自动清理",
+            "remind": "仅提醒"
+          },
+          "title": "超出上限时"
         }
       },
       "organizing": {

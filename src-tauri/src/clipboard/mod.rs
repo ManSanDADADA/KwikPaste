@@ -19,6 +19,7 @@ pub use app_store::AppIconStore;
 pub use apps_registry::{
     add_app_from_path, delete_unreferenced_apps, refresh_running_apps, AppsRegistry,
 };
+pub use cleanup::storage_bytes_in_use;
 pub use detect::sanitize_css_color;
 pub use file_icon_store::FileIconStore;
 pub use guard::WritebackGuard;

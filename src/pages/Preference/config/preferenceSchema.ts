@@ -7,6 +7,7 @@ import {
 } from "@/constants/windowOpenSelection";
 import type { Settings } from "@/types/settings";
 import { isMac, isWin } from "@/utils/is";
+import { STORAGE_LIMIT_MAX_MB, STORAGE_LIMIT_MIN_MB } from "../constants";
 import type { PreferenceSetting, PreferenceTab } from "../types/preferences";
 
 const CLICK_ACTION_OPTIONS = [
@@ -27,6 +28,10 @@ const CLIPBOARD_SORT_OPTIONS = [
   { value: "createdAtDesc" },
   { value: "updatedAtDesc" },
   { value: "useCountDesc" },
+];
+const STORAGE_LIMIT_ACTION_OPTIONS = [
+  { value: "remind" },
+  { value: "cleanup" },
 ];
 export const preferenceTabs: PreferenceTab[] = [
   {
@@ -779,6 +784,32 @@ export const preferenceTabs: PreferenceTab[] = [
             keywords: ["database", "sqlite", "local", "cache", "image", "icon"],
           },
           {
+            control: {
+              max: STORAGE_LIMIT_MAX_MB,
+              min: STORAGE_LIMIT_MIN_MB,
+              suffixKey: "mb",
+              type: "number",
+            },
+            id: "localData.storageLimit",
+            keywords: ["storage", "limit", "size", "quota", "disk"],
+            path: ["clipboard", "history", "storageLimitMb"],
+            value: (settings) => {
+              return settings.clipboard.history.storageLimitMb;
+            },
+          },
+          {
+            control: {
+              options: STORAGE_LIMIT_ACTION_OPTIONS,
+              type: "segmented",
+            },
+            id: "localData.storageLimitAction",
+            keywords: ["storage", "limit", "cleanup", "remind"],
+            path: ["clipboard", "history", "storageLimitAction"],
+            value: (settings) => {
+              return settings.clipboard.history.storageLimitAction;
+            },
+          },
+          {
             control: { type: "action" },
             id: "localData.logDirectory",
             keywords: ["log", "diagnostic"],
@@ -787,6 +818,11 @@ export const preferenceTabs: PreferenceTab[] = [
             control: { type: "action" },
             id: "localData.cleanCache",
             keywords: ["cache", "clean", "storage"],
+          },
+          {
+            control: { danger: true, type: "action" },
+            id: "localData.clearHistory",
+            keywords: ["clear", "history", "records", "delete"],
           },
         ],
       },

@@ -1,19 +1,10 @@
 import { useDebounceFn } from "ahooks";
-import type { MenuProps } from "antd";
 import type { ChangeEvent, FC } from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSnapshot } from "valtio";
-import {
-  clearClipboardItems,
-  setClipboardWindowPinned,
-  showWindow,
-} from "@/commands";
+import { setClipboardWindowPinned, showWindow } from "@/commands";
 import CustomIconButton from "@/components/CustomIconButton";
-import Dropdown, {
-  type AppDropdownProps,
-  type DropdownMenuItems,
-} from "@/components/Dropdown";
 import KeyHint from "@/components/KeyHint";
 import Tooltip from "@/components/Tooltip";
 import { TAURI_EVENT } from "@/constants/events";
@@ -21,7 +12,6 @@ import { WINDOW_LABEL } from "@/constants/windows";
 import { useTauriListen } from "@/hooks/useTauriListen";
 import { clipboardViewState } from "@/stores/clipboardView";
 import { settingsState } from "@/stores/settings";
-import { formatShortcutDisplay } from "@/utils/shortcut";
 import SearchInput from "./SearchInput";
 
 interface WindowVisibilityPayload {
@@ -29,13 +19,8 @@ interface WindowVisibilityPayload {
   visible: boolean;
 }
 
-type HeaderMoreMenuKey = "clear" | "preference";
-
-const MORE_ACTION_TRIGGER: AppDropdownProps["trigger"] = ["click"];
-const PREFERENCE_SHORTCUT = formatShortcutDisplay("CmdOrCtrl+,", " ");
-
 /**
- * 剪贴板窗口顶部条：logo、搜索框（⌘F / Ctrl+F 聚焦）、固定窗口与更多操作入口。
+ * 剪贴板窗口顶部条：logo、搜索框（⌘F / Ctrl+F 聚焦）、固定窗口与偏好设置入口。
  */
 const Header: FC = () => {
   const { t } = useTranslation("clipboard");
@@ -50,28 +35,6 @@ const Header: FC = () => {
    */
   const handleOpenPreference = () => {
     return showWindow(WINDOW_LABEL.PREFERENCE);
-  };
-
-  /**
-   * 清空剪贴板历史；确认、toast 与后端调用统一收口在命令包装内。
-   */
-  const handleClearClipboardItems = async () => {
-    await clearClipboardItems();
-  };
-
-  /**
-   * 更多操作菜单分发：危险操作走确认弹窗，偏好设置打开独立窗口。
-   */
-  const handleMoreMenuClick: MenuProps["onClick"] = async (info) => {
-    const key = info.key as HeaderMoreMenuKey;
-
-    if (key === "clear") {
-      await handleClearClipboardItems();
-
-      return;
-    }
-
-    await handleOpenPreference();
   };
 
   /**
@@ -163,21 +126,6 @@ const Header: FC = () => {
     handleWindowVisibility,
   );
 
-  const moreMenuItems: DropdownMenuItems = [
-    {
-      extra: PREFERENCE_SHORTCUT,
-      icon: "i-lucide:settings",
-      key: "preference",
-      label: t("header.openPreference"),
-    },
-    {
-      danger: true,
-      icon: "i-lucide:trash-2",
-      key: "clear",
-      label: t("header.clearRecords"),
-    },
-  ];
-
   return (
     <div
       className="flex items-center justify-between p-3 pb-2"
@@ -212,23 +160,20 @@ const Header: FC = () => {
           />
         </Tooltip>
 
-        <Dropdown
-          menu={{ items: moreMenuItems, onClick: handleMoreMenuClick }}
-          tooltip={t("header.moreActions")}
-          trigger={MORE_ACTION_TRIGGER}
-        >
+        <Tooltip title={t("header.openPreference")}>
           <CustomIconButton
             icon={
               <KeyHint
                 hintKey=","
-                iconName="i-lets-icons:meatballs-menu"
+                iconName="i-lets-icons:setting-line"
                 onKeyPress={handleOpenPreference}
               />
             }
+            onClick={handleOpenPreference}
             size="small"
             type="text"
           />
-        </Dropdown>
+        </Tooltip>
       </div>
     </div>
   );

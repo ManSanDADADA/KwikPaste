@@ -1,3 +1,4 @@
+pub mod disk;
 pub mod error;
 pub mod paths;
 pub mod prevent_default;

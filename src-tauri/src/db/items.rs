@@ -348,6 +348,90 @@ pub async fn cleanup_history(
     Ok(outcome)
 }
 
+/// 按存储上限清理时每条 DELETE 绑定的 id 数，远低于 SQLite 的绑定参数上限。
+const STORAGE_CLEANUP_DELETE_BATCH: usize = 500;
+
+/// 按存储上限清理：从最旧的普通记录开始删，直到预估释放量达到 `bytes_to_free`；置顶 / 收藏项一律保留。
+///
+/// 文本按 `size` 估算，图片由 `image_bytes` 按落盘文件估算。估算只决定删到哪一条为止：
+/// 调用方下一轮会重新统计实际占用，估少了多删几条最旧记录，估多了下一轮再补删。
+/// 删光全部普通记录也达不到目标时（占用主要来自收藏、置顶或缓存）不删任何记录，避免白白清空历史。
+pub async fn cleanup_oldest_until(
+    pool: &SqlitePool,
+    bytes_to_free: u64,
+    image_bytes: impl Fn(&str) -> u64,
+) -> Result<CleanupOutcome> {
+    if bytes_to_free == 0 {
+        return Ok(CleanupOutcome::default());
+    }
+
+    // 只为图片取 content（落盘文件名），避免把大段文本整批读进内存。
+    let candidates = sqlx::query_as::<_, (String, ClipboardKind, Option<String>, Option<i64>)>(
+        "SELECT id, kind, CASE WHEN kind = 'image' THEN content END, size \
+             FROM clipboard_items \
+             WHERE is_pinned = 0 AND is_favorite = 0 \
+             ORDER BY created_at ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list clipboard items for storage cleanup")?;
+
+    let mut freed = 0_u64;
+    let mut ids = Vec::new();
+    for (id, kind, image_file, size) in candidates {
+        if freed >= bytes_to_free {
+            break;
+        }
+
+        freed += match (kind, image_file) {
+            (ClipboardKind::Image, Some(file_name)) => image_bytes(&file_name),
+            _ => size.map_or(0, |size| size.max(0) as u64),
+        };
+        ids.push(id);
+    }
+
+    let mut outcome = CleanupOutcome::default();
+    if freed < bytes_to_free {
+        return Ok(outcome);
+    }
+
+    for batch in ids.chunks(STORAGE_CLEANUP_DELETE_BATCH) {
+        // 选取与删除之间用户可能刚收藏 / 置顶了某条，删除时再校验一次保护条件。
+        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
+            "DELETE FROM clipboard_items \
+             WHERE is_pinned = 0 AND is_favorite = 0 AND id IN (",
+        );
+        let mut separated = qb.separated(", ");
+        for id in batch {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(") RETURNING kind, content");
+
+        let rows = qb
+            .build_query_as::<(ClipboardKind, String)>()
+            .fetch_all(pool)
+            .await
+            .context("failed to cleanup clipboard items by storage limit")?;
+        absorb_deleted(&mut outcome, rows);
+    }
+
+    Ok(outcome)
+}
+
+/// SQLite 空闲页占用的字节数。删行只会把页挂回空闲列表、不缩小数据库文件，
+/// 这部分会被后续写入复用，按存储上限计量时应当扣除。
+pub async fn reusable_page_bytes(pool: &SqlitePool) -> Result<u64> {
+    let (bytes,): (i64,) = sqlx::query_as(
+        "SELECT (SELECT freelist_count FROM pragma_freelist_count()) \
+              * (SELECT page_size FROM pragma_page_size())",
+    )
+    .fetch_one(pool)
+    .await
+    .context("failed to read sqlite free pages")?;
+
+    Ok(bytes.max(0) as u64)
+}
+
 /// 把一批被删行计入 outcome：累加行数，并收集其中的图片文件名。
 fn absorb_deleted(outcome: &mut CleanupOutcome, rows: Vec<(ClipboardKind, String)>) {
     outcome.removed += rows.len() as u64;
@@ -1278,6 +1362,117 @@ mod tests {
         let outcome = cleanup_history(&pool, Some(cutoff), None).await.unwrap();
         assert_eq!(outcome.removed, 2);
         assert_eq!(outcome.image_files, vec!["cafe1234.png".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn cleanup_oldest_until_frees_oldest_plain_items_first() {
+        let pool = memory_pool().await;
+        // 四条普通文本各 100 字节（t0 最旧）+ 更旧的收藏与置顶；要求释放 150 字节时删 t0、t1。
+        for n in 0..4i64 {
+            let mut it = sample_item(&format!("t{n}"));
+            it.size = Some(100);
+            it.created_at = DateTime::from_timestamp(1_000 + n, 0).unwrap();
+            insert_item(&pool, &it).await.unwrap();
+        }
+        let mut fav = sample_item("fav");
+        fav.size = Some(10_000);
+        fav.is_favorite = true;
+        fav.created_at = DateTime::from_timestamp(10, 0).unwrap();
+        insert_item(&pool, &fav).await.unwrap();
+        let mut pin = sample_item("pin");
+        pin.size = Some(10_000);
+        pin.is_pinned = true;
+        pin.created_at = DateTime::from_timestamp(20, 0).unwrap();
+        insert_item(&pool, &pin).await.unwrap();
+
+        let outcome = cleanup_oldest_until(&pool, 150, |_| 0).await.unwrap();
+        assert_eq!(outcome.removed, 2);
+
+        let all = query_items(&pool, &ClipboardItemQuery::default())
+            .await
+            .unwrap();
+        assert_eq!(ids(&all), ["pin", "t3", "t2", "fav"]);
+    }
+
+    #[tokio::test]
+    async fn cleanup_oldest_until_sizes_images_by_stored_files() {
+        let pool = memory_pool().await;
+        let mut img = sample_item("img");
+        img.kind = ClipboardKind::Image;
+        img.content = "cafe1234.png".to_owned();
+        img.content_hash = content_hash(ClipboardKind::Image, "cafe1234.png");
+        img.size = Some(1);
+        img.created_at = DateTime::from_timestamp(1_000, 0).unwrap();
+        let mut txt = sample_item("txt");
+        txt.size = Some(1);
+        txt.created_at = DateTime::from_timestamp(2_000, 0).unwrap();
+        insert_item(&pool, &img).await.unwrap();
+        insert_item(&pool, &txt).await.unwrap();
+
+        // 图片按落盘文件计 5 000 字节，一条就够，较新的文本保留。
+        let outcome = cleanup_oldest_until(&pool, 4_000, |file_name| {
+            assert_eq!(file_name, "cafe1234.png");
+            5_000
+        })
+        .await
+        .unwrap();
+        assert_eq!(outcome.removed, 1);
+        assert_eq!(outcome.image_files, vec!["cafe1234.png".to_owned()]);
+
+        let all = query_items(&pool, &ClipboardItemQuery::default())
+            .await
+            .unwrap();
+        assert_eq!(ids(&all), ["txt"]);
+    }
+
+    #[tokio::test]
+    async fn deleted_rows_count_as_reusable_page_bytes() {
+        let pool = memory_pool().await;
+        for n in 0..40 {
+            let mut it = sample_item(&format!("big{n}"));
+            it.content = format!("{n}-{}", "x".repeat(16 * 1024));
+            it.content_hash = content_hash(ClipboardKind::Text, &it.content);
+            insert_item(&pool, &it).await.unwrap();
+        }
+        let before = reusable_page_bytes(&pool).await.unwrap();
+
+        clear_items(&pool, true, true).await.unwrap();
+
+        // 删掉约 640 KB 文本后，文件不缩小但空闲页至少覆盖这部分正文。
+        let after = reusable_page_bytes(&pool).await.unwrap();
+        assert!(
+            after >= before + 40 * 16 * 1024,
+            "before={before} after={after}"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_oldest_until_keeps_history_when_target_is_unreachable() {
+        let pool = memory_pool().await;
+        for n in 0..3i64 {
+            let mut it = sample_item(&format!("t{n}"));
+            it.size = Some(100);
+            it.created_at = DateTime::from_timestamp(1_000 + n, 0).unwrap();
+            insert_item(&pool, &it).await.unwrap();
+        }
+
+        // 普通记录总共只有 300 字节，删光也释放不了 1 000 字节，应一条不删。
+        let outcome = cleanup_oldest_until(&pool, 1_000, |_| 0).await.unwrap();
+        assert_eq!(outcome.removed, 0);
+
+        let all = query_items(&pool, &ClipboardItemQuery::default())
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn cleanup_oldest_until_is_no_op_without_bytes_to_free() {
+        let pool = memory_pool().await;
+        insert_item(&pool, &sample_item("a")).await.unwrap();
+
+        let outcome = cleanup_oldest_until(&pool, 0, |_| 0).await.unwrap();
+        assert_eq!(outcome.removed, 0);
     }
 
     #[test]

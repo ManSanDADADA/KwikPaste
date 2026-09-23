@@ -161,6 +161,15 @@ impl ImageStore {
         Ok(())
     }
 
+    /// 一张图片在磁盘上的占用：原图 + 已生成的缩略图；读不到的文件按 0 计。
+    pub fn stored_bytes(&self, file_name: &str) -> u64 {
+        [self.origin_path(file_name), self.thumbnail_path(file_name)]
+            .iter()
+            .filter_map(|path| std::fs::metadata(path).ok())
+            .map(|metadata| metadata.len())
+            .sum()
+    }
+
     /// 由文件名解析原图绝对路径（分片目录从文件名前 2 位推导）。供写回/粘贴使用。
     pub fn origin_path(&self, file_name: &str) -> PathBuf {
         self.shard_path(ORIGIN_DIR, shard_key(file_name), file_name)

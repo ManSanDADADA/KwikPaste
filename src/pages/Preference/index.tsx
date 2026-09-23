@@ -56,6 +56,12 @@ type PreferenceHighlightTarget = {
   token: number;
 };
 
+interface ClipboardCleanupPayload {
+  cleanup?: number;
+}
+
+const STORAGE_DIRECTORY_SETTING_ID = "localData.dataDirectory";
+
 interface PreferenceHighlightSettingPayload {
   settingId: string;
 }
@@ -151,6 +157,10 @@ const Preference: FC = () => {
         token: (currentTarget?.token ?? 0) + 1,
       };
     });
+  };
+
+  const openStorageSettings = () => {
+    highlightSetting(STORAGE_DIRECTORY_SETTING_ID);
   };
 
   const handleSettingChange = async (
@@ -296,6 +306,16 @@ const Preference: FC = () => {
     },
   );
 
+  // 后台按存储上限清理后占用会变，侧栏需要跟着刷新。
+  useTauriListen<ClipboardCleanupPayload>(
+    TAURI_EVENT.CLIPBOARD_UPDATED,
+    (event) => {
+      if (event.payload.cleanup === void 0) return;
+
+      void initializeStorageUsage();
+    },
+  );
+
   useEffect(() => {
     if (!highlightTarget) return;
 
@@ -353,7 +373,9 @@ const Preference: FC = () => {
           activeTabId={activeTabId}
           appName={appMetadata.name}
           appVersion={appMetadata.version}
+          onStorageSelect={openStorageSettings}
           onTabSelect={handleTabSelect}
+          storageLimitMb={settings.clipboard.history.storageLimitMb}
           storageState={storageState}
           storageUsage={storageUsage}
         />

@@ -5,43 +5,51 @@ import { cn } from "@/utils/cn";
 import type { PreferenceStorageState } from "../types/preferences";
 import {
   formatBytes,
+  storageLimitBytes,
   storageMeterClass,
-  storageTargetBytes,
   storageToneClass,
 } from "../utils/storageUsage";
 
 interface PreferenceStorageUsagePanelProps {
   state: PreferenceStorageState;
+  storageLimitMb: number;
   storageUsage: StorageUsage | null;
+  onClick: () => void;
 }
 
 /**
- * 侧栏里的本地存储摘要，展示当前环境数据目录的递归占用。
+ * 侧栏里的本地存储摘要：展示数据目录占用与用户设定的存储上限，点击跳到存储设置。
  */
 const PreferenceStorageUsagePanel: FC<PreferenceStorageUsagePanelProps> = (
   props,
 ) => {
   const { t } = useTranslation("preferences");
-  const { state, storageUsage } = props;
+  const { state, storageLimitMb, storageUsage, onClick } = props;
+  const limitBytes = storageLimitBytes(storageLimitMb);
   const isReady = state === "ready" && storageUsage !== null;
+  const isOverLimit = isReady && storageUsage.totalBytes > limitBytes;
   const totalLabel = storageUsage ? formatBytes(storageUsage.totalBytes) : "--";
-  const targetLabel = storageUsage
-    ? formatBytes(storageTargetBytes(storageUsage.totalBytes))
-    : "--";
   const usageLabel =
     state === "loading"
       ? t("storage.loading")
-      : t("storage.usage", { target: targetLabel, total: totalLabel });
+      : t("storage.usage", {
+          target: formatBytes(limitBytes),
+          total: totalLabel,
+        });
   const meterClassName = isReady
-    ? storageMeterClass(storageUsage.totalBytes)
-    : "w-1/5";
+    ? storageMeterClass(storageUsage.totalBytes, limitBytes)
+    : "w-1/10";
   const storageToneClassName = isReady
-    ? storageToneClass(storageUsage.totalBytes)
+    ? storageToneClass(storageUsage.totalBytes, limitBytes)
     : { bg: "bg-ant-success", text: "text-ant-success" };
 
   return (
     <div className="px-3 pb-3">
-      <div className="rounded-2 border border-ant-border-secondary bg-ant-fill-quaternary px-3 py-3">
+      <button
+        className="block w-full cursor-pointer rounded-2 border border-ant-border-secondary bg-ant-fill-quaternary px-3 py-3 text-left transition-colors hover:bg-ant-fill-tertiary focus-visible:ring-1 focus-visible:ring-ant-primary motion-reduce:transition-none"
+        onClick={onClick}
+        type="button"
+      >
         <div className="flex min-w-0 items-start gap-2.5">
           <span
             className={cn(
@@ -58,7 +66,9 @@ const PreferenceStorageUsagePanel: FC<PreferenceStorageUsagePanelProps> = (
             <div
               className={cn(
                 "mt-1 truncate font-medium text-xs leading-tight",
-                state === "error" ? "text-ant-error" : "text-ant-secondary",
+                state === "error" || isOverLimit
+                  ? "text-ant-error"
+                  : "text-ant-secondary",
               )}
             >
               {state === "error" ? t("storage.error") : usageLabel}
@@ -75,7 +85,7 @@ const PreferenceStorageUsagePanel: FC<PreferenceStorageUsagePanelProps> = (
             )}
           />
         </div>
-      </div>
+      </button>
     </div>
   );
 };

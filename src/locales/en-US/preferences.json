@@ -429,6 +429,11 @@
           "description": "Remove image, thumbnail, and icon cache files no longer referenced by history.",
           "title": "Clean Cache"
         },
+        "clearHistory": {
+          "controlLabel": "Clear Records",
+          "description": "Delete all clipboard history. Favorite and pinned records are kept by default.",
+          "title": "Clear Records"
+        },
         "dataDirectory": {
           "controlLabel": "Open",
           "description": "Open the directory containing the history database, settings, and resource cache.",
@@ -438,6 +443,18 @@
           "controlLabel": "Open",
           "description": "Open the runtime log directory used for troubleshooting.",
           "title": "Log Directory"
+        },
+        "storageLimit": {
+          "description": "The storage meter in the sidebar is full at this size. What happens beyond it is set below.",
+          "title": "Storage Limit"
+        },
+        "storageLimitAction": {
+          "description": "Auto clean deletes the oldest regular records until usage is back under the limit. Favorites and pinned records are always kept.",
+          "options": {
+            "cleanup": "Auto clean",
+            "remind": "Remind only"
+          },
+          "title": "When Over Limit"
         }
       },
       "organizing": {

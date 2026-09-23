@@ -9,6 +9,7 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::core::disk::{dir_size, file_size};
 use crate::core::Result;
 use crate::db::DatabaseState;
 use crate::settings::Settings;
@@ -23,6 +24,7 @@ const CUSTOM_STORAGE_CONTAINER_DIR: &str = "KwikPasteData";
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageUsage {
+    /// 数据实际占用，与存储上限清理的计量口径一致（不含 SQLite 可复用空间）。
     pub total_bytes: u64,
     pub database_bytes: u64,
     pub resources_bytes: u64,
@@ -66,7 +68,8 @@ pub async fn get_storage_location(app: AppHandle) -> Result<StorageLocation> {
 /// 统计当前 `env_dir()` 数据目录的递归总占用，并拆分常见分项供侧栏展示。
 #[tauri::command]
 pub async fn get_storage_usage(app: AppHandle) -> Result<StorageUsage> {
-    let total_bytes = dir_size(&crate::core::paths::app_data_dir(&app)?)?;
+    let pool = app.state::<DatabaseState>().pool().await;
+    let total_bytes = crate::clipboard::storage_bytes_in_use(&app, &pool).await?;
     let database_bytes = database_bytes(&app)?;
     let resources_bytes = dir_size(&crate::core::paths::resources_dir(&app)?)?;
     let settings_bytes = settings_bytes(&app)?;
@@ -544,44 +547,6 @@ fn settings_bytes(app: &AppHandle) -> Result<u64> {
     let settings_path = crate::core::paths::config_dir(app)?.join("settings.json");
 
     file_size(&settings_path)
-}
-
-/// 文件不存在时按 0 处理，避免首次启动时显示错误状态。
-fn file_size(path: &Path) -> Result<u64> {
-    if !path.exists() {
-        return Ok(0);
-    }
-
-    Ok(fs::metadata(path)
-        .with_context(|| format!("failed to read metadata at {path:?}"))?
-        .len())
-}
-
-/// 递归统计目录大小；目录不存在时按 0 处理。
-fn dir_size(path: &Path) -> Result<u64> {
-    if !path.exists() {
-        return Ok(0);
-    }
-
-    let mut total = 0;
-    for entry in
-        fs::read_dir(path).with_context(|| format!("failed to read directory at {path:?}"))?
-    {
-        let entry = entry.with_context(|| format!("failed to read entry under {path:?}"))?;
-        let entry_path = entry.path();
-        let metadata = entry
-            .metadata()
-            .with_context(|| format!("failed to read metadata at {entry_path:?}"))?;
-
-        if metadata.is_dir() {
-            total += dir_size(&entry_path)?;
-            continue;
-        }
-
-        total += metadata.len();
-    }
-
-    Ok(total)
 }
 
 #[cfg(test)]
