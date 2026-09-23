@@ -1,6 +1,6 @@
 [package]
 name = "KwikPaste"
-version = "1.1.0"
+version = "1.2.0"
 description = "A local-first clipboard manager for macOS and Windows."
 authors = ["LILTT"]
 license = "Apache-2.0"
