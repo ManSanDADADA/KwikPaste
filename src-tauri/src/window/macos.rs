@@ -145,7 +145,7 @@ fn show_clipboard_panel(app_handle: &AppHandle) -> Result<()> {
                         .full_screen_auxiliary()
                         .into(),
                 );
-                super::preview::resume_after_clipboard_show(&app_handle);
+                super::preview::resume_after_clipboard_show(&panel_handle);
                 super::emit_visibility(&panel_handle, CLIPBOARD_WINDOW_LABEL, true);
                 super::lifecycle::on_shown(&panel_handle, CLIPBOARD_WINDOW_LABEL);
             }
