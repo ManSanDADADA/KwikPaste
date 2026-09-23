@@ -47,6 +47,9 @@ file_icon_provider = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tauri-plugin-os = "2"
 tauri-plugin-updater = "2"
+# updater 关闭了 reqwest 默认特性，只认 HTTP(S)_PROXY 环境变量；从桌面启动的应用拿不到它，
+# 这里借特性合并让 updater 读取 Windows / macOS 系统代理，否则 GitHub 端点会直连超时。
+reqwest = { version = "0.13", default-features = false, features = ["system-proxy"] }
 semver = "1"
 time = "0.3"
 drag = "2.1"

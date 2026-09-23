@@ -27,6 +27,10 @@ const DEFAULT_NIGHTLY_ENDPOINTS: &[&str] = &[
     "https://dl.fastthree.com/kwikpaste/nightly/latest.json",
     "https://github.com/ManSanDADADA/KwikPaste/releases/download/channel-nightly/latest.json",
 ];
+// 不设超时时，被墙的 GitHub 端点要等系统 TCP 超时（Windows 约 21 秒）才会放弃。
+// configure_client 也会作用于安装包下载，所以那里只放建连超时；整体超时只作用于检查请求。
+const CHECK_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const AUTO_CHECK_INITIAL_DELAY_SECONDS: u64 = 8;
 const AUTO_CHECK_SETTINGS_REFRESH_SECONDS: u64 = 60 * 60;
 const AUTO_CHECK_FAILURE_RETRY_SECONDS: u64 = 60 * 60;
@@ -358,24 +362,39 @@ fn update_channels_from_values(
         .collect()
 }
 
-/// 分别检查每个渠道，返回所有渠道里版本最新的更新。
+/// 并发检查每个渠道，返回所有渠道里版本最新的更新。
 ///
 /// 只要有一个渠道正常响应（无论有没有更新）就不算失败：比如开着 nightly 但还没发过 nightly，
 /// 不应该因此让整个检查报错。所有渠道都失败时才返回最后一个错误。
+/// 结果按渠道顺序汇总，版本相同时仍以靠前的渠道为准。
 async fn check_channels(app: &AppHandle, channels: Vec<Vec<Url>>) -> Result<Option<TauriUpdate>> {
-    let mut newest: Option<TauriUpdate> = None;
-    let mut last_error = None;
-    let mut any_responded = false;
-
+    let mut checks = Vec::with_capacity(channels.len());
     for mirrors in channels {
         let updater = app
             .updater_builder()
             .endpoints(mirrors)
             .context("failed to configure update endpoints")?
+            .timeout(CHECK_REQUEST_TIMEOUT)
+            .configure_client(|client| client.connect_timeout(CONNECT_TIMEOUT))
             .build()
             .context("failed to build updater")?;
 
-        match updater.check().await {
+        checks.push(tauri::async_runtime::spawn(
+            async move { updater.check().await },
+        ));
+    }
+
+    let mut newest: Option<TauriUpdate> = None;
+    let mut last_error = None;
+    let mut any_responded = false;
+
+    for check in checks {
+        let result = check
+            .await
+            .map_err(anyhow::Error::new)
+            .and_then(|found| found.map_err(anyhow::Error::new));
+
+        match result {
             Ok(found) => {
                 any_responded = true;
 
@@ -396,9 +415,7 @@ async fn check_channels(app: &AppHandle, channels: Vec<Vec<Url>>) -> Result<Opti
     }
 
     match (any_responded, last_error) {
-        (false, Some(err)) => Err(anyhow::Error::new(err)
-            .context("failed to check for updates")
-            .into()),
+        (false, Some(err)) => Err(err.context("failed to check for updates").into()),
         _ => Ok(newest),
     }
 }
