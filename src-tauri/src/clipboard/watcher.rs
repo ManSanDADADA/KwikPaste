@@ -62,7 +62,7 @@ fn read_with_retry<T, E>(
     result
 }
 
-/// 监听暂停开关。托盘菜单「停止监听」翻转，handler 早返回跳过整条入库链路。
+/// 监听暂停开关。切换存储位置、覆盖导入备份期间置位，handler 早返回跳过整条入库链路。
 /// 用 `Arc<AtomicBool>` 跨线程共享；不停 watcher 线程本身，避免反复重建平台句柄。
 #[derive(Debug, Default, Clone)]
 pub struct WatcherPause(Arc<AtomicBool>);
@@ -259,7 +259,7 @@ struct ClipboardChangeHandler {
 
 impl ClipboardHandler for ClipboardChangeHandler {
     fn on_clipboard_change(&mut self) {
-        // 用户从托盘关掉「监听」时直接早退，不读取、不入库、不 emit。
+        // 暂停期间直接早退，不读取、不入库、不 emit。
         if self.pause.is_paused() {
             return;
         }
