@@ -1,0 +1,70 @@
+{
+  "actions": {
+    "close": "Close onboarding",
+    "finish": "Start using",
+    "next": "Next",
+    "previous": "Previous",
+    "skip": "Skip",
+    "start": "Start setup"
+  },
+  "done": {
+    "cards": {
+      "open": {
+        "description": "Use your shortcut to open the clipboard window anytime.",
+        "title": "Quick Open"
+      },
+      "preferences": {
+        "description": "Adjust shortcuts, ignored apps, and window behavior later in Preferences.",
+        "title": "Adjust Anytime"
+      },
+      "search": {
+        "description": "After copying, find content quickly by keyword, type, or source app.",
+        "title": "Instant Search"
+      }
+    },
+    "description": "The key setup is ready. You can start recording, searching, and reusing copied content.",
+    "logoAlt": "KwikPaste icon",
+    "title": "Start Using KwikPaste"
+  },
+  "ignoreApps": {
+    "description": "Choose source apps that should not be recorded. Password managers, key tools, or temporary windows are good candidates; apps on the right will not be written to clipboard history.",
+    "title": "Set Ignored Apps"
+  },
+  "permissions": {
+    "description": {
+      "macos": "On macOS, KwikPaste needs Accessibility and Full Disk Access for the core workflow.",
+      "windows": "On Windows, KwikPaste needs administrator launch for some system-level workflows."
+    },
+    "title": "Enable Permissions"
+  },
+  "shortcuts": {
+    "description": "Set common shortcuts. You can change them in Preferences at any time.",
+    "title": "Set Shortcuts"
+  },
+  "steps": {
+    "done": "Done",
+    "ignoreApps": "Ignored Apps",
+    "permissions": "Permissions",
+    "shortcuts": "Shortcuts",
+    "welcome": "Welcome"
+  },
+  "welcome": {
+    "description": "A cross-platform clipboard manager that helps you search, organize, and reuse copied content faster.",
+    "features": {
+      "capture": {
+        "description": "Automatically records text, images, and files so important content does not need to be copied again.",
+        "title": "Auto Capture"
+      },
+      "reuse": {
+        "description": "Use shortcuts, previews, and quick actions to send common content back into your workflow.",
+        "title": "Fast Reuse"
+      },
+      "search": {
+        "description": "Find history quickly by keyword, type, and source app.",
+        "title": "Instant Search"
+      }
+    },
+    "logoAlt": "KwikPaste icon",
+    "title": "Welcome to KwikPaste"
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "macOSPrivateApi": true,
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": ["**/*"],
+          "requireLiteralLeadingDot": false
+        }
+      },
+      "csp": null
+    },
+    "windows": [
+      {
+        "acceptFirstMouse": true,
+        "alwaysOnTop": true,
+        "decorations": false,
+        "focus": false,
+        "focusable": false,
+        "height": 600,
+        "label": "clipboard",
+        "maximizable": false,
+        "minHeight": 600,
+        "minWidth": 360,
+        "skipTaskbar": true,
+        "title": "快贴",
+        "transparent": true,
+        "url": "index.html/#/",
+        "visible": false,
+        "width": 360
+      }
+    ]
+  },
+  "build": {
+    "beforeBuildCommand": "pnpm build",
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "bundle": {
+    "active": true,
+    "copyright": "Copyright 2026 FastThree",
+    "createUpdaterArtifacts": true,
+    "fileAssociations": [
+      {
+        "description": "快贴历史备份",
+        "exportedType": {
+          "conformsTo": ["public.data"],
+          "identifier": "com.fastthree.kwikpaste.backup"
+        },
+        "ext": ["kwikpastebak"],
+        "mimeType": "application/vnd.kwikpaste.backup",
+        "name": "快贴备份",
+        "role": "Editor"
+      }
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "license": "Apache-2.0",
+    "licenseFile": "../LICENSE",
+    "resources": ["assets/tray.ico"],
+    "shortDescription": "快贴 - 本地优先剪贴板管理器",
+    "targets": ["nsis", "dmg", "app"]
+  },
+  "identifier": "com.fastthree.kwikpaste",
+  "mainBinaryName": "KwikPaste",
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://dl.fastthree.com/kwikpaste/stable/latest.json",
+        "https://github.com/ManSanDADADA/KwikPaste/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM5RjRDMDE3RDE1REI3OUYKUldTZnQxM1JGOEQwT2Z1eTcvcmEzMHp5Y01WM0U1MDlsNzd4cSsvbnRaa3c2NVJFc2NXRHJZR2gK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
+  "productName": "KwikPaste",
+  "version": "../package.json"
+}

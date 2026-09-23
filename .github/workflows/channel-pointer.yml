@@ -1,0 +1,209 @@
+name: Publish Update Channels
+
+# 把已发布的 release 推送到客户端的各个更新源。
+#
+# 客户端每个渠道按优先级尝试两个地址（见 src-tauri/src/update.rs），第一个成功的即被采用：
+#   stable  -> dl.fastthree.com/kwikpaste/stable/latest.json    -> GitHub releases/latest
+#   beta    -> dl.fastthree.com/kwikpaste/beta/latest.json      -> GitHub channel-beta 指针
+#   nightly -> dl.fastthree.com/kwikpaste/nightly/latest.json   -> GitHub channel-nightly 指针
+#
+# 本工作流负责两件事：
+#   1. GitHub 指针：预发布版不会被 releases/latest 命中，用 channel-beta / channel-nightly
+#      两个固定 tag 的 release 存放各自渠道最新的 latest.json。这两个 tag 不以 v 开头，
+#      不会触发 release.yml，也不会被 release-it 的 --match=v* 选中。
+#   2. 七牛镜像（国内主通道）：安装包传到 kwikpaste/<渠道>/<tag>/，并生成一份下载地址指向
+#      七牛的 latest.json 覆盖到 kwikpaste/<渠道>/latest.json。未配置七牛密钥时跳过。
+#
+# 三种触发方式，对应两条发版路径：
+#   release.yml  先建 draft、产物传进 draft、你手动点发布 -> published 事件触发本工作流，
+#                此时产物已就位。draft 阶段不会触发，所以发布前的人工检查不会被绕过。
+#   nightly.yml  先发布 release、再由构建任务上传产物 -> 构建完成后用 workflow_call 调用本工作流。
+#                它发布瞬间也会触发一次 published 事件，那次因产物还没上传会自动跳过。
+#   手动补跑     workflow_dispatch，传入 tag。
+#
+# 注意 GitHub 的规则：用 github.token 发布的 release 不会再触发别的 workflow，
+# 所以 nightly.yml 那条路径依赖显式的 workflow_call，而不是 published 事件。
+
+"on":
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "已发布的 release tag"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "已发布的 release tag，例如 v1.2.0-beta.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-update-channels
+  cancel-in-progress: false
+
+env:
+  MIRROR_BUCKET: kwikpaste
+  MIRROR_PREFIX: kwikpaste
+  MIRROR_BASE_URL: https://dl.fastthree.com/kwikpaste
+  MIRROR_S3_ENDPOINT: https://s3.cn-south-1.qiniucs.com
+  MIRROR_S3_REGION: cn-south-1
+
+jobs:
+  publish:
+    name: Publish update channels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          # workflow_call 与 workflow_dispatch 走 inputs；release 事件下 inputs 为空，取事件里的 tag。
+          INPUT_TAG_NAME: ${{ inputs.tag_name }}
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          tag_name="${INPUT_TAG_NAME:-${RELEASE_TAG_NAME:-}}"
+
+          if [[ -z "${tag_name}" ]]; then
+            echo "::error::No release tag to work with."
+            exit 1
+          fi
+
+          case "${tag_name}" in
+            channel-*)
+              echo "跳过：${tag_name} 本身就是指针 release。"
+              echo "proceed=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+              ;;
+            *-nightly.*)
+              channel=nightly
+              ;;
+            *-beta.* | *-rc.*)
+              channel=beta
+              ;;
+            *)
+              channel=stable
+              ;;
+          esac
+
+          if ! gh release download "${tag_name}" --pattern latest.json --dir . --clobber; then
+            if [[ -z "${INPUT_TAG_NAME}" ]]; then
+              # 由 published 事件触发：产物可能还在上传（nightly 就是这条路径），交给显式调用那次处理。
+              echo "::notice::${tag_name} 里还没有 latest.json，跳过；构建完成后会由显式调用重新发布。"
+              echo "proceed=false" >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+
+            echo "::error::Release ${tag_name} has no latest.json asset. Check that bundle.createUpdaterArtifacts is enabled and the signing secrets are set."
+            exit 1
+          fi
+
+          {
+            echo "proceed=true"
+            echo "channel=${channel}"
+            echo "tag_name=${tag_name}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Update GitHub channel pointer
+        if: steps.resolve.outputs.proceed == 'true' && steps.resolve.outputs.channel != 'stable'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          CHANNEL: ${{ steps.resolve.outputs.channel }}
+          TAG_NAME: ${{ steps.resolve.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          pointer_tag="channel-${CHANNEL}"
+          notes="$(printf '%s 渠道的更新指针，始终指向该渠道的最新版本。\n\n当前指向：%s\n\n这个 release 只存放 latest.json，安装包请到对应版本的 release 里下载。' "${CHANNEL}" "${TAG_NAME}")"
+
+          if gh release view "${pointer_tag}" >/dev/null 2>&1; then
+            gh release edit "${pointer_tag}" --prerelease --title "${pointer_tag}" --notes "${notes}"
+          else
+            gh release create "${pointer_tag}" --prerelease --title "${pointer_tag}" --notes "${notes}"
+          fi
+
+          gh release upload "${pointer_tag}" latest.json --clobber
+
+          echo "${pointer_tag} 已指向 ${TAG_NAME}。"
+
+      - name: Mirror to Qiniu
+        if: steps.resolve.outputs.proceed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          GH_REPO: ${{ github.repository }}
+          QINIU_ACCESS_KEY: ${{ secrets.QINIU_ACCESS_KEY }}
+          QINIU_SECRET_KEY: ${{ secrets.QINIU_SECRET_KEY }}
+          CHANNEL: ${{ steps.resolve.outputs.channel }}
+          TAG_NAME: ${{ steps.resolve.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${QINIU_ACCESS_KEY}" || -z "${QINIU_SECRET_KEY}" ]]; then
+            echo "::notice::未配置 QINIU_ACCESS_KEY / QINIU_SECRET_KEY，跳过七牛镜像。"
+            exit 0
+          fi
+
+          release_key="${MIRROR_PREFIX}/${CHANNEL}/${TAG_NAME}"
+          release_url="${MIRROR_BASE_URL}/${CHANNEL}/${TAG_NAME}"
+
+          mkdir -p assets
+          gh release download "${TAG_NAME}" --dir assets --clobber
+          rm -f assets/latest.json
+          gh api "repos/${GH_REPO}/releases/tags/${TAG_NAME}" > release.json
+
+          # latest.json 里的下载地址是 GitHub 的资产地址，按资产表换成七牛上的同名文件。
+          # 签名字段原样保留：.sig 签的是安装包字节，与从哪个地址下载无关。
+          jq --arg base "${release_url}" --slurpfile release release.json -f /dev/stdin latest.json > latest.mirror.json <<'JQ'
+          ($release[0].assets
+            | map({(.url): .name, (.browser_download_url): .name})
+            | add) as $names
+          | .platforms |= with_entries(
+              .value.url as $url
+              | ($names[$url] // error("latest.json references an asset missing from the release: \($url)")) as $name
+              | .value.url = "\($base)/\($name | @uri)"
+            )
+          JQ
+
+          export AWS_ACCESS_KEY_ID="${QINIU_ACCESS_KEY}"
+          export AWS_SECRET_ACCESS_KEY="${QINIU_SECRET_KEY}"
+          export AWS_DEFAULT_REGION="${MIRROR_S3_REGION}"
+          export AWS_EC2_METADATA_DISABLED=true
+          # AWS CLI 2.23 起上传默认附带 CRC 校验头和 aws-chunked 编码，多数 S3 兼容服务不认，改回按需。
+          export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+          export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+
+          s3() {
+            aws s3 --endpoint-url "${MIRROR_S3_ENDPOINT}" --only-show-errors "$@"
+          }
+
+          # 先传安装包和签名，最后才覆盖 latest.json：客户端不会拿到指向尚未上传文件的指针。
+          s3 cp assets/ "s3://${MIRROR_BUCKET}/${release_key}/" --recursive
+          s3 cp latest.mirror.json "s3://${MIRROR_BUCKET}/${MIRROR_PREFIX}/${CHANNEL}/latest.json" --content-type application/json
+
+          # 从 CDN 回读客户端真正会访问的每个下载地址。
+          mapfile -t urls < <(jq -r '.platforms[].url' latest.mirror.json | sort -u)
+
+          for url in "${urls[@]}"; do
+            code="$(curl -sS -o /dev/null -r 0-0 -w '%{http_code}' --retry 3 --retry-delay 5 "${url}")"
+
+            if [[ "${code}" != "200" && "${code}" != "206" ]]; then
+              echo "::error::Mirrored asset ${url} returned HTTP ${code}."
+              exit 1
+            fi
+
+            echo "OK ${code} ${url}"
+          done
+
+          echo "七牛 ${MIRROR_PREFIX}/${CHANNEL}/latest.json 已指向 ${TAG_NAME}。"
