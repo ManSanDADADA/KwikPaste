@@ -25,6 +25,7 @@ dependencies = [
  "rand 0.8.7",
  "regex",
  "rodio",
+ "semver",
  "serde",
  "serde_json",
  "sqlx",
