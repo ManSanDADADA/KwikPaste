@@ -2,6 +2,13 @@
 
 All notable changes to KwikPaste are documented here.
 
+## 1.3.0 - 2026-09-24
+
+- Added a Storage Limit setting, 1 GB by default. The storage meter in the sidebar fills at this size. Going over it only shows a reminder by default; switch to Auto clean to delete the oldest regular records until usage is back under the limit. Favorites and pinned records are always kept.
+- Moved Clear Records from the clipboard window's more-actions menu into the Storage Locations settings.
+- Trimmed the tray menu to Preference and Exit, and removed the version number from the tray tooltip.
+- Update checks now use the system proxy, query every enabled channel at the same time, and time out instead of hanging when a server can't be reached.
+
 ## 1.2.0 - 2026-09-23
 
 - Turned on in-app updates. Update packages are signed with the KwikPaste key and verified before installing, and downloads come from a mainland China CDN with GitHub as the fallback.
