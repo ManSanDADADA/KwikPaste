@@ -171,21 +171,11 @@ pub async fn check(app: &AppHandle, mode: CheckMode) -> Result<AppUpdateStatus> 
     }
 
     let settings = app.state::<SettingsStore>().snapshot();
-    let endpoints = update_endpoints(
+    let channels = update_channels(
         settings.update.include_beta,
         settings.update.include_nightly,
     )?;
-    let updater = app
-        .updater_builder()
-        .endpoints(endpoints)
-        .context("failed to configure update endpoints")?
-        .build()
-        .context("failed to build updater")?;
-
-    let found = updater
-        .check()
-        .await
-        .context("failed to check for updates")?;
+    let found = check_channels(app, channels).await?;
     let state = app.state::<UpdateState>();
 
     if let Some(update) = found {
@@ -319,12 +309,12 @@ fn metadata_from_update(update: &TauriUpdate) -> UpdateMetadata {
     }
 }
 
-fn update_endpoints(include_beta: bool, include_nightly: bool) -> Result<Vec<Url>> {
+fn update_channels(include_beta: bool, include_nightly: bool) -> Result<Vec<Vec<Url>>> {
     let stable = channel_endpoints(STABLE_ENDPOINT_ENV, DEFAULT_STABLE_ENDPOINTS);
     let beta = channel_endpoints(BETA_ENDPOINT_ENV, DEFAULT_BETA_ENDPOINTS);
     let nightly = channel_endpoints(NIGHTLY_ENDPOINT_ENV, DEFAULT_NIGHTLY_ENDPOINTS);
 
-    update_endpoints_from_values(include_beta, include_nightly, &stable, &beta, &nightly)
+    update_channels_from_values(include_beta, include_nightly, &stable, &beta, &nightly)
 }
 
 /// 环境变量供本地调试用：设置后该渠道只走这一个地址，不再使用默认镜像列表。
@@ -338,31 +328,89 @@ fn channel_endpoints(env: &str, defaults: &[&str]) -> Vec<String> {
     }
 }
 
-/// 按「渠道优先、镜像其次」展开成 updater 的端点列表。
+/// 每个启用的渠道各自一组镜像地址，组内按优先级排列。
 ///
-/// updater 采用第一个成功的端点，所以同一渠道的镜像必须排在一起：若按镜像分组，
-/// nightly 在主镜像缺失时会直接落到 beta 的主镜像，用户被悄悄降级，而没去试 nightly 的兜底源。
-fn update_endpoints_from_values(
+/// 渠道之间不能拼成一个列表交给 updater：它采用第一个成功响应的地址而不比较版本，
+/// 旧的 nightly 指针会挡住更新的正式版。渠道由 [`check_channels`] 分别检查后取最新。
+fn update_channels_from_values(
     include_beta: bool,
     include_nightly: bool,
     stable: &[String],
     beta: &[String],
     nightly: &[String],
-) -> Result<Vec<Url>> {
-    let mut channels = Vec::new();
-    if include_nightly {
-        channels.push(nightly);
-    }
+) -> Result<Vec<Vec<Url>>> {
+    let mut channels = vec![stable];
     if include_beta {
         channels.push(beta);
     }
-    channels.push(stable);
+    if include_nightly {
+        channels.push(nightly);
+    }
 
     channels
         .into_iter()
-        .flatten()
-        .map(|endpoint| parse_endpoint(endpoint))
+        .map(|mirrors| {
+            mirrors
+                .iter()
+                .map(|endpoint| parse_endpoint(endpoint))
+                .collect()
+        })
         .collect()
+}
+
+/// 分别检查每个渠道，返回所有渠道里版本最新的更新。
+///
+/// 只要有一个渠道正常响应（无论有没有更新）就不算失败：比如开着 nightly 但还没发过 nightly，
+/// 不应该因此让整个检查报错。所有渠道都失败时才返回最后一个错误。
+async fn check_channels(app: &AppHandle, channels: Vec<Vec<Url>>) -> Result<Option<TauriUpdate>> {
+    let mut newest: Option<TauriUpdate> = None;
+    let mut last_error = None;
+    let mut any_responded = false;
+
+    for mirrors in channels {
+        let updater = app
+            .updater_builder()
+            .endpoints(mirrors)
+            .context("failed to configure update endpoints")?
+            .build()
+            .context("failed to build updater")?;
+
+        match updater.check().await {
+            Ok(found) => {
+                any_responded = true;
+
+                if let Some(update) = found {
+                    let is_newest = newest
+                        .as_ref()
+                        .is_none_or(|current| is_newer_version(&update.version, &current.version));
+                    if is_newest {
+                        newest = Some(update);
+                    }
+                }
+            }
+            Err(err) => {
+                log::warn!("update channel check failed: {err}");
+                last_error = Some(err);
+            }
+        }
+    }
+
+    match (any_responded, last_error) {
+        (false, Some(err)) => Err(anyhow::Error::new(err)
+            .context("failed to check for updates")
+            .into()),
+        _ => Ok(newest),
+    }
+}
+
+/// 按语义化版本比较；解析不了的版本一律视为不更新，避免拿到畸形 latest.json 时误装。
+fn is_newer_version(candidate: &str, current: &str) -> bool {
+    let parse = |version: &str| semver::Version::parse(version.trim_start_matches('v'));
+
+    match (parse(candidate), parse(current)) {
+        (Ok(candidate), Ok(current)) => candidate > current,
+        _ => false,
+    }
 }
 
 fn parse_endpoint(endpoint: &str) -> Result<Url> {
@@ -520,8 +568,8 @@ mod tests {
     }
 
     #[test]
-    fn update_endpoints_group_mirrors_by_channel() {
-        let endpoints = update_endpoints_from_values(
+    fn update_channels_keep_mirrors_within_each_channel() {
+        let channels = update_channels_from_values(
             true,
             true,
             &owned(&[
@@ -540,21 +588,27 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            endpoints.iter().map(Url::as_str).collect::<Vec<_>>(),
+            as_strs(&channels),
             [
-                "https://cdn.example.com/nightly",
-                "https://gh.example.com/nightly",
-                "https://cdn.example.com/beta",
-                "https://gh.example.com/beta",
-                "https://cdn.example.com/stable",
-                "https://gh.example.com/stable",
+                vec![
+                    "https://cdn.example.com/stable",
+                    "https://gh.example.com/stable"
+                ],
+                vec![
+                    "https://cdn.example.com/beta",
+                    "https://gh.example.com/beta"
+                ],
+                vec![
+                    "https://cdn.example.com/nightly",
+                    "https://gh.example.com/nightly"
+                ],
             ]
         );
     }
 
     #[test]
-    fn update_endpoints_skip_disabled_channels() {
-        let endpoints = update_endpoints_from_values(
+    fn update_channels_skip_disabled_channels() {
+        let channels = update_channels_from_values(
             false,
             false,
             &owned(&[
@@ -567,12 +621,34 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            endpoints.iter().map(Url::as_str).collect::<Vec<_>>(),
-            [
+            as_strs(&channels),
+            [vec![
                 "https://cdn.example.com/stable",
                 "https://gh.example.com/stable"
-            ]
+            ]]
         );
+    }
+
+    #[test]
+    fn newest_version_wins_across_channels() {
+        // 正式版发布后 nightly 指针可能还停在旧版本，比较必须按语义化版本而不是渠道先后
+        assert!(is_newer_version("1.2.0", "1.1.1-nightly.20260923.1"));
+        assert!(!is_newer_version("1.1.1-nightly.20260923.1", "1.2.0"));
+        assert!(is_newer_version("1.2.1-nightly.20261001.1", "1.2.0"));
+        assert!(is_newer_version("1.2.0", "1.2.0-beta.3"));
+        assert!(is_newer_version("1.2.0-beta.2", "1.2.0-beta.1"));
+        assert!(is_newer_version("v1.2.0", "1.1.0"));
+        assert!(!is_newer_version("1.2.0", "1.2.0"));
+        assert!(!is_newer_version("not-a-version", "1.1.0"));
+    }
+
+    #[test]
+    fn update_defaults_enable_every_channel() {
+        let defaults = UpdateSettings::default();
+
+        assert!(defaults.auto_check);
+        assert!(defaults.include_beta);
+        assert!(defaults.include_nightly);
     }
 
     #[test]
@@ -597,6 +673,13 @@ mod tests {
         endpoints
             .iter()
             .map(|endpoint| (*endpoint).to_owned())
+            .collect()
+    }
+
+    fn as_strs(channels: &[Vec<Url>]) -> Vec<Vec<&str>> {
+        channels
+            .iter()
+            .map(|mirrors| mirrors.iter().map(Url::as_str).collect())
             .collect()
     }
 }

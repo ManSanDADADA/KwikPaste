@@ -618,7 +618,7 @@ pub struct Feedback {
     pub copy_sound: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Update {
     pub auto_check: bool,
@@ -627,6 +627,20 @@ pub struct Update {
     pub include_nightly: bool,
     pub last_checked_at: Option<String>,
     pub skipped_version: Option<String>,
+}
+
+/// 设置文件落盘时写入完整结构，已有安装会保留各自显式保存的值；这里的默认值只作用于全新安装。
+impl Default for Update {
+    fn default() -> Self {
+        Self {
+            auto_check: true,
+            frequency: UpdateFrequency::default(),
+            include_beta: true,
+            include_nightly: true,
+            last_checked_at: None,
+            skipped_version: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
