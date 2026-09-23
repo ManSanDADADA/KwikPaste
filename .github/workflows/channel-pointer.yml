@@ -95,7 +95,16 @@ jobs:
               ;;
           esac
 
-          if ! gh release download "${tag_name}" --pattern latest.json --dir . --clobber; then
+          # 资产表按 release id 取：草稿刚发布后的几分钟里，按 tag 查询（gh release download 走的就是它）
+          # 返回的资产表是空的，按 id 列出的才是准的。后面的镜像步骤也复用这份 assets.json。
+          release_id="$(gh api "repos/${GH_REPO}/releases/tags/${tag_name}" --jq .id)"
+          gh api --paginate "repos/${GH_REPO}/releases/${release_id}/assets?per_page=100" \
+            --jq '.[] | {id, name, size, url, browser_download_url}' | jq -s . > assets.json
+          latest_json_id="$(jq -r '.[] | select(.name == "latest.json") | .id' assets.json)"
+
+          if [[ -n "${latest_json_id}" ]]; then
+            gh api -H "Accept: application/octet-stream" "repos/${GH_REPO}/releases/assets/${latest_json_id}" > latest.json
+          else
             if [[ -z "${INPUT_TAG_NAME}" ]]; then
               # 由 published 事件触发：产物可能还在上传（nightly 就是这条路径），交给显式调用那次处理。
               echo "::notice::${tag_name} 里还没有 latest.json，跳过；构建完成后会由显式调用重新发布。"
@@ -159,14 +168,20 @@ jobs:
           release_url="${MIRROR_BASE_URL}/${CHANNEL}/${TAG_NAME}"
 
           mkdir -p assets
-          gh release download "${TAG_NAME}" --dir assets --clobber
-          rm -f assets/latest.json
-          gh api "repos/${GH_REPO}/releases/tags/${TAG_NAME}" > release.json
+          while IFS=$'\t' read -r asset_id asset_name asset_size; do
+            gh api -H "Accept: application/octet-stream" "repos/${GH_REPO}/releases/assets/${asset_id}" > "assets/${asset_name}"
+
+            actual_size="$(stat -c %s "assets/${asset_name}")"
+            if [[ "${actual_size}" != "${asset_size}" ]]; then
+              echo "::error::Downloaded ${asset_name} is ${actual_size} bytes, expected ${asset_size}."
+              exit 1
+            fi
+          done < <(jq -r '.[] | select(.name != "latest.json") | [.id, .name, .size] | @tsv' assets.json)
 
           # latest.json 里的下载地址是 GitHub 的资产地址，按资产表换成七牛上的同名文件。
           # 签名字段原样保留：.sig 签的是安装包字节，与从哪个地址下载无关。
-          jq --arg base "${release_url}" --slurpfile release release.json -f /dev/stdin latest.json > latest.mirror.json <<'JQ'
-          ($release[0].assets
+          jq --arg base "${release_url}" --slurpfile assets assets.json -f /dev/stdin latest.json > latest.mirror.json <<'JQ'
+          ($assets[0]
             | map({(.url): .name, (.browser_download_url): .name})
             | add) as $names
           | .platforms |= with_entries(
