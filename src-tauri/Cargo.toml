@@ -22,7 +22,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "tray-icon", "image-ico"] }
+# 关掉默认的 dynamic-acl（运行时 add_capability，本项目不用）：权限清单不再整体编进二进制，
+# 配合 tauri.conf.json 的 build.removeUnusedCommands 裁掉未授权的插件命令。x11 / dbus 只属于 Linux。
+tauri = { version = "2", default-features = false, features = ["wry", "compression", "common-controls-v6", "macos-private-api", "protocol-asset", "tray-icon", "image-ico"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -43,11 +45,12 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-prevent-default = "5"
 auto-launch = "0.6"
-rodio = { version = "0.20", default-features = false, features = ["symphonia-mp3"] }
 file_icon_provider = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tauri-plugin-os = "2"
-tauri-plugin-updater = "2"
+# TLS 走系统实现（Windows SChannel / macOS Security.framework），不再打包 rustls + ring；
+# zip 特性只服务 Windows zip 型更新包与 Linux AppImage，NSIS 更新包是 exe，便携版自己解 zip。
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls"] }
 # updater 关闭了 reqwest 默认特性，只认 HTTP(S)_PROXY 环境变量；从桌面启动的应用拿不到它，
 # 这里借特性合并让 updater 读取 Windows / macOS 系统代理，否则 GitHub 端点会直连超时。
 reqwest = { version = "0.13", default-features = false, features = ["system-proxy"] }
@@ -71,6 +74,7 @@ objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplicat
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
 plist = { version = "1", default-features = false }
 tauri-plugin-macos-permissions = "2"
+rodio = { version = "0.20", default-features = false, features = ["wav"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = [
@@ -88,6 +92,7 @@ windows-result = "0.4"
 windows = { version = "0.52", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
+    "Win32_Media_Audio",
     "Win32_Security",
     "Win32_System_Com",
     "Win32_System_Ole",
@@ -101,3 +106,43 @@ windows = { version = "0.52", features = [
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
+
+# 整体按体积优化（opt-level z + 全量 LTO），exe 从 27 MB 降到十几 MB。
+# panic 保持 unwind：lib.rs 在 C 边界上靠 catch_unwind 兜底，abort 会让它失效。
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true
+
+# 图片落盘 / 缩略图 / 哈希是热路径，opt-level z 下 4K 截图的 PNG 编码会慢十几倍，这些 crate 保持 3。
+# 泛型在调用方单态化，clipboard-rs 的 to_png / thumbnail 也得一起留在 3。
+[profile.release.package.image]
+opt-level = 3
+
+[profile.release.package.png]
+opt-level = 3
+
+[profile.release.package.fdeflate]
+opt-level = 3
+
+[profile.release.package.miniz_oxide]
+opt-level = 3
+
+[profile.release.package.flate2]
+opt-level = 3
+
+[profile.release.package.crc32fast]
+opt-level = 3
+
+[profile.release.package.simd-adler32]
+opt-level = 3
+
+[profile.release.package.adler2]
+opt-level = 3
+
+[profile.release.package.blake3]
+opt-level = 3
+
+[profile.release.package.clipboard-rs]
+opt-level = 3
