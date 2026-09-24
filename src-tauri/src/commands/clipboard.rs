@@ -26,8 +26,8 @@ use crate::db::models::{
     ClipboardItemQuery, ClipboardKind, ClipboardSubKind, FileEntry, Platform,
 };
 use crate::db::DatabaseState;
-use crate::settings::SettingsStore;
-use crate::window::preview::PreviewContentMetrics;
+use crate::settings::{PreviewTextView, SettingsStore};
+use crate::window::preview::{PreviewContentMetrics, PreviewWordChip};
 use crate::window::{self, CLIPBOARD_WINDOW_LABEL};
 
 /// 与前端 `src/constants/events.ts` 的 `TAURI_EVENT.CLIPBOARD_UPDATED` 一一对应。
@@ -285,6 +285,9 @@ pub struct ClipboardPreviewPayload {
     /// 文本里可点选的词（UTF-16 区间，序号即拆词序号）；脱敏展示的敏感内容为空。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub words: Vec<WordSpan>,
+    /// 原文过长、词区间只覆盖开头：选词视图在词块末尾提示只拆了开头。
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub words_truncated: bool,
 }
 
 /// 预览窗口里的单个文件条目，比列表卡片保留更多文件并带上 size。
@@ -310,7 +313,8 @@ const PREVIEW_TEXT_ROW_COUNT_CAP: u32 = 64;
 
 /// 读取一条记录的预览内容度量；记录不存在时返回 `None`。
 ///
-/// 脱敏设置会改变实际渲染的文本，所以行数按脱敏后的文本统计，与预览窗口渲染的内容一致。
+/// 脱敏设置会改变实际渲染的文本，所以行数按脱敏后的文本统计，与预览窗口渲染的内容一致；
+/// 文本按原文还是词块排版取决于预览方式设置。
 pub(crate) async fn preview_content_metrics(
     app: &AppHandle,
     pool: &SqlitePool,
@@ -319,17 +323,13 @@ pub(crate) async fn preview_content_metrics(
     let Some(item) = find_item_by_id(pool, item_id).await? else {
         return Ok(None);
     };
-    let redact_sensitive = app
-        .state::<SettingsStore>()
-        .snapshot()
-        .clipboard
-        .sensitive
-        .redact_secrets;
+    let clipboard = app.state::<SettingsStore>().snapshot().clipboard;
+    let redact_sensitive = clipboard.sensitive.redact_secrets;
 
     let metrics = match item.kind {
-        ClipboardKind::Text => PreviewContentMetrics::Text {
-            rows: preview_text_rows(&item, redact_sensitive),
-        },
+        ClipboardKind::Text => {
+            preview_text_metrics(&item, redact_sensitive, clipboard.preview.text_view)
+        }
         ClipboardKind::Image => PreviewContentMetrics::Image {
             width: item.width.map(|value| value as f64),
             height: item.height.map(|value| value as f64),
@@ -345,6 +345,34 @@ pub(crate) async fn preview_content_metrics(
     };
 
     Ok(Some(metrics))
+}
+
+/// 文本预览的面板度量：选词方式下有词可拆时按词块排版，否则（原文方式、脱敏展示、无词可拆）按文本行。
+/// 判断条件与 [`build_clipboard_preview_payload`] 给出词区间的条件一致，前端据此选同一种视图。
+///
+/// 原文过长时只拆开头，词块按拆出的部分排；拆到上限的文本几乎总能撑满面板最大高度，
+/// 所以词块末尾那行「只拆了开头」的提示不计入高度。
+fn preview_text_metrics(
+    item: &ClipboardItem,
+    redact_sensitive: bool,
+    text_view: PreviewTextView,
+) -> PreviewContentMetrics {
+    if text_view == PreviewTextView::Words && !(redact_sensitive && item.is_sensitive) {
+        let split = split_words(preview_text_source(item));
+        if !split.tokens.is_empty() {
+            return PreviewContentMetrics::Words {
+                chips: split
+                    .tokens
+                    .iter()
+                    .map(|token| PreviewWordChip::new(&token.text, token.line_break))
+                    .collect(),
+            };
+        }
+    }
+
+    PreviewContentMetrics::Text {
+        rows: preview_text_rows(item, redact_sensitive),
+    }
 }
 
 /// 预览面板要给文本留的行数。
@@ -1111,12 +1139,13 @@ async fn build_clipboard_preview_payload(
     let mut files = Vec::new();
     let mut total_files = 0;
     let mut words = Vec::new();
+    let mut words_truncated = false;
 
     match item.kind {
         ClipboardKind::Text => {
             text = Some(preview_text(&item, redact_sensitive));
             if !(redact_sensitive && item.is_sensitive) {
-                words = word_spans(preview_text_source(&item));
+                (words, words_truncated) = word_spans(preview_text_source(&item));
             }
         }
         ClipboardKind::Image => {
@@ -1147,6 +1176,7 @@ async fn build_clipboard_preview_payload(
         files,
         total_files,
         words,
+        words_truncated,
     })
 }
 
@@ -2064,6 +2094,31 @@ mod tests {
         // 遮罩后只剩 "xxxx********xxxx"，一行就放得下。
         assert_eq!(preview_text_rows(&item, true), 1);
         assert_eq!(preview_text_rows(&item, false), 3);
+    }
+
+    // 面板按预览方式开窗：原文方式按文本行，选词方式按词块；脱敏展示的敏感内容没有词可选，始终按文本行。
+    #[test]
+    fn preview_text_metrics_follow_the_text_view() {
+        let is_words = |item: &ClipboardItem, redact: bool, view: PreviewTextView| {
+            matches!(
+                preview_text_metrics(item, redact, view),
+                PreviewContentMetrics::Words { .. }
+            )
+        };
+        let mut item = text_item(None, false);
+        item.content = "9140BT 19mm".to_owned();
+
+        assert!(!is_words(&item, false, PreviewTextView::Plain));
+        assert!(is_words(&item, false, PreviewTextView::Words));
+
+        item.is_sensitive = true;
+        assert!(!is_words(&item, true, PreviewTextView::Words));
+        assert!(is_words(&item, false, PreviewTextView::Words));
+
+        // 只拆了开头的长文本照样按词块排。
+        item.is_sensitive = false;
+        item.content = "字".repeat(3_000);
+        assert!(is_words(&item, false, PreviewTextView::Words));
     }
 
     #[test]

@@ -63,6 +63,7 @@ const SETTING_ICON_MAP: Record<string, string> = {
   "preview.delay": "i-lucide:timer",
   "preview.hover": "i-lucide:mouse-pointer-2",
   "preview.space": "i-lucide:space",
+  "preview.textView": "i-lucide:whole-word",
   "search.clearOnHide": "i-lucide:eraser",
   "search.defaultFocus": "i-lucide:scan-search",
   "search.sort": "i-lucide:arrow-down-up",

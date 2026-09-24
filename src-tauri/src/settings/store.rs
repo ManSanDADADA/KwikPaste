@@ -445,6 +445,21 @@ mod tests {
     }
 
     #[test]
+    fn released_preview_settings_show_plain_text() {
+        let released = r#"{
+            "clipboard": {
+                "preview": {"hoverEnabled": true, "hoverDelayMs": "ms300", "spaceEnabled": false}
+            }
+        }"#;
+        let parsed: Settings = serde_json::from_str(released).unwrap();
+        let preview = parsed.clipboard.preview;
+
+        assert!(preview.hover_enabled);
+        assert!(!preview.space_enabled);
+        assert_eq!(preview.text_view, crate::settings::PreviewTextView::Plain);
+    }
+
+    #[test]
     fn released_shortcut_settings_keep_quick_paste_disabled() {
         let released = r#"{
             "shortcuts": {

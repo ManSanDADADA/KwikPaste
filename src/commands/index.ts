@@ -124,6 +124,8 @@ export interface ClipboardPreviewPayload {
   totalFiles: number;
   /** 文本里可点选的词，[start, end) 为字符串下标，序号即拆词序号；脱敏展示时缺省。 */
   words?: [number, number][];
+  /** 原文过长、词区间只覆盖开头；选词视图在词块末尾提示只拆了开头。 */
+  wordsTruncated?: boolean;
 }
 
 export interface StorageUsage {

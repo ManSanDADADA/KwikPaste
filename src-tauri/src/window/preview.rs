@@ -58,6 +58,16 @@ const PREVIEW_TEXT_VERTICAL_PADDING: f64 = 32.0;
 const PREVIEW_FILE_ROW_HEIGHT: f64 = 40.0;
 const PREVIEW_FILE_VERTICAL_PADDING: f64 = 16.0;
 const PREVIEW_FILE_MORE_FOOTER_HEIGHT: f64 = 40.0;
+// 拆词视图的词块尺寸，与前端 `WordChipsViewer` 的样式一一对应：
+// text-sm / leading-5 / px-1.5 / py-0.5 / min-w-6，词块间距 gap-1，四周留白 p-4。
+const PREVIEW_WORD_FONT_SIZE: f64 = 14.0;
+const PREVIEW_WORD_NARROW_CHAR_EM: f64 = 0.5;
+const PREVIEW_WORD_CHIP_PADDING_X: f64 = 12.0;
+const PREVIEW_WORD_CHIP_MIN_WIDTH: f64 = 24.0;
+const PREVIEW_WORD_CHIP_HEIGHT: f64 = 24.0;
+const PREVIEW_WORD_LINE_HEIGHT: f64 = 20.0;
+const PREVIEW_WORD_GAP: f64 = 4.0;
+const PREVIEW_WORDS_PADDING: f64 = 16.0;
 /// 图片记录缺少原始宽高时的兜底面板尺寸。
 const PREVIEW_PANEL_FALLBACK_SIZE: (f64, f64) = (320.0, 240.0);
 
@@ -121,10 +131,12 @@ pub struct PreviewAnchorRect {
 }
 
 /// 预览面板尺寸所需的内容度量，由命令层从记录算出。
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PreviewContentMetrics {
     /// 预览文本软切后的行数。
     Text { rows: u32 },
+    /// 拆词视图的每个词块；面板宽度定下来后再按宽度折行算高度。
+    Words { chips: Vec<PreviewWordChip> },
     /// 图片原始尺寸；记录缺尺寸时为 `None`，退回兜底面板大小。
     Image {
         width: Option<f64>,
@@ -132,6 +144,52 @@ pub enum PreviewContentMetrics {
     },
     /// 文件条目：实际渲染条数与总条数（总数更多时底部多一行提示）。
     Files { shown: u32, total: u32 },
+}
+
+/// 拆词视图里的一个词块：按字符估出的宽度（px），以及它前面是否换段。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PreviewWordChip {
+    pub width: f64,
+    pub line_break: bool,
+}
+
+impl PreviewWordChip {
+    /// 按前端词块样式估宽度：中日韩、全角与 emoji 记 1em，其余记 0.5em（界面字体实测西文平均约 0.47em），
+    /// 再加左右内边距。
+    pub fn new(text: &str, line_break: bool) -> Self {
+        let ems: f64 = text
+            .chars()
+            .map(|c| {
+                if is_wide_char(c) {
+                    1.0
+                } else {
+                    PREVIEW_WORD_NARROW_CHAR_EM
+                }
+            })
+            .sum();
+        let width = ems * PREVIEW_WORD_FONT_SIZE + PREVIEW_WORD_CHIP_PADDING_X;
+
+        Self {
+            width: width.max(PREVIEW_WORD_CHIP_MIN_WIDTH),
+            line_break,
+        }
+    }
+}
+
+/// 按一个字宽排版的字符：中日韩文字、全角符号与 emoji。
+fn is_wide_char(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x1100..=0x115F
+            | 0x2E80..=0xA4CF
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE30..=0xFE4F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x1F300..=0x1FAFF
+            | 0x20000..=0x3FFFD
+    )
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -845,6 +903,11 @@ fn resolve_panel_size(
             max_width,
             PREVIEW_PANEL_HEADER_HEIGHT + text_content_height(rows),
         ),
+        Some(PreviewContentMetrics::Words { chips }) => (
+            max_width,
+            PREVIEW_PANEL_HEADER_HEIGHT
+                + words_content_height(&chips, max_width - PREVIEW_WORDS_PADDING * 2.0),
+        ),
         Some(PreviewContentMetrics::Files { shown, total }) => (
             max_width,
             PREVIEW_PANEL_HEADER_HEIGHT + files_content_height(shown, total),
@@ -867,6 +930,49 @@ fn text_content_height(rows: u32) -> f64 {
     }
 
     rows as f64 * PREVIEW_TEXT_ROW_HEIGHT + PREVIEW_TEXT_VERTICAL_PADDING
+}
+
+/// 拆词视图按面板内容宽度模拟 flex 折行：换段的空行多占一道间距，
+/// 比整行还宽的词块在块内折行，按多出的文字行加高。
+fn words_content_height(chips: &[PreviewWordChip], content_width: f64) -> f64 {
+    if chips.is_empty() || content_width <= 0.0 {
+        return PREVIEW_EMPTY_CONTENT_HEIGHT;
+    }
+
+    let mut rows = 0_u32;
+    let mut breaks = 0_u32;
+    let mut wrapped_lines = 0.0;
+    let mut line_width = 0.0;
+
+    for chip in chips {
+        let width = chip.width.min(content_width);
+        wrapped_lines += (chip.width / content_width).ceil().max(1.0) - 1.0;
+
+        if rows == 0 {
+            rows = 1;
+            line_width = width;
+            continue;
+        }
+
+        if chip.line_break {
+            breaks += 1;
+            rows += 1;
+            line_width = width;
+            continue;
+        }
+
+        if line_width + PREVIEW_WORD_GAP + width > content_width {
+            rows += 1;
+            line_width = width;
+        } else {
+            line_width += PREVIEW_WORD_GAP + width;
+        }
+    }
+
+    f64::from(rows) * PREVIEW_WORD_CHIP_HEIGHT
+        + f64::from(rows - 1 + breaks) * PREVIEW_WORD_GAP
+        + wrapped_lines * PREVIEW_WORD_LINE_HEIGHT
+        + PREVIEW_WORDS_PADDING * 2.0
 }
 
 /// 文件 viewer 的高度按已返回条数估，被截断时多留一行提示。
@@ -1209,6 +1315,49 @@ mod tests {
             empty,
             PREVIEW_PANEL_HEADER_HEIGHT + PREVIEW_EMPTY_CONTENT_HEIGHT
         );
+    }
+
+    fn chips(text: &str) -> Vec<PreviewWordChip> {
+        text.chars()
+            .map(|c| PreviewWordChip::new(&c.to_string(), false))
+            .collect()
+    }
+
+    // 汉字词块 14px 字宽加 12px 内边距，448px 的内容宽度一行放 15 块。
+    #[test]
+    fn word_panel_height_wraps_chips_by_panel_width() {
+        let one_row = PREVIEW_WORD_CHIP_HEIGHT + PREVIEW_WORDS_PADDING * 2.0;
+
+        assert_eq!(
+            words_content_height(&chips(&"字".repeat(15)), 448.0),
+            one_row
+        );
+        assert_eq!(
+            words_content_height(&chips(&"字".repeat(16)), 448.0),
+            one_row + PREVIEW_WORD_CHIP_HEIGHT + PREVIEW_WORD_GAP
+        );
+    }
+
+    // 换段另起一行，并且空行本身再多占一道间距。
+    #[test]
+    fn word_panel_height_counts_paragraph_breaks() {
+        let mut words = chips("一二");
+        words.push(PreviewWordChip::new("三", true));
+
+        assert_eq!(
+            words_content_height(&words, 448.0),
+            PREVIEW_WORD_CHIP_HEIGHT * 2.0 + PREVIEW_WORD_GAP * 2.0 + PREVIEW_WORDS_PADDING * 2.0
+        );
+    }
+
+    #[test]
+    fn word_chip_width_follows_script_and_minimum() {
+        assert_eq!(PreviewWordChip::new("字", false).width, 26.0);
+        assert_eq!(
+            PreviewWordChip::new("*", false).width,
+            PREVIEW_WORD_CHIP_MIN_WIDTH
+        );
+        assert_eq!(PreviewWordChip::new("W2000", false).width, 47.0);
     }
 
     // 被截断的文件列表底部多一行“还有多少条”的提示。

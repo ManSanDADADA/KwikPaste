@@ -518,6 +518,7 @@ pub struct Preview {
     pub hover_enabled: bool,
     pub hover_delay_ms: PreviewHoverDelayMs,
     pub space_enabled: bool,
+    pub text_view: PreviewTextView,
 }
 
 impl Default for Preview {
@@ -526,8 +527,18 @@ impl Default for Preview {
             hover_enabled: false,
             hover_delay_ms: PreviewHoverDelayMs::Ms500,
             space_enabled: true,
+            text_view: PreviewTextView::Plain,
         }
     }
+}
+
+/// 文本预览的展示方式：原文，或拆成词块逐个点选。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PreviewTextView {
+    #[default]
+    Plain,
+    Words,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]

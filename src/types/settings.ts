@@ -77,6 +77,9 @@ export type WindowOpenGroupSelection = "preserve" | "all" | `group:${string}`;
 
 export type PreviewHoverDelayMs = "ms300" | "ms500" | "ms1000";
 
+/** 文本预览的展示方式：原文，或拆成词块逐个点选。 */
+export type PreviewTextView = "plain" | "words";
+
 export type UpdateFrequency = "daily" | "weekly" | "monthly";
 
 export interface General {
@@ -188,6 +191,7 @@ export interface Preview {
   hoverEnabled: boolean;
   hoverDelayMs: PreviewHoverDelayMs;
   spaceEnabled: boolean;
+  textView: PreviewTextView;
 }
 
 export interface Feedback {

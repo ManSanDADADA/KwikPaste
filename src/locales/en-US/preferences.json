@@ -540,6 +540,14 @@
         "space": {
           "description": "Hold Space to preview the currently selected record.",
           "title": "Space Preview"
+        },
+        "textView": {
+          "description": "Show previewed text as written, or split into words to pick from.",
+          "options": {
+            "plain": "Default",
+            "words": "Words"
+          },
+          "title": "Text Preview Style"
         }
       },
       "search": {

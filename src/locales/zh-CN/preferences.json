@@ -540,6 +540,14 @@
         "space": {
           "description": "按住空格键时预览当前选中的记录。",
           "title": "空格键预览"
+        },
+        "textView": {
+          "description": "预览文本时显示原文，或拆成词块逐个点选。",
+          "options": {
+            "plain": "默认",
+            "words": "选词"
+          },
+          "title": "文本预览方式"
         }
       },
       "search": {

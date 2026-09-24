@@ -816,6 +816,21 @@ const List: FC = () => {
 
   useKeyboardEvent("keydown", handleKeyDown);
 
+  /**
+   * 预览面板转交的按键：点过面板后键盘焦点可能停在预览窗口，Enter / Esc / Cmd+C / 上下键
+   * 仍按列表这一套规则处理，预览里选了词时 Enter / Cmd+C 作用于选中的词。
+   */
+  const handlePreviewKeydown = (event: { payload: KeyboardEventInit }) => {
+    handleKeyDown(
+      new KeyboardEvent("keydown", { ...event.payload, cancelable: true }),
+    );
+  };
+
+  useTauriListen<KeyboardEventInit>(
+    TAURI_EVENT.PREVIEW_KEYDOWN,
+    handlePreviewKeydown,
+  );
+
   const handleKeyUp = (event: KeyboardEvent) => {
     const eventModifierPressed = isMac ? event.metaKey : event.ctrlKey;
 

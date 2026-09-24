@@ -26,10 +26,15 @@
     "loading": "Loading",
     "text": "Text preview"
   },
+  "view": {
+    "plain": "Default",
+    "words": "Words"
+  },
   "words": {
     "clear": "Clear",
     "copy": "Copy",
     "paste": "Paste",
-    "selected": "{{count}} selected"
+    "selected": "{{count}} selected",
+    "truncated": "This text is long, so only the beginning is split."
   }
 }

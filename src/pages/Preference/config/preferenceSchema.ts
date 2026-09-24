@@ -537,6 +537,18 @@ export const preferenceTabs: PreferenceTab[] = [
               return settings.clipboard.preview.spaceEnabled;
             },
           },
+          {
+            control: {
+              options: [{ value: "plain" }, { value: "words" }],
+              type: "segmented",
+            },
+            id: "preview.textView",
+            keywords: ["preview", "text", "words", "split"],
+            path: ["clipboard", "preview", "textView"],
+            value: (settings) => {
+              return settings.clipboard.preview.textView;
+            },
+          },
         ],
       },
       {

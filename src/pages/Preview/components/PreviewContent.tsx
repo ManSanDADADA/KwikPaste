@@ -1,10 +1,12 @@
 import { emitTo } from "@tauri-apps/api/event";
-import { Button, Empty } from "antd";
+import { useUnmount } from "ahooks";
+import { Button, ConfigProvider, Empty, Segmented, theme } from "antd";
 import type { TFunction } from "i18next";
-import type { FC, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import type { FC } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Virtuoso } from "react-virtuoso";
+import { useSnapshot } from "valtio";
 import {
   type ClipboardPreviewFileEntry,
   type ClipboardPreviewPayload,
@@ -12,13 +14,17 @@ import {
   pasteClipboardFragment,
 } from "@/commands";
 import AssetImage from "@/components/AssetImage";
+import ScrollArea from "@/components/ScrollArea";
 import VirtuosoScroller, {
   type VirtuosoScrollerChildrenProps,
 } from "@/components/VirtuosoScroller";
 import { TAURI_EVENT } from "@/constants/events";
 import { WINDOW_LABEL } from "@/constants/windows";
 import { useWordSelection } from "@/hooks/useWordSelection";
+import { settingsState, updateSettings } from "@/stores/settings";
+import type { PreviewTextView } from "@/types/settings";
 import { cn } from "@/utils/cn";
+import { log } from "@/utils/log";
 import { PREVIEW_TEXT_SOFT_WRAP_CHARS } from "../constants";
 
 export interface PreviewContentProps {
@@ -31,6 +37,14 @@ export interface PreviewHeaderProps {
 
 interface PayloadViewerProps {
   payload: ClipboardPreviewPayload;
+}
+
+interface PlainTextViewerProps {
+  text: string;
+}
+
+interface TextViewSwitchProps {
+  value: PreviewTextView;
 }
 
 interface FilePreviewRowProps {
@@ -65,6 +79,7 @@ export const PreviewHeader: FC<PreviewHeaderProps> = (props) => {
   const meta = payload ? previewMeta(t, payload) : t("meta.contentViewer");
   const typeKey = payload ? (payload.subKind ?? payload.kind) : null;
   const typeLabel = typeKey ? t(`clipboard:types.${typeKey}`) : "";
+  const { clipboard } = useSnapshot(settingsState);
 
   return (
     <div className="flex h-12 shrink-0 items-center justify-between gap-3 border-ant-border border-b px-4">
@@ -74,11 +89,65 @@ export const PreviewHeader: FC<PreviewHeaderProps> = (props) => {
       </div>
 
       {payload && (
-        <span className="shrink-0 rounded-1 bg-ant-fill-secondary px-2 py-0.5 text-ant-secondary text-xs">
-          {typeLabel}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          {canPickWords(payload) ? (
+            <TextViewSwitch value={clipboard.preview.textView} />
+          ) : null}
+
+          <span className="rounded-1 bg-ant-fill-secondary px-2 py-0.5 text-ant-secondary text-xs">
+            {typeLabel}
+          </span>
+        </div>
       )}
     </div>
+  );
+};
+
+/**
+ * 标题栏里的文本预览方式切换。选择随设置保存，面板尺寸由剪贴板窗口按新方式重新开窗。
+ */
+const TextViewSwitch: FC<TextViewSwitchProps> = (props) => {
+  const { value } = props;
+  const { t } = useTranslation("preview");
+  const { token } = theme.useToken();
+  // 默认轨道和选中块都是实色底，在 Mica / Acrylic 上是两块不透明的色块；
+  // 换成半透明填充，和旁边的类型标签一样透出窗口材质。
+  const switchTheme = useMemo(() => {
+    return {
+      components: {
+        Segmented: {
+          itemSelectedBg: token.colorFill,
+          trackBg: token.colorFillTertiary,
+        },
+      },
+    };
+  }, [token.colorFill, token.colorFillTertiary]);
+  const labelStyles = useMemo(() => {
+    return { label: { fontSize: token.fontSizeSM } };
+  }, [token.fontSizeSM]);
+  const options = [
+    { label: t("view.plain"), value: "plain" as const },
+    { label: t("view.words"), value: "words" as const },
+  ];
+
+  const switchTextView = async (next: PreviewTextView) => {
+    try {
+      await updateSettings({ clipboard: { preview: { textView: next } } });
+    } catch (error) {
+      log.error("switch preview text view failed", error);
+    }
+  };
+
+  return (
+    <ConfigProvider theme={switchTheme}>
+      <Segmented<PreviewTextView>
+        onChange={switchTextView}
+        options={options}
+        size="small"
+        styles={labelStyles}
+        value={value}
+      />
+    </ConfigProvider>
   );
 };
 
@@ -108,28 +177,94 @@ export const PreviewContent: FC<PreviewContentProps> = (props) => {
 };
 
 /**
- * 文本预览：所有文本族内容都按纯文本虚拟行展示，避免长 HTML / RTF 构造大 DOM。
- * 带词区间时可以直接在原文上点选、拖选词语，选好后单独粘贴或复制。
+ * 文本预览：选词方式下有词可拆时按词块排版，其余情况展示原文。
  */
 const TextViewer: FC<PayloadViewerProps> = (props) => {
   const { payload } = props;
   const { t } = useTranslation("preview");
+  const { clipboard } = useSnapshot(settingsState);
   const text = payload.text ?? "";
-  const words = payload.words ?? NO_WORDS;
+
+  if (text.length === 0) {
+    return (
+      <div className="flex min-h-24 items-center justify-center">
+        <Empty
+          description={t("empty.text")}
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        />
+      </div>
+    );
+  }
+
+  if (resolveTextView(payload, clipboard.preview.textView) === "words") {
+    return <WordChipsViewer payload={payload} />;
+  }
+
+  return <PlainTextViewer text={text} />;
+};
+
+/**
+ * 原文预览：所有文本族内容都按纯文本虚拟行展示，避免长 HTML / RTF 构造大 DOM。
+ */
+const PlainTextViewer: FC<PlainTextViewerProps> = (props) => {
+  const { text } = props;
   const rows = useMemo(() => {
     return buildTextPreviewRows(text);
   }, [text]);
+
+  return <VirtuosoScroller>{renderTextVirtuoso}</VirtuosoScroller>;
+
+  function renderTextVirtuoso(props: VirtuosoScrollerChildrenProps) {
+    const { scrollerRef } = props;
+
+    return (
+      <Virtuoso
+        components={TEXT_VIRTUOSO_COMPONENTS}
+        computeItemKey={computeTextRowKey}
+        itemContent={renderTextRow}
+        scrollerRef={scrollerRef}
+        totalCount={rows.length}
+      />
+    );
+  }
+
+  function computeTextRowKey(index: number) {
+    return index;
+  }
+
+  function renderTextRow(index: number) {
+    const row = rows[index];
+
+    return (
+      <div className="min-h-5.5 whitespace-pre px-4 font-mono text-xs leading-5.5">
+        {!row || row.start === row.end ? " " : text.slice(row.start, row.end)}
+      </div>
+    );
+  }
+};
+
+/**
+ * 选词预览：词按原文顺序排成词块、原文换段处另起一行，点选、拖选后单独粘贴或复制。
+ * 原文过长时只拆了开头，词块末尾给出提示。
+ */
+const WordChipsViewer: FC<PayloadViewerProps> = (props) => {
+  const { payload } = props;
+  const { t } = useTranslation("preview");
+  const text = payload.text ?? "";
+  const words = payload.words ?? NO_WORDS;
   const { clear, pointerHandlers, selected } = useWordSelection(words.length);
   const [submitting, setSubmitting] = useState(false);
   const selectedCount = selected.size;
 
   // 选区同步给剪贴板窗口：预览里选了词时，Enter / Cmd+C 作用于选中的词。
   useEffect(() => {
-    void emitTo(WINDOW_LABEL.CLIPBOARD, TAURI_EVENT.PREVIEW_SELECTION, {
-      indices: [...selected],
-      itemId: payload.id,
-    });
+    reportWordSelection(payload.id, [...selected]);
   }, [payload.id, selected]);
+
+  // 切回原文或收起面板时撤掉选区，Enter / Cmd+C 重新作用于整条记录。
+  useUnmount(() => {
+    reportWordSelection(payload.id, []);
+  });
 
   const pasteSelection = async () => {
     setSubmitting(true);
@@ -161,23 +296,50 @@ const TextViewer: FC<PayloadViewerProps> = (props) => {
     setSubmitting(false);
   };
 
-  if (text.length === 0) {
-    return (
-      <div className="flex min-h-24 items-center justify-center">
-        <Empty
-          description={t("empty.text")}
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-        />
-      </div>
-    );
-  }
-
+  // 选区操作栏占据面板底部一行而不是浮在内容上：它不铺自己的底色，和标题栏一样透出窗口材质。
   return (
-    <div className="relative size-full select-none" {...pointerHandlers}>
-      <VirtuosoScroller>{renderTextVirtuoso}</VirtuosoScroller>
+    <div className="flex size-full select-none flex-col" {...pointerHandlers}>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex flex-wrap content-start gap-1 p-4">
+          {words.map(([start, end], index) => {
+            const isSelected = selected.has(index);
+            const lineBreak =
+              index > 0 &&
+              text.slice(words[index - 1][1], start).includes("\n");
+
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: 词序即原文位置，列表不会重排
+              <Fragment key={index}>
+                {lineBreak ? (
+                  <span aria-hidden="true" className="h-0 basis-full" />
+                ) : null}
+                <span
+                  className={cn(
+                    "min-w-6 max-w-full cursor-pointer whitespace-pre-wrap break-all rounded-1.5 px-1.5 py-0.5 text-center text-sm leading-5 transition-colors duration-100 motion-reduce:transition-none",
+                    {
+                      "bg-ant-fill-tertiary hover:bg-ant-fill-secondary":
+                        !isSelected,
+                      "bg-ant-primary text-ant-light-solid": isSelected,
+                    },
+                  )}
+                  data-token-index={index}
+                >
+                  {text.slice(start, end)}
+                </span>
+              </Fragment>
+            );
+          })}
+        </div>
+
+        {payload.wordsTruncated ? (
+          <p className="px-4 pb-4 text-ant-secondary text-xs">
+            {t("words.truncated")}
+          </p>
+        ) : null}
+      </ScrollArea>
 
       {selectedCount > 0 ? (
-        <div className="absolute inset-x-2 bottom-2 flex items-center gap-2 rounded-2 border border-ant-border-secondary bg-ant-bg-elevated py-1.5 pr-1.5 pl-3">
+        <div className="flex shrink-0 items-center gap-2 border-ant-border border-t py-2 pr-3 pl-4">
           <span className="min-w-0 flex-1 truncate text-ant-secondary text-xs">
             {t("words.selected", { count: selectedCount })}
           </span>
@@ -200,74 +362,6 @@ const TextViewer: FC<PayloadViewerProps> = (props) => {
       ) : null}
     </div>
   );
-
-  function renderTextVirtuoso(props: VirtuosoScrollerChildrenProps) {
-    const { scrollerRef } = props;
-
-    return (
-      <Virtuoso
-        components={TEXT_VIRTUOSO_COMPONENTS}
-        computeItemKey={computeTextRowKey}
-        itemContent={renderTextRow}
-        scrollerRef={scrollerRef}
-        totalCount={rows.length}
-      />
-    );
-  }
-
-  function computeTextRowKey(index: number) {
-    return index;
-  }
-
-  function renderTextRow(index: number) {
-    const row = rows[index];
-
-    return (
-      <div className="min-h-5.5 whitespace-pre px-4 font-mono text-xs leading-5.5">
-        {!row || row.start === row.end ? " " : renderRowSegments(row)}
-      </div>
-    );
-  }
-
-  /**
-   * 把一行切成普通文本和可点选的词；被折行切开的词两段带同一个序号，一起高亮。
-   */
-  function renderRowSegments(row: TextRow) {
-    const segments: ReactNode[] = [];
-    let cursor = row.start;
-
-    for (
-      let index = findFirstWordEndingAfter(words, row.start);
-      index < words.length;
-      index += 1
-    ) {
-      const [start, end] = words[index];
-      if (start >= row.end) break;
-
-      const from = Math.max(start, row.start);
-      const to = Math.min(end, row.end);
-      const isSelected = selected.has(index);
-
-      if (from > cursor) segments.push(text.slice(cursor, from));
-      segments.push(
-        <span
-          className={cn("cursor-pointer rounded-0.5", {
-            "bg-ant-primary text-ant-light-solid": isSelected,
-            "hover:bg-ant-fill-secondary": !isSelected,
-          })}
-          data-token-index={index}
-          key={index}
-        >
-          {text.slice(from, to)}
-        </span>,
-      );
-      cursor = to;
-    }
-
-    if (cursor < row.end) segments.push(text.slice(cursor, row.end));
-
-    return segments;
-  }
 };
 
 /**
@@ -459,26 +553,31 @@ function buildTextPreviewRows(text: string) {
 }
 
 /**
- * 二分查找第一个结束位置在 `offset` 之后的词，词区间按原文顺序排列且互不重叠。
+ * 这条预览能否切到选词方式：文本里有词可拆（脱敏展示的敏感内容不给词）。
  */
-function findFirstWordEndingAfter(
-  words: readonly [number, number][],
-  offset: number,
-) {
-  let low = 0;
-  let high = words.length;
+function canPickWords(payload: ClipboardPreviewPayload) {
+  return payload.kind === "text" && (payload.words?.length ?? 0) > 0;
+}
 
-  while (low < high) {
-    const middle = (low + high) >> 1;
+/**
+ * 这条预览实际采用的文本视图：选词方式下有词可拆才按词块排，与 Rust `preview_text_metrics`
+ * 的判断一致，面板尺寸才对得上。
+ */
+export function resolveTextView(
+  payload: ClipboardPreviewPayload,
+  textView: PreviewTextView,
+): PreviewTextView {
+  return textView === "words" && canPickWords(payload) ? "words" : "plain";
+}
 
-    if (words[middle][1] <= offset) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-
-  return low;
+/**
+ * 把预览里选中的词同步给剪贴板窗口，由它决定 Enter / Cmd+C 作用于选中的词还是整条记录。
+ */
+function reportWordSelection(itemId: string, indices: number[]) {
+  void emitTo(WINDOW_LABEL.CLIPBOARD, TAURI_EVENT.PREVIEW_SELECTION, {
+    indices,
+    itemId,
+  });
 }
 
 /**

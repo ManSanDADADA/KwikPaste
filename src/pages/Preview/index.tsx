@@ -1,5 +1,5 @@
 import { emitTo } from "@tauri-apps/api/event";
-import { useMount } from "ahooks";
+import { useEventListener, useMount } from "ahooks";
 import { Spin } from "antd";
 import { motion } from "motion/react";
 import { type FC, useMemo, useState } from "react";
@@ -15,9 +15,15 @@ import { TAURI_EVENT } from "@/constants/events";
 import { WINDOW_LABEL } from "@/constants/windows";
 import { useTauriListen } from "@/hooks/useTauriListen";
 import { settingsState } from "@/stores/settings";
+import type { PreviewTextView } from "@/types/settings";
+import { isMac } from "@/utils/is";
 import { log } from "@/utils/log";
 import { cacheKey } from "./cache";
-import { PreviewContent, PreviewHeader } from "./components/PreviewContent";
+import {
+  PreviewContent,
+  PreviewHeader,
+  resolveTextView,
+} from "./components/PreviewContent";
 import PreviewContentTransition from "./components/PreviewContentTransition";
 import {
   PREVIEW_LOADING_INDICATOR_DELAY_MS,
@@ -125,12 +131,37 @@ const Preview: FC = () => {
     reportPointer(false);
   };
 
+  /**
+   * 点过面板后键盘焦点会留在预览窗口：Windows 剪贴板窗口处于输入状态时低级键盘钩子是关着的，
+   * 按键不再经过剪贴板窗口。把作用于当前预览的几个键转交过去，由列表按同一套规则处理。
+   */
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (!visibleState || !isForwardedKey(event)) return;
+
+    event.preventDefault();
+    void emitTo(WINDOW_LABEL.CLIPBOARD, TAURI_EVENT.PREVIEW_KEYDOWN, {
+      altKey: event.altKey,
+      code: event.code,
+      ctrlKey: event.ctrlKey,
+      key: event.key,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+    });
+  };
+
+  useEventListener("keydown", handleKeyDown);
+
   if (!visibleState) return <div className="size-screen bg-transparent" />;
 
   // 还没拿到内容（缓存未命中、请求在路上）时正文留白：既不能画上一条的内容，
   // 也不能先画一张「暂无内容」再换成正文。
   const hasContent = payload !== null || missing;
-  const contentKey = resolveContentKey(payload, missing, redactSecrets);
+  const contentKey = resolveContentKey(
+    payload,
+    missing,
+    redactSecrets,
+    clipboard.preview.textView,
+  );
 
   return (
     <motion.div
@@ -165,15 +196,29 @@ const Preview: FC = () => {
 };
 
 /**
- * 交叉淡入淡出的图层 key：有内容时按 payload 缓存 key 区分；
+ * 预览面板上有意义的按键：粘贴 / 复制当前预览（或其中选中的词）、收起预览、上下切换条目。
+ */
+function isForwardedKey(event: KeyboardEvent) {
+  const modifierPressed = isMac ? event.metaKey : event.ctrlKey;
+
+  if (modifierPressed && event.key.toLowerCase() === "c") return true;
+
+  return ["ArrowDown", "ArrowUp", "Enter", "Escape"].includes(event.key);
+}
+
+/**
+ * 交叉淡入淡出的图层 key：有内容时按 payload 缓存 key 和文本视图区分，切换预览方式也走交叉淡入；
  * 没内容时区分「还没拿到」和「记录已不存在」，前者是空图层，后者才画空态。
  */
 function resolveContentKey(
   payload: ClipboardPreviewPayload | null,
   missing: boolean,
   redactSecrets: boolean,
+  textView: PreviewTextView,
 ) {
-  if (payload) return cacheKey(payload, redactSecrets);
+  if (payload) {
+    return `${cacheKey(payload, redactSecrets)}:${resolveTextView(payload, textView)}`;
+  }
 
   return missing ? "missing" : "pending";
 }

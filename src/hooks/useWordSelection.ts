@@ -1,7 +1,7 @@
 import type { PointerEvent } from "react";
 import { useRef, useState } from "react";
 
-/** 可点选的词元素上的序号属性；同一个词被折成几段时，每段都带同一个序号。 */
+/** 可点选的词元素上的序号属性。 */
 export const WORD_INDEX_ATTRIBUTE = "data-token-index";
 
 interface WordDrag {

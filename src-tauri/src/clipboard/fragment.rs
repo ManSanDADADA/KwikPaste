@@ -297,8 +297,9 @@ pub fn split_words(text: &str) -> WordSplit {
     WordSplit { tokens, truncated }
 }
 
-/// 按 [`split_words`] 切出的词在原文里的 UTF-16 区间，供预览面板在原文上直接点选。
-pub fn word_spans(text: &str) -> Vec<WordSpan> {
+/// 按 [`split_words`] 切出的词在原文里的 UTF-16 区间，供预览面板在原文上直接点选；
+/// 第二项表示原文过长、只切了开头。
+pub fn word_spans(text: &str) -> (Vec<WordSpan>, bool) {
     let split = split_words(text);
     let mut spans = Vec::with_capacity(split.tokens.len());
     let mut byte = 0;
@@ -313,7 +314,7 @@ pub fn word_spans(text: &str) -> Vec<WordSpan> {
         spans.push(WordSpan(start, units));
     }
 
-    spans
+    (spans, split.truncated)
 }
 
 fn utf16_len(text: &str) -> u32 {
@@ -586,7 +587,8 @@ mod tests {
     #[test]
     fn word_spans_use_utf16_offsets() {
         let text = "好🙏 W2000*D800";
-        let spans = word_spans(text);
+        let (spans, truncated) = word_spans(text);
+        assert!(!truncated);
         let utf16: Vec<u16> = text.encode_utf16().collect();
         let words: Vec<String> = spans
             .iter()

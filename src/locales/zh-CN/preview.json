@@ -26,10 +26,15 @@
     "loading": "正在加载",
     "text": "文本预览"
   },
+  "view": {
+    "plain": "默认",
+    "words": "选词"
+  },
   "words": {
     "clear": "清除",
     "copy": "复制",
     "paste": "粘贴",
-    "selected": "已选 {{count}} 个词"
+    "selected": "已选 {{count}} 个词",
+    "truncated": "内容较长，只拆分了开头部分。"
   }
 }

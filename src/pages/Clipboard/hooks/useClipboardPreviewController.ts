@@ -95,6 +95,16 @@ export function useClipboardPreviewController(
     previewSession?.trigger,
   ]);
 
+  // 文本预览方式一换，面板要按新排版重新开窗：原文按行数、选词按词块折行，高度能差出好几倍。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: textView 是重新开窗的纯触发器，会话从 ref 读最新值
+  useEffect(() => {
+    const session = previewSessionRef.current;
+
+    if (!session) return;
+
+    void openPreviewForItem({ id: session.itemId }, session.trigger);
+  }, [previewSettings.textView]);
+
   useEffect(() => {
     return () => {
       clearHoverTimer(hoverTimerRef);
@@ -140,8 +150,13 @@ export function useClipboardPreviewController(
 
   useTauriListen(TAURI_EVENT.PREVIEW_POINTER, handlePreviewPointer);
 
+  /**
+   * 剪贴板窗口失焦时收起预览。点预览面板本身也会让本窗口失焦（两个 webview 在同一个
+   * UI 线程上，焦点跟着点击走），此时指针正停在面板上，不算离开。
+   */
   const handleWindowBlur = () => {
     if (!previewSessionRef.current) return;
+    if (previewPointerInsideRef.current) return;
 
     closePreview("windowBlur");
   };
@@ -343,7 +358,7 @@ export function useClipboardPreviewController(
    * 打开或重定向指定条目的预览 overlay。
    */
   const openPreviewForItem = async (
-    item: ClipboardItem,
+    item: Pick<ClipboardItem, "id">,
     trigger: PreviewTrigger,
     pointerX?: number,
   ) => {
