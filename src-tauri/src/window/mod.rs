@@ -210,6 +210,10 @@ pub fn show_window(app_handle: &AppHandle, label: &str) -> Result<()> {
 
     apply_window_material(app_handle, label);
 
+    if label == PREFERENCE_WINDOW_LABEL {
+        hide_clipboard_window_for_preference(app_handle);
+    }
+
     if label == CLIPBOARD_WINDOW_LABEL {
         if let Err(err) = apply_clipboard_window_layout(app_handle) {
             log::warn!("apply clipboard window layout failed: {err}");
@@ -242,6 +246,26 @@ pub fn show_window(app_handle: &AppHandle, label: &str) -> Result<()> {
         lifecycle::on_shown(app_handle, label);
     }
     result
+}
+
+/// 打开偏好前收起剪贴板窗口，与失焦自动隐藏同一规则：固定或临时暂停时保留。
+/// Windows 剪贴板窗口不可聚焦且置顶，不收起会一直压在偏好窗口上面。
+fn hide_clipboard_window_for_preference(app_handle: &AppHandle) {
+    if !should_auto_hide_clipboard_window() {
+        return;
+    }
+
+    let visible = app_handle
+        .get_webview_window(CLIPBOARD_WINDOW_LABEL)
+        .and_then(|window| window.is_visible().ok())
+        .unwrap_or(false);
+    if !visible {
+        return;
+    }
+
+    if let Err(err) = hide_window(app_handle, CLIPBOARD_WINDOW_LABEL) {
+        log::warn!("hide clipboard window before opening preference failed: {err}");
+    }
 }
 
 /// macOS 剪贴板窗口有延迟 show，visibility 需等 NSPanel 真的显示后再 emit。
