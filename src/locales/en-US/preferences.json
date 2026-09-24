@@ -498,6 +498,10 @@
         "plainDefault": {
           "description": "When pasting text records, strip HTML/RTF formatting and paste plain text by default.",
           "title": "Paste as Plain Text by Default"
+        },
+        "quickSnippets": {
+          "description": "List codes, model numbers, numbers and links found in text records below each item. Click one to paste just that part, or copy it when the left click is set to copy.",
+          "title": "Extract Quick Info"
         }
       },
       "permissions": {

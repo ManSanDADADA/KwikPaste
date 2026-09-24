@@ -28,6 +28,7 @@ const SHORTCUTS: Shortcut[] = [
   { keys: ["CmdOrCtrl", "1-0"], labelKey: "shortcuts.pasteNth" },
   { keys: "Space", labelKey: "shortcuts.previewSelected" },
   { keys: "CmdOrCtrl+C", labelKey: "shortcuts.copySelected" },
+  { keys: "CmdOrCtrl+S", labelKey: "shortcuts.splitSelected" },
   { keys: "CmdOrCtrl+O", labelKey: "shortcuts.openSelected" },
   { keys: "CmdOrCtrl+M", labelKey: "shortcuts.noteSelected" },
   { keys: "CmdOrCtrl+D", labelKey: "shortcuts.favoriteSelected" },

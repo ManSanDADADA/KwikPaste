@@ -5,6 +5,7 @@ pub enum ClipboardMenuKey {
     PasteAsPath,
     Copy,
     SaveImage,
+    SplitWords,
     OpenLink,
     SendEmail,
     RevealInFinder,
@@ -25,6 +26,9 @@ pub enum CommandKey {
     DragImageMissing,
     DragTextEmpty,
     ExternalUrlUnsupported,
+    FragmentUnavailable,
+    SplitTextOnly,
+    SplitSensitiveRedacted,
 }
 
 #[derive(Debug, Clone, Copy)]

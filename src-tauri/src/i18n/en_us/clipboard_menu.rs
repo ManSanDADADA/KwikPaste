@@ -8,6 +8,7 @@ pub fn label(key: Key) -> &'static str {
         Key::PasteAsPath => "Paste as Path",
         Key::Copy => "Copy",
         Key::SaveImage => "Save Image",
+        Key::SplitWords => "Split Words",
         Key::OpenLink => "Open Link",
         Key::SendEmail => "Send Email",
         Key::RevealInFinder => "Show in Finder",

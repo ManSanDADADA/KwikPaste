@@ -419,6 +419,32 @@ mod tests {
     }
 
     #[test]
+    fn released_display_settings_enable_quick_snippets() {
+        let released = r#"{
+            "clipboard": {
+                "display": {"textMaxLines": 2, "imageMaxHeight": 80, "fileMaxCount": 4},
+                "content": {
+                    "itemActions": ["copy", "star"],
+                    "itemActionOrder": ["copy", "star", "delete"]
+                }
+            }
+        }"#;
+        let parsed: Settings = serde_json::from_str(released).unwrap();
+        let display = parsed.clipboard.display;
+
+        assert_eq!(display.text_max_lines, 2);
+        assert!(display.quick_snippets);
+        // 已保存的悬停动作保持原样，拆词只在偏好页里作为未勾选项追加。
+        assert_eq!(
+            parsed.clipboard.content.item_actions,
+            [
+                crate::settings::ItemAction::Copy,
+                crate::settings::ItemAction::Star
+            ]
+        );
+    }
+
+    #[test]
     fn released_shortcut_settings_keep_quick_paste_disabled() {
         let released = r#"{
             "shortcuts": {

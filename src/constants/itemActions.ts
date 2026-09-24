@@ -38,6 +38,7 @@ export const ITEM_ACTION_ORDER: ItemAction[] = [
   "pastePath",
   "copy",
   "copyPlain",
+  "splitWords",
   "openLink",
   "sendEmail",
   "reveal",
@@ -97,6 +98,10 @@ export const ITEM_ACTION_META: Record<ItemAction, ItemActionMeta> = {
   sendEmail: {
     icon: "i-lucide:mail",
     labelKey: "quickActions.sendEmail",
+  },
+  splitWords: {
+    icon: "i-lucide:text-select",
+    labelKey: "quickActions.splitWords",
   },
   star: {
     activeLabelKey: "quickActions.starActive",
@@ -256,6 +261,8 @@ export function isItemActionAvailable(action: ItemAction, item: ClipboardItem) {
       );
     case "sendEmail":
       return hasClipboardAction(item, "sendEmail");
+    case "splitWords":
+      return hasClipboardAction(item, "splitWords");
     case "copy":
       return hasClipboardAction(item, "copy");
     case "delete":

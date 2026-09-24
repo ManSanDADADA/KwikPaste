@@ -25,6 +25,7 @@ export type ClipboardAction =
   | "pasteAsPath"
   | "copy"
   | "saveImage"
+  | "splitWords"
   | "openLink"
   | "sendEmail"
   | "revealInFinder"
@@ -78,6 +79,33 @@ export interface ClipboardItem {
   filesPreviewKind?: "imagePreview" | "list";
   /** Rust 按本地时区做三档格式化的 createdAt：HH:mm / MM-DD HH:mm / YYYY-MM-DD HH:mm。 */
   displayCreatedAt?: string;
+  /** 文本条目里识别出的编号、数字、链接等快捷信息，点击单独粘贴；设置关闭或无结果时缺省。 */
+  quickSnippets?: string[];
+}
+
+/**
+ * 从一条记录里选出的片段，与 Rust `clipboard::ClipboardFragment` 对应。
+ * 只描述取原文的哪一段，最终文本由 Rust 从原文取出。
+ */
+export type ClipboardFragment =
+  | { kind: "snippet"; text: string }
+  | { kind: "words"; indices: number[] };
+
+/**
+ * 拆词面板里的一个词，与 Rust `clipboard::WordToken` 对应。
+ */
+export interface WordToken {
+  text: string;
+  /** 与上一个词之间隔着换行。 */
+  lineBreak: boolean;
+}
+
+/**
+ * 一条文本记录的拆词结果；`truncated` 表示原文过长，只拆了开头部分。
+ */
+export interface WordSplit {
+  tokens: WordToken[];
+  truncated: boolean;
 }
 
 export interface ClipboardApp {

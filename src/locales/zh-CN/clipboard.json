@@ -75,6 +75,7 @@
     "pinItemActive": "取消置顶",
     "reveal": "在文件管理器中显示",
     "sendEmail": "发送邮件",
+    "splitWords": "拆词",
     "star": "收藏",
     "starActive": "取消收藏"
   },
@@ -96,9 +97,22 @@
     "pinWindow": "固定 / 取消固定窗口",
     "previewSelected": "按住预览选中项",
     "showShortcuts": "显示快捷键",
+    "splitSelected": "拆词选中项",
     "switchCategory": "切换分类",
     "switchCustomGroup": "切换自定义分组",
     "toggleRange": "切换全部 / 收藏"
+  },
+  "splitWords": {
+    "back": "返回列表",
+    "clear": "取消全选",
+    "copy": "复制",
+    "empty": "没有可拆分的内容",
+    "hint": "点击选词，按住拖动可连续选择",
+    "paste": "粘贴",
+    "selectAll": "全选",
+    "selected": "已选 {{count}} 个",
+    "title": "拆词",
+    "truncated": "内容较长，只拆分了开头部分。"
   },
   "types": {
     "color": "颜色",

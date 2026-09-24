@@ -12,8 +12,9 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::clipboard::{
     add_app_from_path, build_item_with_settings, delete_unreferenced_apps, detect_frontmost,
-    materialize_source, persist_and_notify, refresh_running_apps, sanitize_css_color, AppIconStore,
-    AppsRegistry, ClipboardReader, FileIconStore, ImageStore, WritebackGuard,
+    fragment_source, materialize_source, persist_and_notify, quick_snippets, refresh_running_apps,
+    resolve_fragment, sanitize_css_color, split_words, AppIconStore, AppsRegistry,
+    ClipboardFragment, ClipboardReader, FileIconStore, ImageStore, WordSplit, WritebackGuard,
 };
 use crate::core::{AppError, Result};
 use crate::db::items::{
@@ -514,14 +515,128 @@ pub async fn paste_clipboard_item(
     crate::clipboard::write_to_clipboard(&store, guard.inner().as_ref(), &item, write_plain)?;
     mark_item_reused_if_enabled(&app, &pool, &id, item.kind).await?;
 
+    paste_into_target_app(&app).await
+}
+
+/// 拆词面板的数据：把文本记录的纯文本按词切开，只处理开头一段。
+/// 敏感内容按设置脱敏展示时不拆，否则面板会把完整凭据逐词摊开。
+#[tauri::command]
+pub async fn split_clipboard_item(
+    app: AppHandle,
+    db: State<'_, DatabaseState>,
+    id: String,
+) -> Result<WordSplit> {
+    use crate::i18n::commands::Key;
+
+    let pool = db.pool().await;
+    let item = find_item_by_id(&pool, &id)
+        .await?
+        .ok_or_else(|| AppError::Clipboard(format!("clipboard item not found: {id}")))?;
+    let lang = crate::i18n::current_language(&app);
+
+    if item.kind != ClipboardKind::Text {
+        return Err(AppError::Clipboard(
+            crate::i18n::commands::label(lang, Key::SplitTextOnly).to_owned(),
+        ));
+    }
+
+    let redact_sensitive = app
+        .state::<SettingsStore>()
+        .snapshot()
+        .clipboard
+        .sensitive
+        .redact_secrets;
+    if redact_sensitive && item.is_sensitive {
+        return Err(AppError::Clipboard(
+            crate::i18n::commands::label(lang, Key::SplitSensitiveRedacted).to_owned(),
+        ));
+    }
+
+    Ok(split_words(fragment_source(&item)))
+}
+
+/// 把一条记录里选中的片段（快捷信息 / 拆词选区）写回剪贴板，不触发模拟粘贴。
+#[tauri::command]
+pub async fn copy_clipboard_fragment(
+    app: AppHandle,
+    db: State<'_, DatabaseState>,
+    guard: State<'_, Arc<WritebackGuard>>,
+    id: String,
+    fragment: ClipboardFragment,
+) -> Result<()> {
+    let pool = db.pool().await;
+    let (kind, text) = load_fragment_text(&app, &pool, &id, &fragment).await?;
+
+    crate::clipboard::write_text_fragment(guard.inner().as_ref(), &text)?;
+    mark_item_reused_if_enabled(&app, &pool, &id, kind).await?;
+
+    if app
+        .state::<SettingsStore>()
+        .snapshot()
+        .clipboard
+        .content
+        .copy_then_hide_window
+    {
+        hide_clipboard_window_after_copy(&app);
+    }
+
+    Ok(())
+}
+
+/// 把一条记录里选中的片段写回剪贴板并粘贴到目标应用，流程同 [`paste_clipboard_item`]。
+#[tauri::command]
+pub async fn paste_clipboard_fragment(
+    app: AppHandle,
+    db: State<'_, DatabaseState>,
+    guard: State<'_, Arc<WritebackGuard>>,
+    id: String,
+    fragment: ClipboardFragment,
+) -> Result<()> {
+    let pool = db.pool().await;
+    let (kind, text) = load_fragment_text(&app, &pool, &id, &fragment).await?;
+
+    crate::clipboard::write_text_fragment(guard.inner().as_ref(), &text)?;
+    mark_item_reused_if_enabled(&app, &pool, &id, kind).await?;
+
+    paste_into_target_app(&app).await
+}
+
+/// 读取记录并从原文里取出片段文本；记录已删除或片段已对不上原文时返回用户可读错误。
+async fn load_fragment_text(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    id: &str,
+    fragment: &ClipboardFragment,
+) -> Result<(ClipboardKind, String)> {
+    let item = find_item_by_id(pool, id)
+        .await?
+        .ok_or_else(|| AppError::Clipboard(format!("clipboard item not found: {id}")))?;
+    let text = (item.kind == ClipboardKind::Text)
+        .then(|| resolve_fragment(&item, fragment))
+        .flatten()
+        .ok_or_else(|| {
+            AppError::Clipboard(
+                crate::i18n::commands::label(
+                    crate::i18n::current_language(app),
+                    crate::i18n::commands::Key::FragmentUnavailable,
+                )
+                .to_owned(),
+            )
+        })?;
+
+    Ok((item.kind, text))
+}
+
+/// 剪贴板已写好后粘贴到目标应用：隐藏剪贴板窗口（固定时改为让出键盘焦点），再模拟一次粘贴按键。
+async fn paste_into_target_app(app: &AppHandle) -> Result<()> {
     if window::is_clipboard_window_pinned() {
         // 固定时窗口保持可见：macOS 上 panel 仍是 key window 会吞掉 ⌘V，需先 resign key
         // 让键焦点回到前台 App 的窗口；Windows 剪贴板窗口 focusable=false，无需处理。
         #[cfg(target_os = "macos")]
-        if let Err(err) = window::macos::resign_clipboard_panel_key(&app) {
+        if let Err(err) = window::macos::resign_clipboard_panel_key(app) {
             log::warn!("resign clipboard panel key before paste failed: {err:?}");
         }
-    } else if let Err(err) = window::hide_window(&app, CLIPBOARD_WINDOW_LABEL) {
+    } else if let Err(err) = window::hide_window(app, CLIPBOARD_WINDOW_LABEL) {
         log::warn!("hide clipboard window before paste failed: {err:?}");
     }
 
@@ -537,7 +652,7 @@ pub async fn paste_clipboard_item(
         #[cfg(target_os = "macos")]
         {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            if let Err(err) = window::macos::make_clipboard_panel_key(&app) {
+            if let Err(err) = window::macos::make_clipboard_panel_key(app) {
                 log::warn!("restore clipboard panel key after paste failed: {err:?}");
             }
         }
@@ -623,14 +738,16 @@ pub async fn list_clipboard_items(
     let settings = app.state::<SettingsStore>().snapshot();
     let file_entry_limit = settings.clipboard.display.file_entry_limit();
     let redact_sensitive = settings.clipboard.sensitive.redact_secrets;
+    let quick_snippets_enabled = settings.clipboard.display.quick_snippets;
     for item in &mut items {
         attach_image_thumbnail_path(&image_store, item).await?;
         attach_source_app_icon_path(&app_icon_store, item);
         attach_file_entries(&pool, &file_icon_store, item, file_entry_limit).await?;
         attach_color_preview(item);
         attach_display_created_at(item, &now);
+        attach_quick_snippets(item, quick_snippets_enabled, redact_sensitive);
         redact_sensitive_list_item(item, redact_sensitive);
-        item.available_actions = compute_available_actions(item);
+        item.available_actions = compute_available_actions(item, redact_sensitive);
     }
     let has_more = q.offset + (items.len() as i64) < total;
     Ok(ClipboardItemPage {
@@ -665,8 +782,13 @@ pub async fn get_clipboard_item(
         attach_file_entries(&pool, &file_icon_store, item, file_entry_limit).await?;
         attach_color_preview(item);
         attach_display_created_at(item, &Local::now());
+        attach_quick_snippets(
+            item,
+            settings.clipboard.display.quick_snippets,
+            redact_sensitive,
+        );
         redact_sensitive_list_item(item, redact_sensitive);
-        item.available_actions = compute_available_actions(item);
+        item.available_actions = compute_available_actions(item, redact_sensitive);
     }
     Ok(item)
 }
@@ -731,6 +853,15 @@ fn attach_color_preview(item: &mut ClipboardItem) {
 
     let source = item.summary.as_deref().unwrap_or(&item.content);
     item.color_preview = sanitize_css_color(source);
+}
+
+/// 按设置为文本列表项提取快捷信息；脱敏展示的敏感条目不提取，片段会绕过遮罩露出凭据。
+fn attach_quick_snippets(item: &mut ClipboardItem, enabled: bool, redact_sensitive: bool) {
+    if !enabled || redact_sensitive && item.is_sensitive {
+        return;
+    }
+
+    item.quick_snippets = quick_snippets(item);
 }
 
 /// 按当前设置对敏感文本列表项返回脱敏摘要，避免前端列表暴露完整凭据。
@@ -824,8 +955,9 @@ fn attach_display_created_at(item: &mut ClipboardItem, now: &chrono::DateTime<Lo
 /// 按 `kind` / `sub_kind` 计算右键菜单可用动作，按建议展示顺序返回。
 /// 前端只负责把每个动作映射成 `MenuItemOptions`（文案 + 快捷键），
 /// 不再自行判定「能否打开链接 / 是否文件可揭示」等业务规则。
-fn compute_available_actions(item: &ClipboardItem) -> Vec<ClipboardAction> {
-    let mut actions = Vec::with_capacity(10);
+/// 脱敏展示的敏感文本不提供拆词，与 [`split_clipboard_item`] 的拒绝条件一致。
+fn compute_available_actions(item: &ClipboardItem, redact_sensitive: bool) -> Vec<ClipboardAction> {
+    let mut actions = Vec::with_capacity(11);
 
     actions.push(ClipboardAction::Paste);
 
@@ -838,6 +970,9 @@ fn compute_available_actions(item: &ClipboardItem) -> Vec<ClipboardAction> {
     actions.push(ClipboardAction::Copy);
     if item.kind == ClipboardKind::Image {
         actions.push(ClipboardAction::SaveImage);
+    }
+    if item.kind == ClipboardKind::Text && !(redact_sensitive && item.is_sensitive) {
+        actions.push(ClipboardAction::SplitWords);
     }
 
     match item.sub_kind {
@@ -1663,6 +1798,7 @@ mod tests {
             available_actions: Vec::new(),
             color_preview: None,
             display_created_at: String::new(),
+            quick_snippets: Vec::new(),
         }
     }
 
@@ -1900,16 +2036,45 @@ mod tests {
 
     #[test]
     fn image_actions_include_save_image() {
-        let actions = compute_available_actions(&image_item());
+        let actions = compute_available_actions(&image_item(), false);
 
         assert!(actions.contains(&ClipboardAction::SaveImage));
     }
 
     #[test]
     fn text_actions_do_not_include_save_image() {
-        let actions = compute_available_actions(&text_item(None, false));
+        let actions = compute_available_actions(&text_item(None, false), false);
 
         assert!(!actions.contains(&ClipboardAction::SaveImage));
+    }
+
+    // 拆词只对文本开放；脱敏展示的敏感文本不拆，避免面板把凭据逐词摊开。
+    #[test]
+    fn split_words_follows_kind_and_redaction() {
+        let has_split = |item: &ClipboardItem, redact: bool| {
+            compute_available_actions(item, redact).contains(&ClipboardAction::SplitWords)
+        };
+
+        assert!(has_split(&text_item(None, false), true));
+        assert!(has_split(&text_item(None, true), false));
+        assert!(!has_split(&text_item(None, true), true));
+        assert!(!has_split(&image_item(), false));
+    }
+
+    // 快捷信息同样受脱敏约束，并且可以整体关闭。
+    #[test]
+    fn quick_snippets_respect_setting_and_redaction() {
+        let mut item = text_item(None, true);
+        item.summary = Some("订单 20260924 已发货".to_owned());
+
+        attach_quick_snippets(&mut item, true, true);
+        assert!(item.quick_snippets.is_empty());
+
+        attach_quick_snippets(&mut item, false, false);
+        assert!(item.quick_snippets.is_empty());
+
+        attach_quick_snippets(&mut item, true, false);
+        assert_eq!(item.quick_snippets, ["20260924"]);
     }
 
     #[test]

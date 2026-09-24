@@ -15,10 +15,12 @@ import {
 } from "react-virtuoso";
 import { useSnapshot } from "valtio";
 import {
+  copyClipboardFragment,
   deleteClipboardItem,
   hideWindow,
   listClipboardGroups,
   openClipboardItemLink,
+  pasteClipboardFragment,
   pasteClipboardItem,
   revealClipboardItem,
   saveClipboardImageToFile,
@@ -44,8 +46,10 @@ import { useTauriListen } from "@/hooks/useTauriListen";
 import { clipboardStatsState } from "@/stores/clipboardStats";
 import { clipboardViewState } from "@/stores/clipboardView";
 import { settingsState } from "@/stores/settings";
+import { openSplitWords } from "@/stores/splitWords";
 import type {
   ClipboardAction,
+  ClipboardFragment,
   ClipboardGroupRecord,
   ClipboardItem,
   ClipboardKind,
@@ -114,7 +118,7 @@ const List: FC = () => {
   const deletePinnedItems = settings.clipboard.content.deletePinnedItems;
   const deleteFavoriteItemsOnlyInFavoriteGroup =
     settings.clipboard.content.deleteFavoriteItemsOnlyInFavoriteGroup;
-  const { fileMaxCount } = display;
+  const { fileMaxCount, quickSnippets } = display;
   const showOriginalPreview = settings.clipboard.content.showOriginalPreview;
   const quickActionLabels = buildItemActionLabels(t);
   const currentGroupName = getCurrentGroupName(customGroups, groupId);
@@ -179,7 +183,7 @@ const List: FC = () => {
 
     closePreviewRef.current("displaySettingChange");
     reloadCurrentRangeRef.current();
-  }, [fileMaxCount, redactSecrets]);
+  }, [fileMaxCount, quickSnippets, redactSecrets]);
 
   /**
    * 从 Rust 拉取自定义分组，用于空状态展示当前分组名称。
@@ -486,6 +490,36 @@ const List: FC = () => {
   };
 
   /**
+   * 打开拆词面板；Rust 没给出拆词动作（非文本、脱敏展示的敏感内容）时不响应。
+   */
+  const openSplit = (item: ClipboardItem) => {
+    if (!item.availableActions?.includes("splitWords")) return;
+
+    closePreview("splitWords");
+    setSelectedId(item.id);
+    openSplitWords(item.id);
+  };
+
+  /**
+   * 点击卡片上的快捷信息：左键设置为复制时只复制该片段，其余情况直接粘贴到目标应用。
+   */
+  const pickSnippet = async (item: ClipboardItem, text: string) => {
+    const fragment: ClipboardFragment = { kind: "snippet", text };
+
+    setSelectedId(item.id);
+
+    if (autoPaste === "singleClickCopy" || autoPaste === "doubleClickCopy") {
+      if (previewSession?.itemId === item.id) closePreview("snippetCopy");
+
+      await copyClipboardFragment(item.id, fragment);
+      return;
+    }
+
+    closePreview("snippetPaste");
+    await pasteClipboardFragment(item.id, fragment);
+  };
+
+  /**
    * 按当前条目后端声明的可用动作执行“打开”：链接 / 邮箱 / 定位文件共用 Cmd/Ctrl+O。
    */
   const handleShortcutOpen = async (
@@ -541,6 +575,9 @@ const List: FC = () => {
       case "saveImage":
         if (previewSession?.itemId === target.id) closePreview("saveImage");
         saveClipboardImageToFile(target.id);
+        return;
+      case "splitWords":
+        openSplit(target);
         return;
       case "openLink":
         if (previewSession?.itemId === target.id) closePreview("openLink");
@@ -660,6 +697,18 @@ const List: FC = () => {
 
       event.preventDefault();
       void handleShortcutOpen(activeItem, openAction);
+
+      return;
+    }
+
+    if (eventModifierPressed && event.key.toLowerCase() === "s") {
+      event.preventDefault();
+
+      const activeItem = getActiveItem();
+
+      if (!activeItem) return;
+
+      openSplit(activeItem);
 
       return;
     }
@@ -868,6 +917,10 @@ const List: FC = () => {
       handleOpenNote(item, "editNote");
     };
 
+    const handlePickSnippet = (text: string) => {
+      void pickSnippet(item, text);
+    };
+
     const handleQuickAction = async (action: ItemAction) => {
       if (action === "delete" && !canDeleteItem(item)) return;
 
@@ -893,6 +946,9 @@ const List: FC = () => {
             closePreview("quickCopyPlain");
           }
           await writeToClipboard(item.id, true);
+          return;
+        case "splitWords":
+          openSplit(item);
           return;
         case "openLink":
           if (previewSession?.itemId === item.id) {
@@ -1022,6 +1078,7 @@ const List: FC = () => {
           onDoubleClick={handleDoubleClick}
           onMouseDown={handleMouseDown}
           onOpenLink={handleOpenLink}
+          onPickSnippet={handlePickSnippet}
           onPointerEnter={handlePointerEnter}
           onPointerLeave={handlePointerLeave}
           onPointerMove={handlePointerMove}

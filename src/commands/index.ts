@@ -15,6 +15,7 @@ import { settingsState } from "@/stores/settings";
 import type {
   ClipboardAction,
   ClipboardApp,
+  ClipboardFragment,
   ClipboardGroupInput,
   ClipboardGroupRecord,
   ClipboardItemPage,
@@ -22,6 +23,7 @@ import type {
   ClipboardKind,
   ClipboardSubKind,
   UpdateNoteResult,
+  WordSplit,
 } from "@/types/clipboard";
 import type {
   Settings,
@@ -926,6 +928,47 @@ export const pasteClipboardItem = (id: string, plain: boolean) => {
     TAURI_COMMAND.PASTE_CLIPBOARD_ITEM,
     "commands:labels.paste",
     { id, plain },
+  );
+};
+
+/**
+ * 按词切开一条文本记录，供拆词面板渲染；敏感内容脱敏展示时 Rust 会拒绝。
+ */
+export const splitClipboardItem = (id: string) => {
+  return call<WordSplit>(
+    TAURI_COMMAND.SPLIT_CLIPBOARD_ITEM,
+    "commands:labels.splitWords",
+    { id },
+  );
+};
+
+/**
+ * 把记录里选中的片段（快捷信息 / 拆词选区）写回剪贴板，成功后统一 toast「已复制」。
+ */
+export const copyClipboardFragment = async (
+  id: string,
+  fragment: ClipboardFragment,
+) => {
+  await call<void>(
+    TAURI_COMMAND.COPY_CLIPBOARD_FRAGMENT,
+    "commands:labels.copy",
+    { fragment, id },
+  );
+
+  getMessageApi().success(i18n.t("commands:messages.copied"));
+};
+
+/**
+ * 把记录里选中的片段写回剪贴板并粘贴到目标应用，窗口处理同 `pasteClipboardItem`。
+ */
+export const pasteClipboardFragment = (
+  id: string,
+  fragment: ClipboardFragment,
+) => {
+  return call<void>(
+    TAURI_COMMAND.PASTE_CLIPBOARD_FRAGMENT,
+    "commands:labels.paste",
+    { fragment, id },
   );
 };
 

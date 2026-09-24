@@ -70,6 +70,7 @@
     "setRunAsAdmin": "设置管理员权限启动",
     "setTaskbarIcon": "设置任务栏图标",
     "skipUpdateVersion": "跳过更新版本",
+    "splitWords": "拆词",
     "suspendGlobalShortcuts": "暂停全局快捷键",
     "toggleFavorite": "收藏",
     "unpinItem": "取消置顶"

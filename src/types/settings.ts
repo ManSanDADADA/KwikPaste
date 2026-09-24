@@ -49,6 +49,7 @@ export type ItemAction =
   | "pastePath"
   | "copy"
   | "copyPlain"
+  | "splitWords"
   | "openLink"
   | "sendEmail"
   | "reveal"
@@ -136,6 +137,7 @@ export interface Display {
   textMaxLines: number;
   imageMaxHeight: number;
   fileMaxCount: number;
+  quickSnippets: boolean;
 }
 
 export interface Capture {

@@ -498,6 +498,10 @@
         "plainDefault": {
           "description": "粘贴文本记录时默认去除 HTML/RTF 等格式，只粘贴纯文本。",
           "title": "默认纯文本粘贴"
+        },
+        "quickSnippets": {
+          "description": "在文本记录下方列出识别到的编号、型号、数字、链接等，点击即可单独粘贴；左键设为复制时改为复制。",
+          "title": "提取快捷信息"
         }
       },
       "permissions": {

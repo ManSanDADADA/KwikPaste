@@ -75,6 +75,7 @@
     "pinItemActive": "Unpin from Top",
     "reveal": "Show in File Manager",
     "sendEmail": "Send Email",
+    "splitWords": "Split Words",
     "star": "Favorite",
     "starActive": "Unfavorite"
   },
@@ -96,9 +97,22 @@
     "pinWindow": "Pin / unpin window",
     "previewSelected": "Hold to preview selected item",
     "showShortcuts": "Show shortcuts",
+    "splitSelected": "Split selected item into words",
     "switchCategory": "Switch category",
     "switchCustomGroup": "Switch custom group",
     "toggleRange": "Toggle all / favorites"
+  },
+  "splitWords": {
+    "back": "Back to list",
+    "clear": "Deselect all",
+    "copy": "Copy",
+    "empty": "Nothing to split",
+    "hint": "Click words to pick them, drag across to select a run",
+    "paste": "Paste",
+    "selectAll": "Select all",
+    "selected": "{{count}} selected",
+    "title": "Split Words",
+    "truncated": "This text is long, so only the beginning is split."
   },
   "types": {
     "color": "Color",

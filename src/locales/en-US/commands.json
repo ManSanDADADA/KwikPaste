@@ -70,6 +70,7 @@
     "setRunAsAdmin": "Set administrator launch",
     "setTaskbarIcon": "Set taskbar icon",
     "skipUpdateVersion": "Skip update version",
+    "splitWords": "Split words",
     "suspendGlobalShortcuts": "Suspend global shortcuts",
     "toggleFavorite": "Favorite",
     "unpinItem": "Unpin item"

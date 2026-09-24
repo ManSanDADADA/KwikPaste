@@ -7,5 +7,8 @@ pub fn label(key: Key) -> &'static str {
         Key::DragImageMissing => "The image file no longer exists",
         Key::DragTextEmpty => "Text content is empty",
         Key::ExternalUrlUnsupported => "Only links starting with http or https can be opened",
+        Key::FragmentUnavailable => "The selected text is no longer in this record",
+        Key::SplitTextOnly => "Only text records can be split into words",
+        Key::SplitSensitiveRedacted => "Sensitive content is redacted and can't be split",
     }
 }

@@ -7,5 +7,8 @@ pub fn label(key: Key) -> &'static str {
         Key::DragImageMissing => "图片文件已不存在",
         Key::DragTextEmpty => "文本内容为空",
         Key::ExternalUrlUnsupported => "只能打开 http 或 https 开头的链接",
+        Key::FragmentUnavailable => "所选内容已不在这条记录中",
+        Key::SplitTextOnly => "只有文本记录可以拆词",
+        Key::SplitSensitiveRedacted => "敏感内容已脱敏显示，不能拆词",
     }
 }

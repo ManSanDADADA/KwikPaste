@@ -31,6 +31,7 @@ pub enum ClipboardMenuAction {
     PasteAsPath,
     Copy,
     SaveImage,
+    SplitWords,
     OpenLink,
     SendEmail,
     RevealInFinder,
@@ -59,6 +60,7 @@ impl ClipboardMenuAction {
             Self::PasteAsPath => Key::PasteAsPath,
             Self::Copy => Key::Copy,
             Self::SaveImage => Key::SaveImage,
+            Self::SplitWords => Key::SplitWords,
             Self::OpenLink => Key::OpenLink,
             Self::SendEmail => Key::SendEmail,
             Self::RevealInFinder => Key::RevealInFinder,
@@ -98,6 +100,7 @@ impl ClipboardMenuAction {
             Self::PasteAsPlainText | Self::PasteAsPath => Some("CmdOrCtrl+Enter"),
             Self::Copy => Some("CmdOrCtrl+C"),
             Self::SaveImage => None,
+            Self::SplitWords => Some("CmdOrCtrl+S"),
             Self::OpenLink | Self::SendEmail | Self::RevealInFinder | Self::RevealInExplorer => {
                 Some("CmdOrCtrl+O")
             }
@@ -118,6 +121,7 @@ pub(super) const ACTION_GROUPS: &[&[ClipboardMenuAction]] = &[
         ClipboardMenuAction::PasteAsPath,
         ClipboardMenuAction::Copy,
         ClipboardMenuAction::SaveImage,
+        ClipboardMenuAction::SplitWords,
     ],
     &[
         ClipboardMenuAction::OpenLink,
@@ -213,6 +217,7 @@ mod native {
                 Self::PasteAsPath => "cim::pasteAsPath",
                 Self::Copy => "cim::copy",
                 Self::SaveImage => "cim::saveImage",
+                Self::SplitWords => "cim::splitWords",
                 Self::OpenLink => "cim::openLink",
                 Self::SendEmail => "cim::sendEmail",
                 Self::RevealInFinder => "cim::revealInFinder",
@@ -232,6 +237,7 @@ mod native {
                 ClipboardMenuAction::PasteAsPath,
                 ClipboardMenuAction::Copy,
                 ClipboardMenuAction::SaveImage,
+                ClipboardMenuAction::SplitWords,
                 ClipboardMenuAction::OpenLink,
                 ClipboardMenuAction::SendEmail,
                 ClipboardMenuAction::RevealInFinder,

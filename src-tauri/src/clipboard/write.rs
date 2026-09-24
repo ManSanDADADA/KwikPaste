@@ -43,6 +43,16 @@ pub fn write_to_clipboard(
     Ok(())
 }
 
+/// 把从历史记录里取出的一段纯文本（快捷信息 / 拆词选区）写回剪贴板。
+/// 同样登记回环抑制：片段只是这次要粘贴的内容，不另外记成一条新历史。
+pub fn write_text_fragment(guard: &WritebackGuard, text: &str) -> Result<()> {
+    let ctx = ClipboardContext::new().map_err(clip_err)?;
+
+    guard.suppress(content_hash(ClipboardKind::Text, text));
+    ctx.set(vec![ClipboardContent::Text(text.to_owned())])
+        .map_err(clip_err)
+}
+
 fn write_text(
     ctx: &ClipboardContext,
     guard: &WritebackGuard,
@@ -191,6 +201,7 @@ mod tests {
             available_actions: Vec::new(),
             color_preview: None,
             display_created_at: String::new(),
+            quick_snippets: Vec::new(),
         }
     }
 
@@ -295,6 +306,7 @@ mod tests {
             available_actions: Vec::new(),
             color_preview: None,
             display_created_at: String::new(),
+            quick_snippets: Vec::new(),
         };
 
         write_to_clipboard(&store, &guard, &item, false).unwrap();

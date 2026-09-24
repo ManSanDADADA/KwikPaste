@@ -112,6 +112,10 @@ pub struct ClipboardItem {
     #[sqlx(skip)]
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub display_created_at: String,
+    /// 列表卡片下方的快捷信息（编号、数字、链接等），点击即单独粘贴；命令层按设置从摘要里提取。
+    #[sqlx(skip)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quick_snippets: Vec<String>,
 }
 
 /// 右键菜单可执行的动作种类。
@@ -129,6 +133,8 @@ pub enum ClipboardAction {
     Copy,
     /// 将图片条目另存到本地文件（`kind = image`）。
     SaveImage,
+    /// 打开拆词面板，按词挑选后粘贴或复制（`kind = text`）。
+    SplitWords,
     /// 在浏览器打开链接（`sub_kind = url`）。
     OpenLink,
     /// 调起邮件客户端（`sub_kind = email`）。

@@ -13,6 +13,7 @@ import ClipboardQuickActions from "./ClipboardQuickActions";
 import FilesCard from "./FilesCard";
 import ImageCard from "./ImageCard";
 import NoteContentSwitcher from "./NoteContentSwitcher";
+import QuickSnippets from "./QuickSnippets";
 import TextCard from "./TextCard";
 
 interface ClipboardCardProps {
@@ -45,6 +46,10 @@ interface ClipboardCardProps {
   quickActions?: ItemAction[];
   quickActionLabels?: ItemActionLabels;
   onQuickAction?: (action: ItemAction) => Promise<void> | void;
+  /**
+   * 点击卡片下方的快捷信息时单独粘贴 / 复制该片段，由列表层按左键设置决定。
+   */
+  onPickSnippet?: (text: string) => void;
   showOriginalOnHover?: boolean;
   rootRef?: Ref<HTMLDivElement>;
 }
@@ -73,10 +78,18 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
     quickActions = [],
     quickActionLabels,
     onQuickAction,
+    onPickSnippet,
     showOriginalOnHover = true,
     rootRef,
   } = props;
-  const { kind, sourceAppId, subKind, sourceAppIconPath, sourceAppName } = item;
+  const {
+    kind,
+    quickSnippets = [],
+    sourceAppId,
+    subKind,
+    sourceAppIconPath,
+    sourceAppName,
+  } = item;
   const { t } = useTranslation("clipboard");
   const [hovered, setHovered] = useState(false);
   const typeKey = subKind ?? kind;
@@ -84,6 +97,7 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
   const body = renderBody(item, isLinkActive, onOpenLink);
   const showSensitiveIndicator = item.isSensitive && item.kind === "text";
   const showStatusIndicators = item.isPinned || showSensitiveIndicator;
+  const indicatorCount = Number(item.isPinned) + Number(showSensitiveIndicator);
   const sourceAppIcon = sourceAppId ? (
     <AssetImage
       alt={sourceAppName}
@@ -190,6 +204,13 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
       ) : (
         body
       )}
+      {quickSnippets.length > 0 && onPickSnippet ? (
+        <QuickSnippets
+          indicatorCount={indicatorCount}
+          onPick={onPickSnippet}
+          snippets={quickSnippets}
+        />
+      ) : null}
       {showStatusIndicators
         ? renderStatusIndicators(item.isPinned, showSensitiveIndicator)
         : null}

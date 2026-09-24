@@ -331,6 +331,7 @@ pub fn build_item_with_settings(
         available_actions: Vec::new(),
         color_preview: None,
         display_created_at: String::new(),
+        quick_snippets: Vec::new(),
     }))
 }
 

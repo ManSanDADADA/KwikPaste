@@ -227,6 +227,7 @@ mod tests {
             available_actions: Vec::new(),
             color_preview: None,
             display_created_at: String::new(),
+            quick_snippets: Vec::new(),
         };
         insert_item(&pool, &item).await.unwrap();
 

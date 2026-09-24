@@ -413,6 +413,7 @@ impl Default for Content {
             sort: ClipboardItemSort::UpdatedAt,
             item_actions: vec![
                 ItemAction::Copy,
+                ItemAction::SplitWords,
                 ItemAction::Star,
                 ItemAction::PinItem,
                 ItemAction::Delete,
@@ -423,6 +424,7 @@ impl Default for Content {
                 ItemAction::PastePath,
                 ItemAction::Copy,
                 ItemAction::CopyPlain,
+                ItemAction::SplitWords,
                 ItemAction::OpenLink,
                 ItemAction::SendEmail,
                 ItemAction::Reveal,
@@ -445,6 +447,9 @@ pub struct Display {
     pub image_max_height: u16,
     /// 文件列表最多返回并显示的条目数。
     pub file_max_count: u8,
+    /// 文本记录下方列出识别到的编号、数字、链接等快捷信息，点击单独粘贴。
+    /// 旧配置没有这个字段，按默认开启读取。
+    pub quick_snippets: bool,
 }
 
 impl Default for Display {
@@ -453,6 +458,7 @@ impl Default for Display {
             text_max_lines: 3,
             image_max_height: 64,
             file_max_count: 3,
+            quick_snippets: true,
         }
     }
 }
@@ -496,6 +502,7 @@ pub enum ItemAction {
     PastePath,
     Copy,
     CopyPlain,
+    SplitWords,
     OpenLink,
     SendEmail,
     Reveal,

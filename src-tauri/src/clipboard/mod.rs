@@ -3,6 +3,7 @@ mod apps_registry;
 mod cleanup;
 mod detect;
 mod file_icon_store;
+mod fragment;
 mod guard;
 mod icon;
 mod ingest;
@@ -23,6 +24,9 @@ pub use apps_registry::{
 pub use cleanup::storage_bytes_in_use;
 pub use detect::sanitize_css_color;
 pub use file_icon_store::FileIconStore;
+pub use fragment::{
+    fragment_source, quick_snippets, resolve_fragment, split_words, ClipboardFragment, WordSplit,
+};
 pub use guard::WritebackGuard;
 pub use icon::{get_icon_cache_key, icon_png, DIR_CACHE_KEY};
 #[cfg(test)]
@@ -36,7 +40,7 @@ pub use sound::play_copy_sound;
 pub use source::detect_frontmost;
 pub use storage::ImageStore;
 pub use watcher::{init, materialize_source, persist_and_notify, WatcherPause};
-pub use write::write_to_clipboard;
+pub use write::{write_text_fragment, write_to_clipboard};
 
 #[cfg(test)]
 pub(crate) mod test_lock {

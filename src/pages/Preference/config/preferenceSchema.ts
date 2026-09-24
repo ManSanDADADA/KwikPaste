@@ -301,6 +301,15 @@ export const preferenceTabs: PreferenceTab[] = [
               return settings.clipboard.content.pasteFilesAsPath;
             },
           },
+          {
+            control: { type: "switch" },
+            id: "paste.quickSnippets",
+            keywords: ["quick", "snippet", "extract", "number", "code"],
+            path: ["clipboard", "display", "quickSnippets"],
+            value: (settings) => {
+              return settings.clipboard.display.quickSnippets;
+            },
+          },
         ],
       },
       {

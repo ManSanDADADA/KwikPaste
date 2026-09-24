@@ -56,6 +56,7 @@ const SETTING_ICON_MAP: Record<string, string> = {
   "paste.fileMode": "i-lucide:file-symlink",
   "paste.middleClick": "i-ph:mouse-middle-click-bold",
   "paste.plainDefault": "i-lucide:clipboard-type",
+  "paste.quickSnippets": "i-lucide:text-select",
   "permissions.accessibility": "i-lucide:accessibility",
   "permissions.fullDiskAccess": "i-lucide:hard-drive",
   "permissions.runAsAdministrator": "i-lucide:shield-alert",

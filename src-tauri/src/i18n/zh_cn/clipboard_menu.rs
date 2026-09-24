@@ -8,6 +8,7 @@ pub fn label(key: Key) -> &'static str {
         Key::PasteAsPath => "粘贴为路径",
         Key::Copy => "复制",
         Key::SaveImage => "保存图片",
+        Key::SplitWords => "拆词",
         Key::OpenLink => "打开链接",
         Key::SendEmail => "发送邮件",
         Key::RevealInFinder => "在访达中显示",
