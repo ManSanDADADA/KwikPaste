@@ -25,7 +25,7 @@ use crate::settings::SettingsStore;
 use super::{get_window, lifecycle, CLIPBOARD_PREVIEW_WINDOW_LABEL, CLIPBOARD_WINDOW_LABEL};
 
 #[cfg(target_os = "macos")]
-use tauri_nspanel::{tauri_panel, ManagerExt, PanelLevel, WebviewWindowExt};
+use tauri_nspanel::{tauri_panel, ManagerExt, PanelLevel, StyleMask, WebviewWindowExt};
 
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HWND;
@@ -449,6 +449,8 @@ pub fn build_clipboard_preview_window(app: &AppHandle) -> Result<()> {
     .skip_taskbar(true)
     .focused(false)
     .focusable(false)
+    // 面板可以点选词语：不激活的面板上第一下点击也要直接交给网页。
+    .accept_first_mouse(true)
     .disable_drag_drop_handler()
     .visible(false)
     .build()
@@ -569,8 +571,9 @@ fn prepare_preview_window_for_show(
     bounds: (PhysicalPosition<i32>, PhysicalSize<u32>),
 ) -> Result<()> {
     apply_preview_window_bounds(window, bounds)?;
+    // 面板接收鼠标：指针停在面板上时它不会自动收起，可以直接点选、拖选文本里的词。
     window
-        .set_ignore_cursor_events(true)
+        .set_ignore_cursor_events(false)
         .map_err(|e| anyhow::anyhow!(e))?;
     raise_preview_window(app, window)
 }
@@ -641,7 +644,9 @@ fn setup_macos_preview_panel(app: &AppHandle, window: &WebviewWindow) -> Result<
     };
 
     panel.set_level(PanelLevel::Status.value());
-    panel.set_ignores_mouse_events(true);
+    // 不激活 App：在面板上点选词语时，前台仍是要粘贴的目标应用。
+    panel.set_style_mask(StyleMask::empty().nonactivating_panel().into());
+    panel.set_ignores_mouse_events(false);
 
     Ok(())
 }
@@ -653,7 +658,7 @@ fn set_macos_preview_panel_level(app: &AppHandle) -> Result<()> {
     app.run_on_main_thread(move || {
         if let Ok(panel) = handle.get_webview_panel(CLIPBOARD_PREVIEW_WINDOW_LABEL) {
             panel.set_level(PanelLevel::Status.value());
-            panel.set_ignores_mouse_events(true);
+            panel.set_ignores_mouse_events(false);
         }
     })
     .map_err(|e| anyhow::anyhow!(e))?;
@@ -671,7 +676,7 @@ fn show_macos_preview_panel(app: &AppHandle) -> Result<()> {
             let panel = handle
                 .get_webview_panel(CLIPBOARD_PREVIEW_WINDOW_LABEL)
                 .map_err(|e| anyhow::anyhow!("preview panel not found: {e:?}"))?;
-            panel.set_ignores_mouse_events(true);
+            panel.set_ignores_mouse_events(false);
             panel.set_level(PanelLevel::Status.value());
             panel.show();
             Ok(())
@@ -696,6 +701,25 @@ fn hide_macos_preview_panel(app: &AppHandle) -> Result<()> {
     .map_err(|e| anyhow::anyhow!(e))?;
 
     Ok(())
+}
+
+/// 预览面板可见且包含该 physical 坐标；剪贴板窗口的外部点击隐藏据此把面板当作窗内。
+#[cfg(target_os = "windows")]
+pub fn contains_physical_point(app: &AppHandle, x: i32, y: i32) -> bool {
+    let Some(window) = app.get_webview_window(CLIPBOARD_PREVIEW_WINDOW_LABEL) else {
+        return false;
+    };
+    if !window.is_visible().unwrap_or(false) {
+        return false;
+    }
+    let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return false;
+    };
+
+    x >= position.x
+        && x < position.x + size.width as i32
+        && y >= position.y
+        && y < position.y + size.height as i32
 }
 
 /// 将预览窗口重新压到 Windows topmost 栈顶，避免被同为 always-on-top 的剪贴板窗口盖住。

@@ -122,6 +122,8 @@ export interface ClipboardPreviewPayload {
   imageExists: boolean;
   files: ClipboardPreviewFileEntry[];
   totalFiles: number;
+  /** 文本里可点选的词，[start, end) 为字符串下标，序号即拆词序号；脱敏展示时缺省。 */
+  words?: [number, number][];
 }
 
 export interface StorageUsage {

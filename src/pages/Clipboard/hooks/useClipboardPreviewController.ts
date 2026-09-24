@@ -15,7 +15,9 @@ import {
   closeClipboardPreviewSilently,
   HOVER_DELAY_MS,
   HOVER_HIDE_BUFFER_MS,
+  isPointerTrigger,
   isSpaceKey,
+  type PreviewPointerPayload,
   type PreviewSession,
   type PreviewTrigger,
   type UseClipboardPreviewControllerOptions,
@@ -63,6 +65,7 @@ export function useClipboardPreviewController(
   const keyboardPreviewFrameRef = useRef<number | null>(null);
   const keyboardPreviewTargetRef = useRef<KeyboardPreviewTarget | null>(null);
   const pendingHoverTargetRef = useRef<PreviewPointerTarget | null>(null);
+  const previewPointerInsideRef = useRef(false);
   const settingsSnapshot = useSnapshot(settingsState);
   const previewSettings = settingsSnapshot.clipboard.preview;
 
@@ -118,6 +121,25 @@ export function useClipboardPreviewController(
 
   useTauriListen(TAURI_EVENT.WINDOW_VISIBILITY, handleWindowVisibility);
 
+  /**
+   * 预览面板报告指针进出：停在面板上时取消收起，离开面板后按 hover 同样的缓冲收起；
+   * 仍按着 Space 的 keyboard 预览不受影响。
+   */
+  const handlePreviewPointer = (event: { payload: PreviewPointerPayload }) => {
+    previewPointerInsideRef.current = event.payload.inside;
+
+    if (!previewSessionRef.current) return;
+
+    if (event.payload.inside) {
+      cancelHoverHide();
+      return;
+    }
+
+    scheduleHoverHide("previewPointerLeave");
+  };
+
+  useTauriListen(TAURI_EVENT.PREVIEW_POINTER, handlePreviewPointer);
+
   const handleWindowBlur = () => {
     if (!previewSessionRef.current) return;
 
@@ -137,6 +159,7 @@ export function useClipboardPreviewController(
    */
   const closePreview = (reason: string) => {
     previewOpenRequestIdRef.current += 1;
+    previewPointerInsideRef.current = false;
     cancelHoverPreview();
     cancelHoverHide();
     cancelKeyboardPreviewFrame();
@@ -266,14 +289,21 @@ export function useClipboardPreviewController(
   };
 
   /**
-   * Space 松开关闭 keyboard preview。
+   * Space 松开关闭 keyboard preview；指针已经停在预览面板上时交给面板撑住，方便接着点选词语。
    */
   const handlePreviewSpaceUp = (event: KeyboardEvent) => {
     if (!isSpaceKey(event)) return;
 
     event.preventDefault();
 
-    if (previewSession?.trigger !== "keyboard") return;
+    const session = previewSessionRef.current;
+
+    if (session?.trigger !== "keyboard") return;
+
+    if (previewPointerInsideRef.current) {
+      commitPreviewSession({ ...session, trigger: "held" });
+      return;
+    }
 
     closePreview("spaceUp");
   };
@@ -301,7 +331,7 @@ export function useClipboardPreviewController(
    * 滚动列表时关闭 hover preview，保留 keyboard preview。
    */
   const closeHoverPreviewForScroll = () => {
-    if (previewSession?.trigger === "hover") {
+    if (isPointerTrigger(previewSession?.trigger)) {
       closePreview("scroll");
       return;
     }
@@ -366,22 +396,26 @@ export function useClipboardPreviewController(
     cancelHoverPreview();
     cancelHoverHide();
 
-    if (previewSessionRef.current?.trigger !== "hover") return;
+    if (!isPointerTrigger(previewSessionRef.current?.trigger)) return;
 
     closePreview(reason);
   };
 
   /**
-   * 鼠标离开剪贴板项后进入准备隐藏状态，短时间内进入新项会取消隐藏。
+   * 鼠标离开剪贴板项或预览面板后进入准备隐藏状态，短时间内进入新项或面板会取消隐藏。
    */
   const scheduleHoverHide = (reason: string) => {
     cancelHoverPreview();
     cancelHoverHide();
 
-    if (previewSessionRef.current?.trigger !== "hover") return;
+    if (!isPointerTrigger(previewSessionRef.current?.trigger)) return;
 
     hoverHideTimerRef.current = window.setTimeout(() => {
       hoverHideTimerRef.current = null;
+
+      // 离开卡片和进入面板分别来自两个窗口，进入面板的通知可能晚到，这里再确认一次。
+      if (previewPointerInsideRef.current) return;
+
       closeHoverPreview(reason);
     }, HOVER_HIDE_BUFFER_MS);
   };

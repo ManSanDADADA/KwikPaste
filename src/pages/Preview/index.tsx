@@ -1,3 +1,4 @@
+import { emitTo } from "@tauri-apps/api/event";
 import { useMount } from "ahooks";
 import { Spin } from "antd";
 import { motion } from "motion/react";
@@ -107,6 +108,23 @@ const Preview: FC = () => {
     handleBeforeDestroy,
   );
 
+  /**
+   * 指针进出面板时通知剪贴板窗口：停在面板上期间，松开 Space 或离开卡片都不收起预览。
+   */
+  const reportPointer = (inside: boolean) => {
+    void emitTo(WINDOW_LABEL.CLIPBOARD, TAURI_EVENT.PREVIEW_POINTER, {
+      inside,
+    });
+  };
+
+  const handlePointerEnter = () => {
+    reportPointer(true);
+  };
+
+  const handlePointerLeave = () => {
+    reportPointer(false);
+  };
+
   if (!visibleState) return <div className="size-screen bg-transparent" />;
 
   // 还没拿到内容（缓存未命中、请求在路上）时正文留白：既不能画上一条的内容，
@@ -119,6 +137,8 @@ const Preview: FC = () => {
       animate={active ? "open" : "closed"}
       className="size-screen"
       initial="closed"
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
       transition={PREVIEW_PANEL_TRANSITION}
       variants={variants}
     >

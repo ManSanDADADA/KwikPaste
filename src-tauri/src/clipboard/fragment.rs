@@ -44,7 +44,7 @@ static JOINED_NUMBER_RE: LazyLock<Regex> = LazyLock::new(|| {
         r"|[0-9]{1,2}月[0-9]{1,2}[日号]",
         r"|[0-9]{4}[/.][0-9]{1,2}[/.][0-9]{1,2}",
         r"|[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?",
-        r"|[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+",
+        r"|[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*(?:-[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*)+",
     ))
     .expect("invalid snippet number regex")
 });
@@ -86,6 +86,11 @@ pub struct WordSplit {
     /// 原文超过 [`MAX_SPLIT_CHARS`]，只拆了开头部分。
     pub truncated: bool,
 }
+
+/// 预览面板里可点选的一个词：`(start, end)` 是 UTF-16 码元偏移，即前端字符串下标。
+/// 序号与 [`split_words`] 一一对应，选中后按 [`ClipboardFragment::Words`] 粘贴。
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+pub struct WordSpan(pub u32, pub u32);
 
 /// 文本记录的纯文本：HTML / RTF 取 OS 同时提供的纯文本，其余就是 `content`。
 pub fn fragment_source(item: &ClipboardItem) -> &str {
@@ -292,6 +297,29 @@ pub fn split_words(text: &str) -> WordSplit {
     WordSplit { tokens, truncated }
 }
 
+/// 按 [`split_words`] 切出的词在原文里的 UTF-16 区间，供预览面板在原文上直接点选。
+pub fn word_spans(text: &str) -> Vec<WordSpan> {
+    let split = split_words(text);
+    let mut spans = Vec::with_capacity(split.tokens.len());
+    let mut byte = 0;
+    let mut units = 0;
+
+    for token in &split.tokens {
+        units += utf16_len(&text[byte..token.range.start]);
+        let start = units;
+        units += utf16_len(&token.text);
+        byte = token.range.end;
+
+        spans.push(WordSpan(start, units));
+    }
+
+    spans
+}
+
+fn utf16_len(text: &str) -> u32 {
+    text.encode_utf16().count() as u32
+}
+
 /// 从一条记录里取出前端选中的片段；片段已不在原文里（或序号越界）时返回 `None`。
 pub fn resolve_fragment(item: &ClipboardItem, fragment: &ClipboardFragment) -> Option<String> {
     let source = fragment_source(item);
@@ -447,6 +475,17 @@ mod tests {
     }
 
     #[test]
+    fn keeps_dotted_parts_of_hyphenated_codes() {
+        assert_eq!(
+            extract_snippets(
+                "基于 EcoPaste（Apache-2.0）二次开发，测试版 v1.3.0-beta.1。",
+                false
+            ),
+            ["Apache-2.0", "v1.3.0-beta.1"]
+        );
+    }
+
+    #[test]
     fn keeps_decimal_numbers_and_versions_whole() {
         assert_eq!(
             extract_snippets("总价 ¥1,299.00，版本 v1.3.0，服务器 192.168.1.10", false),
@@ -541,6 +580,23 @@ mod tests {
         assert_eq!(select_words(text, &[2, 4]).as_deref(), Some("W2000 D800"));
         assert_eq!(select_words(text, &[0, 5, 6]).as_deref(), Some("尺桌面"));
         assert_eq!(select_words(text, &[2, 5]).as_deref(), Some("W2000桌"));
+    }
+
+    // 预览面板按 JS 字符串下标切词：emoji 占两个 UTF-16 码元，后面的词要跟着往后挪。
+    #[test]
+    fn word_spans_use_utf16_offsets() {
+        let text = "好🙏 W2000*D800";
+        let spans = word_spans(text);
+        let utf16: Vec<u16> = text.encode_utf16().collect();
+        let words: Vec<String> = spans
+            .iter()
+            .map(|WordSpan(start, end)| {
+                String::from_utf16(&utf16[*start as usize..*end as usize]).unwrap()
+            })
+            .collect();
+
+        assert_eq!(words, ["好", "🙏", "W2000", "*", "D800"]);
+        assert_eq!(spans[2], WordSpan(4, 9));
     }
 
     #[test]

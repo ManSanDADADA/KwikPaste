@@ -25,5 +25,11 @@
     "image": "Image preview",
     "loading": "Loading",
     "text": "Text preview"
+  },
+  "words": {
+    "clear": "Clear",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selected": "{{count}} selected"
   }
 }

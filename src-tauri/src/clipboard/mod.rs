@@ -25,7 +25,8 @@ pub use cleanup::storage_bytes_in_use;
 pub use detect::sanitize_css_color;
 pub use file_icon_store::FileIconStore;
 pub use fragment::{
-    fragment_source, quick_snippets, resolve_fragment, split_words, ClipboardFragment, WordSplit,
+    fragment_source, quick_snippets, resolve_fragment, split_words, word_spans, ClipboardFragment,
+    WordSpan, WordSplit,
 };
 pub use guard::WritebackGuard;
 pub use icon::{get_icon_cache_key, icon_png, DIR_CACHE_KEY};

@@ -13,8 +13,9 @@ use tauri_plugin_dialog::DialogExt;
 use crate::clipboard::{
     add_app_from_path, build_item_with_settings, delete_unreferenced_apps, detect_frontmost,
     fragment_source, materialize_source, persist_and_notify, quick_snippets, refresh_running_apps,
-    resolve_fragment, sanitize_css_color, split_words, AppIconStore, AppsRegistry,
-    ClipboardFragment, ClipboardReader, FileIconStore, ImageStore, WordSplit, WritebackGuard,
+    resolve_fragment, sanitize_css_color, split_words, word_spans, AppIconStore, AppsRegistry,
+    ClipboardFragment, ClipboardReader, FileIconStore, ImageStore, WordSpan, WordSplit,
+    WritebackGuard,
 };
 use crate::core::{AppError, Result};
 use crate::db::items::{
@@ -281,6 +282,9 @@ pub struct ClipboardPreviewPayload {
     pub image_exists: bool,
     pub files: Vec<ClipboardPreviewFileEntry>,
     pub total_files: usize,
+    /// 文本里可点选的词（UTF-16 区间，序号即拆词序号）；脱敏展示的敏感内容为空。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<WordSpan>,
 }
 
 /// 预览窗口里的单个文件条目，比列表卡片保留更多文件并带上 size。
@@ -358,7 +362,8 @@ fn preview_text_rows(item: &ClipboardItem, redact_sensitive: bool) -> u32 {
 /// 遮罩后的文本统计。
 ///
 /// 长度按 UTF-16 码元计，因为前端切行用的是 JS 字符串长度；用 Rust 的字符数会在
-/// emoji、部分 CJK 扩展区上与前端分歧，面板高度就会差出几行。
+/// emoji、部分 CJK 扩展区上与前端分歧，面板高度就会差出几行。放不下的整字符挪到
+/// 下一行，不从 emoji 的代理对中间切开，否则两半各自显示成乱码。
 ///
 /// 数到 `PREVIEW_TEXT_ROW_COUNT_CAP` 就停：面板高度早在此之前就撑到上限了，
 /// 而剪贴板里的文本可以有几 MB，一路数到底纯属白烧 CPU。遮罩会复制整段文本，
@@ -378,9 +383,21 @@ fn count_preview_text_rows(source: &str, masked: bool) -> u32 {
 
     let mut rows: u32 = 0;
     for line in text.split('\n') {
-        let units = line.encode_utf16().count();
+        rows += 1;
+        let mut units = 0;
 
-        rows += units.div_ceil(PREVIEW_TEXT_SOFT_WRAP_CHARS).max(1) as u32;
+        for c in line.chars() {
+            let width = c.len_utf16();
+            if units + width > PREVIEW_TEXT_SOFT_WRAP_CHARS {
+                rows += 1;
+                units = 0;
+            }
+            units += width;
+
+            if rows >= PREVIEW_TEXT_ROW_COUNT_CAP {
+                return PREVIEW_TEXT_ROW_COUNT_CAP;
+            }
+        }
 
         if rows >= PREVIEW_TEXT_ROW_COUNT_CAP {
             return PREVIEW_TEXT_ROW_COUNT_CAP;
@@ -926,13 +943,9 @@ fn preview_text(item: &ClipboardItem, redact_sensitive: bool) -> String {
 }
 
 /// 预览文本的原始来源，不做脱敏也不复制；只量尺寸时用它避免整段文本再克隆一次。
+/// 与拆词取同一份原文，预览面板上的词序号才能直接拿去粘贴。
 fn preview_text_source(item: &ClipboardItem) -> &str {
-    match item.sub_kind {
-        Some(ClipboardSubKind::Html | ClipboardSubKind::Rtf) => {
-            item.search_text.as_deref().unwrap_or(&item.content)
-        }
-        _ => &item.content,
-    }
+    fragment_source(item)
 }
 
 /// 把 `created_at`（UTC）按本地时区做三档展示格式化：
@@ -1097,10 +1110,14 @@ async fn build_clipboard_preview_payload(
     let mut image_exists = false;
     let mut files = Vec::new();
     let mut total_files = 0;
+    let mut words = Vec::new();
 
     match item.kind {
         ClipboardKind::Text => {
             text = Some(preview_text(&item, redact_sensitive));
+            if !(redact_sensitive && item.is_sensitive) {
+                words = word_spans(preview_text_source(&item));
+            }
         }
         ClipboardKind::Image => {
             validate_image_file_name(&item.content)?;
@@ -1129,6 +1146,7 @@ async fn build_clipboard_preview_payload(
         image_exists,
         files,
         total_files,
+        words,
     })
 }
 
@@ -1900,6 +1918,20 @@ mod tests {
             3,
             "70 units wrap into three rows"
         );
+    }
+
+    // 行尾放不下的 emoji 整个挪到下一行，和前端切行一致。
+    #[test]
+    fn preview_text_rows_keep_emoji_whole() {
+        assert_eq!(
+            count_preview_text_rows(&format!("{}🙏", "a".repeat(30)), false),
+            1
+        );
+        assert_eq!(
+            count_preview_text_rows(&format!("{}🙏", "a".repeat(31)), false),
+            2
+        );
+        assert_eq!(count_preview_text_rows(&"🙏".repeat(17), false), 2);
     }
 
     // 几 MB 的文本不需要数到底：面板高度早就到顶了。

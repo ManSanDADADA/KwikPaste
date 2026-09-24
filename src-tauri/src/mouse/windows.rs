@@ -88,9 +88,11 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
             false
         };
 
+        // 预览面板可以点选词语，点在面板上等同点在剪贴板窗口内。
         if !menu_handled
             && window::should_auto_hide_clipboard_window()
             && cursor_outside_clipboard_window(app, cursor)
+            && !window::preview::contains_physical_point(app, cursor.x, cursor.y)
         {
             schedule_hide(app);
         }

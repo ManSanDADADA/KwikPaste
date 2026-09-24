@@ -82,6 +82,11 @@ interface ClipboardMenuActionPayload {
   itemId: string;
 }
 
+interface PreviewSelectionPayload {
+  indices: number[];
+  itemId: string;
+}
+
 /**
  * 剪贴板历史列表：虚拟滚动 + 分类型卡片 + 可视范围分页加载，
  * 跟随关键词（Header 已防抖）检索。
@@ -620,6 +625,32 @@ const List: FC = () => {
 
   useTauriListen(TAURI_EVENT.CLIPBOARD_MENU_ACTION, handleMenuActionEvent);
 
+  /**
+   * 预览面板里选中的词；只在它属于当前预览条目时才接管 Enter / Cmd+C。
+   */
+  const previewSelectionRef = useRef<PreviewSelectionPayload | null>(null);
+
+  const handlePreviewSelection = (event: {
+    payload: PreviewSelectionPayload;
+  }) => {
+    previewSelectionRef.current = event.payload;
+  };
+
+  useTauriListen(TAURI_EVENT.PREVIEW_SELECTION, handlePreviewSelection);
+
+  /**
+   * 当前预览面板上选中的词，作为写回剪贴板的片段；没有选中时返回 null。
+   */
+  function getPreviewWordsFragment(): ClipboardFragment | null {
+    const selection = previewSelectionRef.current;
+
+    if (!previewSession || !selection) return null;
+    if (selection.itemId !== previewSession.itemId) return null;
+    if (selection.indices.length === 0) return null;
+
+    return { indices: selection.indices, kind: "words" };
+  }
+
   const handleKeyDown = (event: KeyboardEvent) => {
     const eventModifierPressed = isMac ? event.metaKey : event.ctrlKey;
 
@@ -636,6 +667,16 @@ const List: FC = () => {
 
     if (event.key === "Enter") {
       event.preventDefault();
+
+      const previewWords = getPreviewWordsFragment();
+
+      if (previewWords && previewSession) {
+        const { itemId } = previewSession;
+
+        closePreview("enterPastePreviewWords");
+        pasteClipboardFragment(itemId, previewWords);
+        return;
+      }
 
       const activeItem = getActiveItem();
 
@@ -673,6 +714,13 @@ const List: FC = () => {
       !shouldUseNativeCopy(event)
     ) {
       event.preventDefault();
+
+      const previewWords = getPreviewWordsFragment();
+
+      if (previewWords && previewSession) {
+        copyClipboardFragment(previewSession.itemId, previewWords);
+        return;
+      }
 
       const activeItem = getActiveItem();
 

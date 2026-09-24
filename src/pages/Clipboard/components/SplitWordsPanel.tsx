@@ -1,8 +1,8 @@
 import { useMount } from "ahooks";
 import { Button, Empty, Spin } from "antd";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import type { FC, PointerEvent } from "react";
-import { Fragment, useRef, useState } from "react";
+import type { FC } from "react";
+import { Fragment, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSnapshot } from "valtio";
 import {
@@ -17,6 +17,7 @@ import { TAURI_EVENT } from "@/constants/events";
 import { WINDOW_LABEL } from "@/constants/windows";
 import { useKeyboardEvent, useKeyboardLayer } from "@/hooks/useKeyboardEvent";
 import { useTauriListen } from "@/hooks/useTauriListen";
+import { useWordSelection } from "@/hooks/useWordSelection";
 import { closeSplitWords, splitWordsState } from "@/stores/splitWords";
 import type { WordSplit } from "@/types/clipboard";
 import { cn } from "@/utils/cn";
@@ -28,18 +29,6 @@ const SPLIT_WORDS_LAYER = "splitWords";
 
 interface SplitWordsSheetProps {
   itemId: string;
-}
-
-interface WordDrag {
-  /** 按下时所在的词。 */
-  anchor: number;
-  /** 按下前的选区；拖拽只改 anchor 到当前词这一段，其余保持原样。 */
-  base: ReadonlySet<number>;
-  /** 这次拖拽是选中还是取消选中，由按下的词原来的状态决定。 */
-  select: boolean;
-  /** 最近一次应用到的词，指针停在同一个词上时不重复更新。 */
-  last: number;
-  pointerId: number;
 }
 
 /**
@@ -80,15 +69,12 @@ const SplitWordsSheet: FC<SplitWordsSheetProps> = (props) => {
   const { itemId } = props;
   const { t } = useTranslation("clipboard");
   const [split, setSplit] = useState<WordSplit | null>(null);
-  const [selected, setSelected] = useState<ReadonlySet<number>>(() => {
-    return new Set();
-  });
   const [submitting, setSubmitting] = useState(false);
-  const dragRef = useRef<WordDrag | null>(null);
 
   const tokens = split?.tokens ?? [];
+  const { allSelected, pointerHandlers, selected, toggleAll } =
+    useWordSelection(tokens.length);
   const selectedCount = selected.size;
-  const allSelected = tokens.length > 0 && selectedCount === tokens.length;
   const actionDisabled = selectedCount === 0 || submitting;
 
   useKeyboardLayer(SPLIT_WORDS_LAYER);
@@ -124,21 +110,6 @@ const SplitWordsSheet: FC<SplitWordsSheetProps> = (props) => {
     TAURI_EVENT.WINDOW_VISIBILITY,
     handleWindowVisibility,
   );
-
-  const toggleSelectAll = () => {
-    if (allSelected) {
-      setSelected(new Set());
-      return;
-    }
-
-    setSelected(
-      new Set(
-        tokens.map((_token, index) => {
-          return index;
-        }),
-      ),
-    );
-  };
 
   const pasteSelection = async () => {
     if (actionDisabled) return;
@@ -195,7 +166,7 @@ const SplitWordsSheet: FC<SplitWordsSheetProps> = (props) => {
 
     if (key === "a") {
       event.preventDefault();
-      toggleSelectAll();
+      toggleAll();
       return;
     }
 
@@ -206,64 +177,6 @@ const SplitWordsSheet: FC<SplitWordsSheetProps> = (props) => {
   };
 
   useKeyboardEvent("keydown", handleKeyDown, SPLIT_WORDS_LAYER);
-
-  /**
-   * 把拖拽起点到 `index` 之间的词统一设为这次拖拽的状态，其余词保持按下前的选区。
-   */
-  const applyDrag = (drag: WordDrag, index: number) => {
-    const next = new Set(drag.base);
-    const from = Math.min(drag.anchor, index);
-    const to = Math.max(drag.anchor, index);
-
-    for (let current = from; current <= to; current += 1) {
-      if (drag.select) {
-        next.add(current);
-      } else {
-        next.delete(current);
-      }
-    }
-
-    drag.last = index;
-    setSelected(next);
-  };
-
-  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-
-    const index = findTokenIndex(event.target);
-    if (index === null) return;
-
-    event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-
-    const drag: WordDrag = {
-      anchor: index,
-      base: selected,
-      last: index,
-      pointerId: event.pointerId,
-      select: !selected.has(index),
-    };
-
-    dragRef.current = drag;
-    applyDrag(drag, index);
-  };
-
-  // 指针被捕获后事件目标恒为容器，要按坐标找出指针下的词。
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    const index = findTokenIndex(
-      document.elementFromPoint(event.clientX, event.clientY),
-    );
-    if (index === null || index === drag.last) return;
-
-    applyDrag(drag, index);
-  };
-
-  const endDrag = () => {
-    dragRef.current = null;
-  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -288,7 +201,7 @@ const SplitWordsSheet: FC<SplitWordsSheetProps> = (props) => {
         <Tooltip title={formatShortcutDisplay("CmdOrCtrl+A")}>
           <Button
             disabled={tokens.length === 0}
-            onClick={toggleSelectAll}
+            onClick={toggleAll}
             size="small"
             type="text"
           >
@@ -358,13 +271,9 @@ const SplitWordsSheet: FC<SplitWordsSheetProps> = (props) => {
           aria-label={t("splitWords.title")}
           aria-multiselectable
           className="flex flex-wrap content-start gap-1.5 pb-1"
-          onLostPointerCapture={endDrag}
-          onPointerCancel={endDrag}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={endDrag}
           role="listbox"
           tabIndex={-1}
+          {...pointerHandlers}
         >
           {tokens.map((token, index) => {
             const isSelected = selected.has(index);
@@ -405,15 +314,3 @@ const SplitWordsSheet: FC<SplitWordsSheetProps> = (props) => {
     );
   }
 };
-
-/**
- * 从事件目标或坐标命中的元素向上找到所在的词，返回词序号。
- */
-function findTokenIndex(target: EventTarget | null) {
-  if (!(target instanceof Element)) return null;
-
-  const token = target.closest<HTMLElement>("[data-token-index]");
-  if (!token) return null;
-
-  return Number(token.dataset.tokenIndex);
-}

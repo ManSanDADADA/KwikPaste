@@ -11,7 +11,22 @@ export const HOVER_DELAY_MS: Record<PreviewHoverDelayMs, number> = {
 };
 export const HOVER_HIDE_BUFFER_MS = 240;
 
-export type PreviewTrigger = "keyboard" | "hover";
+/**
+ * 预览由谁撑着：`keyboard` 按住 Space，`hover` 指针停在卡片上，
+ * `held` 松开 Space 时指针已在预览面板上，由面板接着撑住，离开面板后收起。
+ */
+export type PreviewTrigger = "keyboard" | "hover" | "held";
+
+export interface PreviewPointerPayload {
+  inside: boolean;
+}
+
+/**
+ * 靠指针撑住的预览：指针离开卡片 / 面板后按缓冲时间收起。
+ */
+export function isPointerTrigger(trigger?: PreviewTrigger) {
+  return trigger === "hover" || trigger === "held";
+}
 
 export interface PreviewSession {
   itemId: string;
