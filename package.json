@@ -1,7 +1,7 @@
 {
   "name": "kwikpaste",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.3.2",
   "description": "A local-first clipboard manager for macOS and Windows.",
   "author": "LILTT",
   "license": "Apache-2.0",

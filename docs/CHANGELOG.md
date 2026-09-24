@@ -2,6 +2,18 @@
 
 All notable changes to KwikPaste are documented here.
 
+## 1.3.2 - 2026-09-24
+
+- Added Quick Paste: hold the modifier keys and press a number to paste without opening the clipboard window. 1–9 paste items 1–9 and 0 pastes item 10, in the same order as the All list. It is off by default; turn it on in Preference › Shortcuts, where the modifier keys (Ctrl+Shift by default) can be changed.
+- Text records now list the codes, model numbers, numbers and links found in them below each item. Click one to paste just that part. This is on by default and can be turned off with Extract Quick Info.
+- Added Split Words: split a text record into words, pick the ones you need, and paste only those.
+- The hover preview stays open while the pointer moves onto it, and its text can be shown as words to pick from and paste in place.
+- Hover preview is now on by default for new installs. Existing settings are kept.
+- The clipboard window now opens on All by default for new installs. Existing settings are kept.
+- Opening Preference now hides the clipboard window.
+- Added a Windows portable build: unzip it and run. Data stays in the `data` folder next to the app, and in-app updates replace the portable app in place.
+- Shrank the Windows installer from 7.6 MB to 4.2 MB.
+
 ## 1.3.0 - 2026-09-24
 
 - Added a Storage Limit setting, 1 GB by default. The storage meter in the sidebar fills at this size. Going over it only shows a reminder by default; switch to Auto clean to delete the oldest regular records until usage is back under the limit. Favorites and pinned records are always kept.
