@@ -973,8 +973,13 @@ export const preferenceTabs: PreferenceTab[] = [
           },
           {
             control: { type: "action" },
+            id: "about.website",
+            keywords: ["website", "homepage", "download"],
+          },
+          {
+            control: { type: "action" },
             id: "about.github",
-            keywords: ["github", "source", "repository"],
+            keywords: ["github", "source", "repository", "open source"],
           },
         ],
       },

@@ -149,6 +149,10 @@
         },
         "github": {
           "controlLabel": "Open",
+          "title": "Source Code"
+        },
+        "website": {
+          "controlLabel": "Open",
           "title": "Website"
         }
       },

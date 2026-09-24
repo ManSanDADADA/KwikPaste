@@ -5,6 +5,8 @@
 
 **A fast, local-first clipboard manager for macOS and Windows.**
 
+**Website: [paste.fastthree.com](https://paste.fastthree.com/en/)**
+
 English | [简体中文](./docs/README.zh-CN.md)
 
   <br />
@@ -25,7 +27,7 @@ It is built on a Rust-first Tauri architecture: clipboard capture, storage, sear
 
 ## Download
 
-Get the latest installer from [Releases](https://github.com/ManSanDADADA/KwikPaste/releases):
+Get the latest installer from the [website](https://paste.fastthree.com/en/) or [Releases](https://github.com/ManSanDADADA/KwikPaste/releases):
 
 - **Windows** — the `-setup.exe` installer, for x64 or ARM64.
 - **Windows portable** — the `_portable.zip`, for x64 or ARM64. Unzip it and run `KwikPaste\KwikPaste.exe`. History, settings and logs stay in the `data` folder next to it, so the whole folder can move to another PC or a USB drive. Keep `portable.txt` beside the exe. The portable and installed versions can't run at the same time.

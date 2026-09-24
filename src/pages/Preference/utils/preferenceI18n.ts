@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { PROJECT_URL } from "@/constants/urls";
+import { REPOSITORY_URL, WEBSITE_URL } from "@/constants/urls";
 import { isMac, isWin } from "@/utils/is";
 import { formatRecordedShortcut } from "@/utils/shortcut";
 import type {
@@ -40,8 +40,12 @@ export function translatePreferenceSetting(
   setting: PreferenceSetting,
   field: "description" | "title",
 ) {
+  if (setting.id === "about.website" && field === "description") {
+    return WEBSITE_URL;
+  }
+
   if (setting.id === "about.github" && field === "description") {
-    return PROJECT_URL;
+    return REPOSITORY_URL;
   }
 
   const platformField = resolvePlatformPreferenceField(setting, field);

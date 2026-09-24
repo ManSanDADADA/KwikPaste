@@ -28,7 +28,7 @@ import {
   type WindowLifecycleSnapshot,
 } from "@/commands";
 import CustomIconButton from "@/components/CustomIconButton";
-import { PROJECT_URL } from "@/constants/urls";
+import { REPOSITORY_URL, WEBSITE_URL } from "@/constants/urls";
 import { WINDOW_LABEL } from "@/constants/windows";
 import { resetSettings } from "@/stores/settings";
 import type { ClipboardGroupRecord } from "@/types/clipboard";
@@ -44,6 +44,7 @@ import ControlFrame from "./ControlFrame";
 const BACKUP_EXTENSION = "kwikpastebak";
 const ABOUT_CHECK_UPDATES_SETTING_ID = "about.checkUpdates";
 const ABOUT_GITHUB_SETTING_ID = "about.github";
+const ABOUT_WEBSITE_SETTING_ID = "about.website";
 const CLEAN_CACHE_SETTING_ID = "localData.cleanCache";
 const CLEAR_HISTORY_SETTING_ID = "localData.clearHistory";
 const CUSTOM_GROUPS_SETTING_ID = "organizing.customGroups";
@@ -337,9 +338,17 @@ const ActionControl: FC<ActionControlProps> = (props) => {
       return;
     }
 
+    if (setting.id === ABOUT_WEBSITE_SETTING_ID) {
+      await runWithKeepalive("open-website", () => {
+        return openExternalUrl(WEBSITE_URL);
+      });
+      markActionComplete();
+      return;
+    }
+
     if (setting.id === ABOUT_GITHUB_SETTING_ID) {
       await runWithKeepalive("open-github", () => {
-        return openExternalUrl(PROJECT_URL);
+        return openExternalUrl(REPOSITORY_URL);
       });
       markActionComplete();
       return;

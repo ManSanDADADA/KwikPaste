@@ -7,6 +7,7 @@ interface SettingVisual {
 const SETTING_ICON_MAP: Record<string, string> = {
   "about.checkUpdates": "i-lucide:refresh-cw",
   "about.github": "i-lucide:github",
+  "about.website": "i-lucide:globe",
   "actions.deleteConfirm": "i-lucide:trash-2",
   "actions.deleteFavoriteConfirm": "i-lucide:shield-alert",
   "actions.deleteFavoriteItems": "i-lucide:star-off",

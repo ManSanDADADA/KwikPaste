@@ -149,6 +149,10 @@
         },
         "github": {
           "controlLabel": "打开",
+          "title": "开源地址"
+        },
+        "website": {
+          "controlLabel": "打开",
           "title": "官方网站"
         }
       },
