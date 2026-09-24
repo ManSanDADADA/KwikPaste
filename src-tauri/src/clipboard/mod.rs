@@ -7,6 +7,7 @@ mod guard;
 mod icon;
 mod ingest;
 mod payload;
+mod quick_paste;
 mod read;
 mod secrets;
 mod sound;
@@ -29,6 +30,7 @@ pub use ingest::build_item;
 pub use ingest::build_item_with_settings;
 #[cfg(test)]
 pub use payload::ImagePayload;
+pub use quick_paste::quick_paste;
 pub use read::ClipboardReader;
 pub use sound::play_copy_sound;
 pub use source::detect_frontmost;

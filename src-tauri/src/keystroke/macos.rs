@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation, CGKeyCode};
 use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+use objc2_app_kit::{NSEvent, NSEventModifierFlags};
 
 use crate::core::error::Result;
 
@@ -26,4 +27,19 @@ pub fn simulate_paste() -> Result<()> {
     key_up.post(CGEventTapLocation::HID);
 
     Ok(())
+}
+
+/// macOS 松开 ⌥ / ⌘ 不会激活菜单，无需像 Windows 那样注入屏蔽按键。
+pub fn mask_modifier_release() -> Result<()> {
+    Ok(())
+}
+
+/// 判断用户是否仍按着 ⌘ / ⌃ / ⌥ / ⇧ 中的任意一个。
+pub fn modifiers_pressed() -> bool {
+    let modifiers = NSEventModifierFlags::Command.0
+        | NSEventModifierFlags::Control.0
+        | NSEventModifierFlags::Option.0
+        | NSEventModifierFlags::Shift.0;
+
+    NSEvent::modifierFlags_class().0 & modifiers != 0
 }

@@ -31,6 +31,10 @@ export type PreferenceStorageState = "loading" | "ready" | "error";
 
 export interface PreferenceOption {
   value: string | number;
+  /**
+   * 选项本身就是一组按键时填写，标签直接按平台格式展示按键，不走 i18n。
+   */
+  shortcut?: string;
 }
 
 export interface PreferenceShortcutTag {

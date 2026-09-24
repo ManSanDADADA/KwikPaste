@@ -4,8 +4,9 @@
 //! 配合 watcher 的 `WritebackGuard` 抑制自身写回带来的回环。
 //!
 //! - macOS：⌘V（CGEvent）
-//! - Windows：Shift+Insert（SendInput）。比 Ctrl+V 兼容性更好，传统 Win32
-//!   控件、终端、部分 Electron 应用都接收。
+//! - Windows：Ctrl+V（SendInput）
+
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -13,11 +14,28 @@ mod macos;
 mod windows;
 
 #[cfg(target_os = "macos")]
-pub use macos::simulate_paste;
+use macos as platform;
 #[cfg(target_os = "windows")]
-pub use windows::simulate_paste;
+use windows as platform;
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-pub fn simulate_paste() -> crate::core::error::Result<()> {
-    Err(anyhow::anyhow!("simulate_paste not implemented on this platform").into())
+pub use platform::{mask_modifier_release, simulate_paste};
+
+const MODIFIER_POLL_INTERVAL: Duration = Duration::from_millis(15);
+
+/// 等用户松开全部修饰键，最多等 `timeout`；返回是否已全部松开。
+///
+/// 全局快捷键在按下时就触发，此时修饰键还按着，立即注入的粘贴会被目标应用读成
+/// Ctrl+Shift+V 这类别的组合，所以要等松开后再粘贴。
+pub async fn wait_for_modifiers_released(timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+
+    while platform::modifiers_pressed() {
+        if Instant::now() >= deadline {
+            return false;
+        }
+
+        tokio::time::sleep(MODIFIER_POLL_INTERVAL).await;
+    }
+
+    true
 }

@@ -1,6 +1,7 @@
 import { CAPTURE_KIND_OPTIONS } from "@/constants/captureKinds";
 import { ITEM_ACTION_OPTIONS } from "@/constants/itemActions";
 import { LANGUAGE_OPTIONS } from "@/constants/languages";
+import { QUICK_PASTE_MODIFIER_OPTIONS } from "@/constants/quickPaste";
 import {
   WINDOW_OPEN_CATEGORY_OPTIONS,
   WINDOW_OPEN_RANGE_OPTIONS,
@@ -767,6 +768,31 @@ export const preferenceTabs: PreferenceTab[] = [
                 },
               ]
             : []),
+          {
+            control: { type: "switch" },
+            id: "shortcuts.quickPaste",
+            keywords: ["quick paste", "number", "digit", "paste", "hotkey"],
+            path: ["shortcuts", "quickPaste", "enabled"],
+            value: (settings) => {
+              return settings.shortcuts.quickPaste.enabled;
+            },
+          },
+          {
+            control: {
+              options: QUICK_PASTE_MODIFIER_OPTIONS,
+              type: "select",
+            },
+            disabledWhen: (settings) => {
+              return !settings.shortcuts.quickPaste.enabled;
+            },
+            id: "shortcuts.quickPasteModifiers",
+            keywords: ["quick paste", "modifier", "ctrl", "alt", "shift"],
+            parentId: "shortcuts.quickPaste",
+            path: ["shortcuts", "quickPaste", "modifiers"],
+            value: (settings) => {
+              return settings.shortcuts.quickPaste.modifiers;
+            },
+          },
         ],
       },
     ],

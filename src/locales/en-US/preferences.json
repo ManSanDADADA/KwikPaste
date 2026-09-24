@@ -578,6 +578,14 @@
           "placeholder": "Alt+X",
           "title": "Open Preferences Window"
         },
+        "quickPaste": {
+          "description": "Paste without opening the clipboard window: hold the modifier keys and press a number. 1–9 paste items 1–9 and 0 pastes item 10, in the same order as the All list.",
+          "title": "Quick Paste"
+        },
+        "quickPasteModifiers": {
+          "description": "Modifier keys to hold with the number key. The item is pasted when you release the keys.",
+          "title": "Modifier Keys"
+        },
         "winV": {
           "description": "Press Win+V to summon KwikPaste instead of the Windows clipboard history panel.",
           "title": "Take Over Win+V"

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import ShortcutRecorder, {
   type ShortcutRecorderConflict,
 } from "@/components/ShortcutRecorder";
+import { resolveQuickPasteBindings } from "@/constants/quickPaste";
 import type { Settings } from "@/types/settings";
 import type { PreferenceSetting } from "../../types/preferences";
 import { translatePreferencePlaceholder } from "../../utils/preferenceI18n";
@@ -47,7 +48,7 @@ const ShortcutRecorderControl: FC<ShortcutRecorderControlProps> = (props) => {
 export default ShortcutRecorderControl;
 
 /**
- * 偏好设置里两个全局快捷键必须互斥，避免同一个组合键触发多个动作。
+ * 偏好设置里的全局快捷键必须互斥（含已开启的快速粘贴组合键），避免同一个组合键触发多个动作。
  */
 function resolveGlobalShortcutConflicts(
   t: TFunction<"preferences">,
@@ -62,15 +63,33 @@ function resolveGlobalShortcutConflicts(
     label: translateShortcutSettingTitle(t, "shortcuts.openPreference"),
     value: settings.shortcuts.openPreference,
   };
+  const quickPasteConflicts = resolveQuickPasteConflicts(t, settings);
 
   switch (setting.id) {
     case "shortcuts.openClipboard":
-      return [openPreferenceConflict];
+      return [openPreferenceConflict, ...quickPasteConflicts];
     case "shortcuts.openPreference":
-      return [openClipboardConflict];
+      return [openClipboardConflict, ...quickPasteConflicts];
     default:
       return [] satisfies ShortcutRecorderConflict[];
   }
+}
+
+/**
+ * 快速粘贴开启时，它注册的每个「修饰键 + 数字」都算已占用。
+ */
+function resolveQuickPasteConflicts(
+  t: TFunction<"preferences">,
+  settings: Settings,
+): ShortcutRecorderConflict[] {
+  const { enabled, modifiers } = settings.shortcuts.quickPaste;
+  if (!enabled) return [];
+
+  const label = translateShortcutSettingTitle(t, "shortcuts.quickPaste");
+
+  return resolveQuickPasteBindings(modifiers).map((value) => {
+    return { label, value };
+  });
 }
 
 /**

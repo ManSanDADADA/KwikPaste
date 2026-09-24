@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import { PROJECT_URL } from "@/constants/urls";
 import { isMac, isWin } from "@/utils/is";
+import { formatRecordedShortcut } from "@/utils/shortcut";
 import type {
   PreferenceOption,
   PreferenceSection,
@@ -73,13 +74,17 @@ function resolvePlatformPreferenceField(
 }
 
 /**
- * 翻译设置项控件里展示的选项；key 由 setting id + option value 推导。
+ * 翻译设置项控件里展示的选项；key 由 setting id + option value 推导，按键选项直接展示按键。
  */
 export function translatePreferenceOption(
   t: PreferenceTranslator,
   setting: PreferenceSetting,
   option: PreferenceOption,
 ) {
+  if (option.shortcut) {
+    return { ...option, label: formatRecordedShortcut(option.shortcut) };
+  }
+
   return {
     ...option,
     label: t(`schema.settings.${setting.id}.options.${option.value}`),

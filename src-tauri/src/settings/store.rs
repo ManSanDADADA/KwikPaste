@@ -419,6 +419,27 @@ mod tests {
     }
 
     #[test]
+    fn released_shortcut_settings_keep_quick_paste_disabled() {
+        let released = r#"{
+            "shortcuts": {
+                "openClipboard": "Control+Shift+V",
+                "openPreference": "Alt+X",
+                "winV": true
+            }
+        }"#;
+        let parsed: Settings = serde_json::from_str(released).unwrap();
+        let shortcuts = parsed.shortcuts;
+
+        assert_eq!(shortcuts.open_clipboard, "Control+Shift+V");
+        assert!(shortcuts.win_v);
+        assert!(!shortcuts.quick_paste.enabled);
+        assert_eq!(
+            shortcuts.quick_paste.modifiers,
+            crate::settings::QuickPasteModifiers::ControlShift
+        );
+    }
+
+    #[test]
     fn storage_limit_bytes_never_drops_below_minimum() {
         let mut history = crate::settings::History::default();
         assert_eq!(history.storage_limit_bytes(), 1024 * 1024 * 1024);

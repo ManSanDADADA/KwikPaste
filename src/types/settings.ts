@@ -91,10 +91,24 @@ export interface Appearance {
   language: Language;
 }
 
+/** Rust enum `QuickPasteModifiers`：快速粘贴按住的修饰键组合。 */
+export type QuickPasteModifiers =
+  | "controlShift"
+  | "controlAlt"
+  | "altShift"
+  | "alt"
+  | "control";
+
+export interface QuickPaste {
+  enabled: boolean;
+  modifiers: QuickPasteModifiers;
+}
+
 export interface Shortcuts {
   openClipboard: string;
   openPreference: string;
   winV: boolean;
+  quickPaste: QuickPaste;
 }
 
 export interface Content {

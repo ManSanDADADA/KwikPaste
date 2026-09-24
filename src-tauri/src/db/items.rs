@@ -151,6 +151,25 @@ pub async fn query_items_page(
     Ok((items, total))
 }
 
+/// 按剪贴板窗口「全部」视图的顺序（置顶在前，其余按 `sort`）取第 `offset` 条（从 0 起）的 id，
+/// 超出历史条数时返回 `None`。
+pub async fn find_item_id_at(
+    pool: &SqlitePool,
+    sort: ClipboardItemSort,
+    offset: i64,
+) -> Result<Option<String>> {
+    let query = ClipboardItemQuery {
+        group: Some(ClipboardGroupFilter::All),
+        sort,
+        limit: 1,
+        offset,
+        ..ClipboardItemQuery::default()
+    };
+    let items = fetch_items(pool, &query, KeywordFilter::None).await?;
+
+    Ok(items.into_iter().next().map(|item| item.id))
+}
+
 /// 按 `id` 查找单条记录，不存在时返回 `None`。
 pub async fn find_item_by_id(pool: &SqlitePool, id: &str) -> Result<Option<ClipboardItem>> {
     let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(SELECT_ITEM);
@@ -684,6 +703,43 @@ mod tests {
 
     fn ids(items: &[ClipboardItem]) -> Vec<&str> {
         items.iter().map(|item| item.id.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn item_id_at_follows_list_order_with_pinned_first() {
+        let pool = memory_pool().await;
+        let oldest = sample_item("oldest");
+        let mut middle = sample_item("middle");
+        middle.created_at = oldest.created_at + chrono::Duration::seconds(1);
+        middle.updated_at = middle.created_at;
+        let mut newest = sample_item("newest");
+        newest.created_at = oldest.created_at + chrono::Duration::seconds(2);
+        newest.updated_at = newest.created_at;
+        let mut pinned = sample_item("pinned");
+        pinned.is_pinned = true;
+        for item in [&oldest, &middle, &newest, &pinned] {
+            insert_item(&pool, item).await.unwrap();
+        }
+
+        let mut ordered = Vec::new();
+        for offset in 0..5 {
+            ordered.push(
+                find_item_id_at(&pool, ClipboardItemSort::UpdatedAt, offset)
+                    .await
+                    .unwrap(),
+            );
+        }
+
+        assert_eq!(
+            ordered,
+            vec![
+                Some("pinned".to_owned()),
+                Some("newest".to_owned()),
+                Some("middle".to_owned()),
+                Some("oldest".to_owned()),
+                None,
+            ]
+        );
     }
 
     #[tokio::test]

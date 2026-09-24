@@ -119,6 +119,8 @@ pub struct Shortcuts {
     pub open_preference: String,
     /// 仅 Windows：用 Win+V 唤起剪贴板窗口，替代系统剪贴板历史面板。默认关闭。
     pub win_v: bool,
+    /// 全局：修饰键 + 数字直接粘贴历史记录，不唤起剪贴板窗口。默认关闭。
+    pub quick_paste: QuickPaste,
 }
 
 impl Default for Shortcuts {
@@ -127,6 +129,41 @@ impl Default for Shortcuts {
             open_clipboard: "Alt+C".into(),
             open_preference: "Alt+X".into(),
             win_v: false,
+            quick_paste: QuickPaste::default(),
+        }
+    }
+}
+
+/// 全局快速粘贴：修饰键 + 1–9 粘贴第 1–9 条，修饰键 + 0 粘贴第 10 条。
+/// 条目顺序与剪贴板窗口「全部」视图一致：置顶在前，其余按 `content.sort`。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct QuickPaste {
+    pub enabled: bool,
+    pub modifiers: QuickPasteModifiers,
+}
+
+/// 快速粘贴可选的修饰键组合。`Control` 在 macOS 上是 ⌃，`Alt` 在 macOS 上是 ⌥。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum QuickPasteModifiers {
+    #[default]
+    ControlShift,
+    ControlAlt,
+    AltShift,
+    Alt,
+    Control,
+}
+
+impl QuickPasteModifiers {
+    /// 全局快捷键里的修饰键前缀；顺序与前端快捷键录入器一致，便于按字面量比对冲突。
+    pub fn accelerator(self) -> &'static str {
+        match self {
+            Self::ControlShift => "Control+Shift",
+            Self::ControlAlt => "Control+Alt",
+            Self::AltShift => "Alt+Shift",
+            Self::Alt => "Alt",
+            Self::Control => "Control",
         }
     }
 }

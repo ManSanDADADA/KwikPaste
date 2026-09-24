@@ -578,6 +578,14 @@
           "placeholder": "Alt+X",
           "title": "打开偏好设置窗口"
         },
+        "quickPaste": {
+          "description": "不打开剪贴板窗口，按住修饰键再按数字键直接粘贴：1–9 对应第 1–9 条，0 对应第 10 条，顺序与窗口里的「全部」列表一致。",
+          "title": "快速粘贴"
+        },
+        "quickPasteModifiers": {
+          "description": "和数字键一起按下的修饰键，松开按键后粘贴。",
+          "title": "修饰键"
+        },
         "winV": {
           "description": "按 Win+V 唤起 快贴，替代 Windows 系统剪贴板历史面板。",
           "title": "接管 Win+V"
