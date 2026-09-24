@@ -1,6 +1,7 @@
 {
   "about": {
-    "checkUpdates": "Check for updates"
+    "checkUpdates": "Check for updates",
+    "portable": "Portable"
   },
   "backup": {
     "export": {

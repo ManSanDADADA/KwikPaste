@@ -10,5 +10,6 @@ pub fn label(key: Key) -> &'static str {
         Key::FragmentUnavailable => "所选内容已不在这条记录中",
         Key::SplitTextOnly => "只有文本记录可以拆词",
         Key::SplitSensitiveRedacted => "敏感内容已脱敏显示，不能拆词",
+        Key::PortableStorageFixed => "便携版的数据固定保存在程序文件夹的 data 目录里",
     }
 }

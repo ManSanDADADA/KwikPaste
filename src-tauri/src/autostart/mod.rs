@@ -8,6 +8,7 @@ use std::env;
 use tauri::{AppHandle, Manager};
 
 use crate::core::{AppError, Result};
+use crate::settings::SettingsStore;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -20,6 +21,7 @@ use macos::PlatformAutostart;
 use windows::PlatformAutostart;
 
 pub(super) const AUTO_LAUNCH_ARG: &str = "--auto-launch";
+const PORTABLE_ENTRY_SUFFIX: &str = "Portable";
 
 pub struct AutostartManager {
     platform: PlatformAutostart,
@@ -32,7 +34,12 @@ pub fn init(app: &AppHandle) -> Result<()> {
     })?;
     let exe_path = exe.to_string_lossy().to_string();
 
-    let app_name = app.package_info().name.clone();
+    // 便携版用独立的启动项名：和安装版同名时两边启动都会按自己的路径重写，互相覆盖。
+    let app_name = if crate::core::portable::is_portable() {
+        format!("{} {PORTABLE_ENTRY_SUFFIX}", app.package_info().name)
+    } else {
+        app.package_info().name.clone()
+    };
 
     let platform = PlatformAutostart::new(&app_name, &exe_path)?;
 
@@ -51,8 +58,29 @@ pub fn set_enabled(app: &AppHandle, enabled: bool) -> Result<()> {
 }
 
 /// Align the OS autostart entry with the persisted setting during startup.
+///
+/// 便携版反过来以本机启动项为准：设置随文件夹带到别的电脑时不应自动注册自启；
+/// 已注册的按当前 exe 路径重写，文件夹挪动后自启仍然有效。
 pub fn sync_enabled(app: &AppHandle, enabled: bool) -> Result<()> {
-    set_enabled(app, enabled)
+    if !crate::core::portable::is_portable() {
+        return set_enabled(app, enabled);
+    }
+
+    let registered = is_enabled(app)?;
+    if registered {
+        set_enabled(app, true)?;
+    }
+
+    if registered != enabled {
+        let next = app.state::<SettingsStore>().update(serde_json::json!({
+            "general": {
+                "autoStart": registered,
+            },
+        }))?;
+        crate::commands::emit_settings_updated(app, &next);
+    }
+
+    Ok(())
 }
 
 /// 判断进程参数是否来自 KwikPaste 注册的系统自启动项。

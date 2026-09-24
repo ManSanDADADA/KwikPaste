@@ -1,6 +1,3 @@
 {
-  "bundle": {
-    "resources": ["assets/tray-mac.ico"]
-  },
   "identifier": "com.fastthree.kwikpaste"
 }

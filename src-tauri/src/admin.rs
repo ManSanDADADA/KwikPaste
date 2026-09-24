@@ -116,9 +116,15 @@ pub fn is_scheduled_task_ready() -> bool {
     }
 }
 
+/// 便携版不注册计划任务：任务里记着 exe 路径，文件夹挪动或换电脑后就失效，
+/// 任务名还会和安装版冲突。
 pub fn sync_scheduled_task(configured: bool) {
     #[cfg(target_os = "windows")]
     {
+        if crate::core::portable::is_portable() {
+            return;
+        }
+
         if configured && is_running_as_admin() {
             if let Err(err) = create_scheduled_task() {
                 log::warn!("sync admin scheduled task failed: {err}");
@@ -159,10 +165,12 @@ pub fn launch_elevated_current_process() -> Result<()> {
     }
 }
 
+/// 按设置在启动时自动提权。便携版跳过：设置随文件夹带到别的电脑后不应弹 UAC，
+/// 这里读的也是安装版的数据目录。
 pub fn handle_startup_auto_elevation() {
     #[cfg(target_os = "windows")]
     {
-        if cfg!(debug_assertions) {
+        if cfg!(debug_assertions) || crate::core::portable::is_portable() {
             return;
         }
 

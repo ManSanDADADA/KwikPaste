@@ -2,7 +2,7 @@ import type { FC } from "react";
 import { useTranslation } from "react-i18next";
 import type { StorageUsage } from "@/commands";
 import { cn } from "@/utils/cn";
-import { isMac } from "@/utils/is";
+import { isMac, isPortable } from "@/utils/is";
 import { preferenceTabs } from "../config/preferenceSchema";
 import { APP_NAME_PLACEHOLDER, PREFERENCE_TAB_META } from "../constants";
 import type {
@@ -39,7 +39,11 @@ const PreferenceSidebar: FC<PreferenceSidebarProps> = (props) => {
     onTabSelect,
   } = props;
   const appNameLabel = appName.length > 0 ? appName : APP_NAME_PLACEHOLDER;
-  const appVersionLabel = appVersion.length > 0 ? `v${appVersion}` : "";
+  const versionLabel = appVersion.length > 0 ? `v${appVersion}` : "";
+  const appVersionLabel =
+    isPortable && versionLabel.length > 0
+      ? `${versionLabel} · ${t("about.portable")}`
+      : versionLabel;
 
   return (
     <aside

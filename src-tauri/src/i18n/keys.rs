@@ -29,6 +29,15 @@ pub enum CommandKey {
     FragmentUnavailable,
     SplitTextOnly,
     SplitSensitiveRedacted,
+    PortableStorageFixed,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+pub enum StartupKey {
+    DialogTitle,
+    PortableDirNotWritable,
+    WebviewMissing,
 }
 
 #[derive(Debug, Clone, Copy)]

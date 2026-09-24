@@ -6,6 +6,8 @@ pub mod clipboard_menu;
 pub mod commands;
 mod en_us;
 mod keys;
+#[cfg(target_os = "windows")]
+pub mod startup;
 pub mod tray;
 mod zh_cn;
 

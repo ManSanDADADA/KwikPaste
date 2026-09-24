@@ -17,7 +17,10 @@ pub use state::WindowStateStore;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window};
+use tauri::utils::config::WindowConfig;
+use tauri::{
+    AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window,
+};
 
 use crate::core::Result;
 use crate::settings::{Appearance, SettingsStore, WindowPosition};
@@ -51,6 +54,52 @@ pub fn apply_window_material(app_handle: &AppHandle, label: &str) {
     if let Err(err) = material::apply(app_handle, label, &store.snapshot().appearance) {
         log::warn!("apply window material failed for {label}: {err}");
     }
+}
+
+/// 便携模式把 WebView2 数据目录指到便携数据根（其下生成 `EBWebView/`），其余情况沿用
+/// Tauri 默认的 `%LOCALAPPDATA%\<identifier>`。每个建窗入口都必须经过这里：数据目录不同的
+/// webview 会各起一套浏览器进程，漏掉一个就会把缓存写回本机。
+pub fn with_webview_data_dir<'a, R: Runtime, M: Manager<R>>(
+    builder: WebviewWindowBuilder<'a, R, M>,
+) -> WebviewWindowBuilder<'a, R, M> {
+    match crate::core::portable::data_root() {
+        Some(root) => builder.data_directory(root.to_path_buf()),
+        None => builder,
+    }
+}
+
+/// Tauri 按配置自动建窗时只接受相对 `%LOCALAPPDATA%` 的数据目录，便携模式下关掉配置窗口的
+/// 自动创建，返回被推迟的窗口配置，交给 [`create_deferred_windows`] 在 setup 开头补建。
+pub fn defer_config_windows(config: &mut tauri::Config) -> Vec<WindowConfig> {
+    if !crate::core::portable::is_portable() {
+        return Vec::new();
+    }
+
+    config
+        .app
+        .windows
+        .iter_mut()
+        .filter(|window| window.create)
+        .map(|window| {
+            window.create = false;
+            window.clone()
+        })
+        .collect()
+}
+
+/// 按原配置补建 [`defer_config_windows`] 推迟的窗口。须在 setup 最前面调用，
+/// 与 Tauri 自动建窗的时机一致（后续 setup 步骤依赖剪贴板窗口已存在）。
+pub fn create_deferred_windows(app_handle: &AppHandle, windows: &[WindowConfig]) -> Result<()> {
+    for config in windows {
+        let builder = WebviewWindowBuilder::from_config(app_handle, config)
+            .map_err(|err| anyhow::anyhow!("configure {} window: {err}", config.label))?;
+
+        with_webview_data_dir(builder)
+            .build()
+            .map_err(|err| anyhow::anyhow!("build {} window: {err}", config.label))?;
+    }
+
+    Ok(())
 }
 
 /// 弹层窗口（预览、右键菜单）建好后按系统圆角裁剪；只有 Windows 需要显式申请。
@@ -318,11 +367,11 @@ pub fn build_preference_window(app_handle: &AppHandle) -> Result<()> {
         return Ok(());
     }
 
-    let builder = WebviewWindowBuilder::new(
+    let builder = with_webview_data_dir(WebviewWindowBuilder::new(
         app_handle,
         PREFERENCE_WINDOW_LABEL,
         WebviewUrl::App("index.html/#/preference".into()),
-    )
+    ))
     .title("KwikPaste Preference")
     .inner_size(960.0, 600.0)
     .min_inner_size(960.0, 600.0)
@@ -352,11 +401,11 @@ pub fn build_update_window(app_handle: &AppHandle) -> Result<()> {
         return Ok(());
     }
 
-    let builder = WebviewWindowBuilder::new(
+    let builder = with_webview_data_dir(WebviewWindowBuilder::new(
         app_handle,
         UPDATE_WINDOW_LABEL,
         WebviewUrl::App("index.html/#/update".into()),
-    )
+    ))
     .title("KwikPaste Update")
     .inner_size(520.0, 230.0)
     .min_inner_size(520.0, 230.0)
@@ -391,11 +440,11 @@ pub fn build_onboarding_window(app_handle: &AppHandle) -> Result<()> {
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(
+    with_webview_data_dir(WebviewWindowBuilder::new(
         app_handle,
         ONBOARDING_WINDOW_LABEL,
         WebviewUrl::App("index.html/#/onboarding".into()),
-    )
+    ))
     .title("KwikPaste Onboarding")
     .inner_size(900.0, 600.0)
     .center()

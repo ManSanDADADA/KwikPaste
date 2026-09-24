@@ -1,3 +1,5 @@
+mod portable;
+
 use std::{sync::Mutex, time::Duration};
 
 use anyhow::Context;
@@ -142,6 +144,10 @@ impl UpdateState {
                 .as_ref()
                 .ok_or_else(|| AppError::Other(anyhow::anyhow!("update is not downloaded")))?;
 
+            if crate::core::portable::is_portable() {
+                return portable::install(bytes);
+            }
+
             pending
                 .update
                 .install(bytes)
@@ -162,6 +168,10 @@ impl UpdateState {
 
 pub fn init(app: &AppHandle) {
     app.manage(UpdateState::new());
+
+    if crate::core::portable::is_portable() {
+        portable::cleanup_leftovers();
+    }
 }
 
 pub async fn status(app: &AppHandle) -> AppUpdateStatus {
@@ -368,16 +378,20 @@ fn update_channels_from_values(
 /// 不应该因此让整个检查报错。所有渠道都失败时才返回最后一个错误。
 /// 结果按渠道顺序汇总，版本相同时仍以靠前的渠道为准。
 async fn check_channels(app: &AppHandle, channels: Vec<Vec<Url>>) -> Result<Option<TauriUpdate>> {
+    let portable_target = portable::updater_target();
     let mut checks = Vec::with_capacity(channels.len());
     for mirrors in channels {
-        let updater = app
+        let mut builder = app
             .updater_builder()
             .endpoints(mirrors)
             .context("failed to configure update endpoints")?
             .timeout(CHECK_REQUEST_TIMEOUT)
-            .configure_client(|client| client.connect_timeout(CONNECT_TIMEOUT))
-            .build()
-            .context("failed to build updater")?;
+            .configure_client(|client| client.connect_timeout(CONNECT_TIMEOUT));
+        // 便携版不能落到默认的 `windows-<arch>` 条目：那是 NSIS 安装包，装出来的是另一份安装版。
+        if let Some(target) = &portable_target {
+            builder = builder.target(target.clone());
+        }
+        let updater = builder.build().context("failed to build updater")?;
 
         checks.push(tauri::async_runtime::spawn(
             async move { updater.check().await },
@@ -389,10 +403,16 @@ async fn check_channels(app: &AppHandle, channels: Vec<Vec<Url>>) -> Result<Opti
     let mut any_responded = false;
 
     for check in checks {
-        let result = check
-            .await
-            .map_err(anyhow::Error::new)
-            .and_then(|found| found.map_err(anyhow::Error::new));
+        let result = match check.await {
+            // 只有指定了便携条目才会出现：新版本没带便携包时当作没有更新，不让整个检查报错。
+            Ok(Err(tauri_plugin_updater::Error::TargetNotFound(target))) => {
+                log::warn!("update channel has no package for {target}, skipping");
+                Ok(None)
+            }
+            joined => joined
+                .map_err(anyhow::Error::new)
+                .and_then(|found| found.map_err(anyhow::Error::new)),
+        };
 
         match result {
             Ok(found) => {

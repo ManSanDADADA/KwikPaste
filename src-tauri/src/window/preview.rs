@@ -485,11 +485,11 @@ pub fn build_clipboard_preview_window(app: &AppHandle) -> Result<()> {
     set_pending_show(None);
     PREVIEW_WEBVIEW_READY.store(false, Ordering::SeqCst);
 
-    let window = WebviewWindowBuilder::new(
+    let window = super::with_webview_data_dir(WebviewWindowBuilder::new(
         app,
         CLIPBOARD_PREVIEW_WINDOW_LABEL,
         WebviewUrl::App("index.html/#/preview".into()),
-    )
+    ))
     .title("KwikPaste Preview")
     // 建窗尺寸只是首帧布局的初值（显示前一定会按面板矩形重设）。给 1x1 会让第一帧在
     // 一个像素的视口里排版，内容溢出后闪出一圈原生滚动条，所以直接用兜底面板尺寸。

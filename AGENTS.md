@@ -68,7 +68,7 @@ src-tauri/
     i18n/       # Rust 侧用户可见文案（托盘、菜单、命令 toast）
     autostart/  # 开机自启
     settings/   # 设置模型与持久化
-    core/       # 错误类型、路径、prevent_default（setup 在 lib.rs）
+    core/       # 错误类型、路径、Windows 便携模式、prevent_default（setup 在 lib.rs）
   migrations/
 src/            # 前端 components/pages/stores/hooks/locales/utils
 ```

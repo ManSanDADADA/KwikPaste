@@ -23,13 +23,19 @@ use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    core::portable::ensure_runnable();
     admin::handle_startup_auto_elevation();
 
     // Webview target 把日志回灌到前端 devtools console，只在 dev 启用；
-    // 生产环境只落 LogDir 文件；Stdout 仅在 debug 启用，避免 Windows Release stdout 缓冲区阻塞，也避免向用户的 webview console 喷日志。
-    let mut log_targets = vec![tauri_plugin_log::Target::new(
-        tauri_plugin_log::TargetKind::LogDir { file_name: None },
-    )];
+    // 生产环境只落 LogDir 文件（便携版落 exe 旁的 data/logs）；Stdout 仅在 debug 启用，避免 Windows Release stdout 缓冲区阻塞，也避免向用户的 webview console 喷日志。
+    let log_file_target = match core::portable::logs_dir() {
+        Some(path) => tauri_plugin_log::TargetKind::Folder {
+            path,
+            file_name: None,
+        },
+        None => tauri_plugin_log::TargetKind::LogDir { file_name: None },
+    };
+    let mut log_targets = vec![tauri_plugin_log::Target::new(log_file_target)];
     if cfg!(debug_assertions) {
         log_targets.push(tauri_plugin_log::Target::new(
             tauri_plugin_log::TargetKind::Stdout,
@@ -74,6 +80,7 @@ pub fn run() {
             },
         ))
         .plugin(log_plugin)
+        .plugin(core::portable::runtime_plugin())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build());
 
@@ -88,6 +95,9 @@ pub fn run() {
         }
         _ => tauri_plugin_updater::Builder::new().build(),
     };
+
+    let mut context = tauri::generate_context!();
+    let deferred_windows = window::defer_config_windows(context.config_mut());
 
     builder
         .plugin(tauri_plugin_opener::init())
@@ -190,6 +200,8 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
 
+            window::create_deferred_windows(&handle, &deferred_windows)?;
+
             // macOS：plugin 必须在 to_panel 前注册。
             #[cfg(target_os = "macos")]
             window::macos::register_plugin(&handle);
@@ -281,7 +293,7 @@ pub fn run() {
                 }
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while running tauri application")
         .run(|app_handle, event| {
             // macOS 冷启动文件关联：`RunEvent::Ready` 早于系统投递的 `Opened`（多数情况），

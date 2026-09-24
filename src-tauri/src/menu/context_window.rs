@@ -98,20 +98,24 @@ fn build_menu_window(
         return Ok(());
     }
 
-    let window = WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
-        .inner_size(width as f64, height as f64)
-        .decorations(false)
-        .transparent(true)
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .always_on_top(true)
-        .focusable(false)
-        .visible(false)
-        .skip_taskbar(true)
-        .drag_and_drop(false)
-        .build()
-        .map_err(|err| AppError::Other(anyhow::anyhow!("build {label} window: {err}")))?;
+    let window = crate::window::with_webview_data_dir(WebviewWindowBuilder::new(
+        app,
+        label,
+        WebviewUrl::App(url.into()),
+    ))
+    .inner_size(width as f64, height as f64)
+    .decorations(false)
+    .transparent(true)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .always_on_top(true)
+    .focusable(false)
+    .visible(false)
+    .skip_taskbar(true)
+    .drag_and_drop(false)
+    .build()
+    .map_err(|err| AppError::Other(anyhow::anyhow!("build {label} window: {err}")))?;
 
     crate::window::round_popup_corners(&window);
 

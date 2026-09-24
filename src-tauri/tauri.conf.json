@@ -65,7 +65,6 @@
     ],
     "license": "Apache-2.0",
     "licenseFile": "../LICENSE",
-    "resources": ["assets/tray.ico"],
     "shortDescription": "快贴 - 本地优先剪贴板管理器",
     "targets": ["nsis", "dmg", "app"]
   },

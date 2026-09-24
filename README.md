@@ -28,6 +28,7 @@ It is built on a Rust-first Tauri architecture: clipboard capture, storage, sear
 Get the latest installer from [Releases](https://github.com/ManSanDADADA/KwikPaste/releases):
 
 - **Windows** — the `-setup.exe` installer, for x64 or ARM64.
+- **Windows portable** — the `_portable.zip`, for x64 or ARM64. Unzip it and run `KwikPaste\KwikPaste.exe`. History, settings and logs stay in the `data` folder next to it, so the whole folder can move to another PC or a USB drive. Keep `portable.txt` beside the exe. The portable and installed versions can't run at the same time.
 - **macOS** — the `.dmg` for your chip: `aarch64` for Apple silicon, `x64` for Intel.
 
 > [!NOTE]

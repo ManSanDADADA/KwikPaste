@@ -1,17 +1,16 @@
 //! 系统托盘：Rust 侧实现。
 //!
-//! - icon 沿用 `assets/tray.ico`（Windows）/ `assets/tray-mac.ico`（macOS），作为 Tauri 资源打包。
+//! - icon 沿用 `assets/tray.ico`（Windows）/ `assets/tray-mac.ico`（macOS），编进二进制：便携版只分发一个 exe。
 //! - 菜单只有「偏好设置」「退出应用」两项，文案跟随 `Appearance.language` 即时切换（见 [`crate::i18n::tray`]）。
 //! - 显隐跟随 `General.tray_icon`；语言或显隐变更后由 `commands/settings.rs` 调用 [`apply`] 同步。
 
 use anyhow::Context;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuBuilder, MenuItem};
-use tauri::path::BaseDirectory;
 use tauri::tray::TrayIconBuilder;
 #[cfg(target_os = "windows")]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::core::Result;
 use crate::i18n::tray as tray_i18n;
@@ -23,11 +22,16 @@ use crate::window::{self, PREFERENCE_WINDOW_LABEL};
 
 const TRAY_ID: &str = "app-tray";
 
+#[cfg(target_os = "macos")]
+const TRAY_ICON_BYTES: &[u8] = include_bytes!("../../assets/tray-mac.ico");
+#[cfg(not(target_os = "macos"))]
+const TRAY_ICON_BYTES: &[u8] = include_bytes!("../../assets/tray.ico");
+
 const MENU_PREFERENCE: &str = "tray::preference";
 const MENU_EXIT: &str = "tray::exit";
 
 pub fn init(app: &AppHandle, settings: &Settings) -> Result<()> {
-    let icon = load_icon(app)?;
+    let icon = Image::from_bytes(TRAY_ICON_BYTES).context("decode tray icon")?;
     let menu = build_menu(app, settings.appearance.language)?;
 
     let tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -75,19 +79,6 @@ pub fn apply(app: &AppHandle, settings: &Settings) -> Result<()> {
     tray.set_visible(settings.general.tray_icon)
         .context("tray set_visible failed")?;
     Ok(())
-}
-
-fn load_icon(app: &AppHandle) -> Result<Image<'static>> {
-    let relative = if cfg!(target_os = "macos") {
-        "assets/tray-mac.ico"
-    } else {
-        "assets/tray.ico"
-    };
-    let path = app
-        .path()
-        .resolve(relative, BaseDirectory::Resource)
-        .with_context(|| format!("resolve tray icon resource {relative}"))?;
-    Ok(Image::from_path(&path).with_context(|| format!("load tray icon from {path:?}"))?)
 }
 
 fn build_menu(app: &AppHandle, lang: Language) -> Result<Menu<tauri::Wry>> {

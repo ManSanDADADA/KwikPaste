@@ -1,6 +1,7 @@
 {
   "about": {
-    "checkUpdates": "检查更新"
+    "checkUpdates": "检查更新",
+    "portable": "便携版"
   },
   "backup": {
     "export": {

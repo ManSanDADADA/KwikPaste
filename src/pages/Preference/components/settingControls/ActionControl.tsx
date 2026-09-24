@@ -33,6 +33,7 @@ import { WINDOW_LABEL } from "@/constants/windows";
 import { resetSettings } from "@/stores/settings";
 import type { ClipboardGroupRecord } from "@/types/clipboard";
 import { getModalApi } from "@/utils/feedback";
+import { isPortable } from "@/utils/is";
 import { log } from "@/utils/log";
 import type { PreferenceSetting } from "../../types/preferences";
 import { translatePreferenceControlLabel } from "../../utils/preferenceI18n";
@@ -427,25 +428,33 @@ const ActionControl: FC<ActionControlProps> = (props) => {
             />
           </Tooltip>
 
-          <Tooltip title={t("preferences:storageLocation.change")}>
-            <CustomIconButton
-              disabled={disabled || loading}
-              icon={<i aria-hidden="true" className="i-lucide:folder-sync" />}
-              loading={loading}
-              onClick={changeDataDirectory}
-              type="default"
-            />
-          </Tooltip>
+          {isPortable ? null : (
+            <>
+              <Tooltip title={t("preferences:storageLocation.change")}>
+                <CustomIconButton
+                  disabled={disabled || loading}
+                  icon={
+                    <i aria-hidden="true" className="i-lucide:folder-sync" />
+                  }
+                  loading={loading}
+                  onClick={changeDataDirectory}
+                  type="default"
+                />
+              </Tooltip>
 
-          <Tooltip title={t("preferences:storageLocation.reset")}>
-            <CustomIconButton
-              disabled={disabled || loading || !canReset}
-              icon={<i aria-hidden="true" className="i-lucide:rotate-ccw" />}
-              loading={loading}
-              onClick={confirmResetDataDirectory}
-              type="default"
-            />
-          </Tooltip>
+              <Tooltip title={t("preferences:storageLocation.reset")}>
+                <CustomIconButton
+                  disabled={disabled || loading || !canReset}
+                  icon={
+                    <i aria-hidden="true" className="i-lucide:rotate-ccw" />
+                  }
+                  loading={loading}
+                  onClick={confirmResetDataDirectory}
+                  type="default"
+                />
+              </Tooltip>
+            </>
+          )}
         </Space.Compact>
       </ControlFrame>
     );

@@ -10,5 +10,8 @@ pub fn label(key: Key) -> &'static str {
         Key::FragmentUnavailable => "The selected text is no longer in this record",
         Key::SplitTextOnly => "Only text records can be split into words",
         Key::SplitSensitiveRedacted => "Sensitive content is redacted and can't be split",
+        Key::PortableStorageFixed => {
+            "KwikPaste Portable always keeps its data in the data folder next to the app"
+        }
     }
 }

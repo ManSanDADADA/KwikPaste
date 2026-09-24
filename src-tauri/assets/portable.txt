@@ -1,0 +1,11 @@
+﻿快贴便携版
+
+有这个文件，快贴就以便携模式运行：历史记录、设置和日志都保存在同一文件夹的 data 目录里，不写入系统目录。
+请不要删除或改名这个文件，否则快贴会改用系统目录（%LOCALAPPDATA%），看起来就像记录丢了。
+升级：在“偏好设置 → 关于 → 检查更新”里直接更新；或下载新的便携包，只替换 KwikPaste.exe。
+
+KwikPaste Portable
+
+This file makes KwikPaste run in portable mode: history, settings and logs stay in the data folder next to it, and nothing is written to system folders.
+Do not delete or rename this file, or KwikPaste will switch to the system folder (%LOCALAPPDATA%) and your history will seem to be gone.
+To upgrade, use Preferences > About > Check for updates, or download a new portable package and replace only KwikPaste.exe.

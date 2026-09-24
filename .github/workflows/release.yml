@@ -271,3 +271,73 @@ jobs:
           releaseId: ${{ needs.release-metadata.outputs.release_id }}
           retryAttempts: 3
           tagName: ${{ needs.release-metadata.outputs.tag_name }}
+
+      # 便携包用的就是安装包里那个 exe，旁边放上标记文件；签名后由 portable-manifest 写进 latest.json。
+      - name: Package and upload portable build
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          TAG_NAME: ${{ needs.release-metadata.outputs.tag_name }}
+          TARGET: ${{ matrix.target }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $arch = if ($env:TARGET -like 'aarch64-*') { 'arm64' } else { 'x64' }
+          $zip = ./scripts/package-portable.ps1 `
+            -ExePath "src-tauri/target/$env:TARGET/release/KwikPaste.exe" `
+            -Version $version `
+            -Arch $arch `
+            -OutDir portable-dist
+
+          pnpm tauri signer sign $zip
+          gh release upload $env:TAG_NAME $zip "$zip.sig" --clobber
+
+  portable-manifest:
+    name: Add portable builds to latest.json
+    needs: [release-metadata, build-app]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add portable platforms
+        shell: bash
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          RELEASE_ID: ${{ needs.release-metadata.outputs.release_id }}
+          TAG_NAME: ${{ needs.release-metadata.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          gh api --paginate "repos/${GH_REPO}/releases/${RELEASE_ID}/assets?per_page=100" \
+            --jq '.[] | {id, name, url}' | jq -s . > assets.json
+          latest_json_id="$(jq -r '.[] | select(.name == "latest.json") | .id' assets.json)"
+          if [[ -z "${latest_json_id}" ]]; then
+            echo "::error::Release ${TAG_NAME} has no latest.json asset."
+            exit 1
+          fi
+          gh api -H "Accept: application/octet-stream" "repos/${GH_REPO}/releases/assets/${latest_json_id}" > latest.json
+
+          # 便携版只认自己的平台键：默认的 windows-<arch> 指向 NSIS 安装包，便携版装它会装出一份安装版。
+          for pair in x86_64:x64 aarch64:arm64; do
+            platform="windows-${pair%%:*}-portable"
+            suffix="_${pair##*:}_portable.zip"
+            zip_url="$(jq -r --arg suffix "${suffix}" '.[] | select(.name | endswith($suffix)) | .url' assets.json)"
+            sig_id="$(jq -r --arg suffix "${suffix}.sig" '.[] | select(.name | endswith($suffix)) | .id' assets.json)"
+
+            if [[ -z "${zip_url}" || -z "${sig_id}" ]]; then
+              echo "::error::Portable package or signature for ${platform} is missing."
+              exit 1
+            fi
+
+            signature="$(gh api -H "Accept: application/octet-stream" "repos/${GH_REPO}/releases/assets/${sig_id}")"
+            jq --arg platform "${platform}" --arg url "${zip_url}" --arg signature "${signature}" \
+              '.platforms[$platform] = {signature: $signature, url: $url}' latest.json > latest.next.json
+            mv latest.next.json latest.json
+            echo "Added ${platform}"
+          done
+
+          gh release upload "${TAG_NAME}" latest.json --clobber

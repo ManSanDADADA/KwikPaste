@@ -1,6 +1,11 @@
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { platform } from "@tauri-apps/plugin-os";
+import { RUNTIME_GLOBAL } from "@/constants/runtime";
 import { WINDOW_LABEL } from "@/constants/windows";
+
+interface KwikPasteRuntime {
+  portable: boolean;
+}
 
 /**
  * 当前是否运行在 macOS 平台。
@@ -11,6 +16,14 @@ export const isMac = platform() === "macos";
  * 当前是否运行在 Windows 平台。
  */
 export const isWin = platform() === "windows";
+
+/**
+ * 当前是否为 Windows 便携版：数据保存在程序文件夹，不支持改数据目录、自动以管理员运行。
+ * 由 Rust 在页面脚本执行前注入，可在模块顶层同步读取。
+ */
+export const isPortable =
+  (Reflect.get(window, RUNTIME_GLOBAL) as KwikPasteRuntime | undefined)
+    ?.portable === true;
 
 /**
  * 当前是否为 Vite dev 构建（开发模式）。生产构建为 false。

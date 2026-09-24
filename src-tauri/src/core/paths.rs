@@ -7,6 +7,7 @@
 //!   便于后续导入导出 / 备份 / 迁移按环境整目录操作。
 //! - 自定义数据目录：`<app_local_data>/<env>/storage.json` 始终作为启动锚点，
 //!   真实数据根由该 bootstrap manifest 指向。
+//! - 便携模式（见 [`portable`]）：锚点和数据根都换到 exe 旁的 `data/<env>`，不支持自定义目录。
 //!
 //! 只解析路径、不建目录：创建行为是各调用方特化的（settings/window/db 建自己的目录、
 //! 图片/图标写时懒建），塞进这里会改掉懒建语义。叶子文件名（`clipboard.db` /
@@ -20,7 +21,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::core::Result;
+use crate::core::{portable, Result};
 
 /// SQLite 主库与 WAL / SHM sidecar 所在目录名，挂在 [`app_data_dir`] 下。
 const DB_DIR: &str = "db";
@@ -80,8 +81,12 @@ struct StorageIdentity {
 }
 
 /// `<app_local_data>/<env>`：固定启动锚点。自定义数据目录启用后，这里仍保留
-/// `storage.json` 用于解析真实数据根。
+/// `storage.json` 用于解析真实数据根。便携模式换成 `<exe 目录>/data/<env>`。
 pub fn bootstrap_dir(app: &AppHandle) -> Result<PathBuf> {
+    if let Some(root) = portable::data_root() {
+        return Ok(root.join(env_dir()));
+    }
+
     let dir = app
         .path()
         .app_local_data_dir()
@@ -112,6 +117,9 @@ pub fn storage_location(app: &AppHandle) -> Result<StorageLocation> {
 
 /// `<data_root>`：当前环境所有持久化位置的根；其下按语义拆分为 db、resources、
 /// config 与 state。真实根由 bootstrap manifest 决定。
+///
+/// 便携模式固定用 exe 旁的数据根、不读写 manifest：manifest 记的是绝对路径，
+/// U 盘换了盘符就会失效。
 pub fn app_data_dir(app: &AppHandle) -> Result<PathBuf> {
     let bootstrap = bootstrap_dir(app)?;
     let default = default_data_dir(app)?;
@@ -119,6 +127,10 @@ pub fn app_data_dir(app: &AppHandle) -> Result<PathBuf> {
 
     fs::create_dir_all(&bootstrap)
         .with_context(|| format!("failed to create bootstrap dir at {bootstrap:?}"))?;
+
+    if portable::is_portable() {
+        return Ok(default);
+    }
 
     let manifest = match read_storage_manifest(&manifest_path) {
         Ok(Some(manifest)) => manifest,
@@ -234,6 +246,18 @@ pub fn validate_storage_target(data_dir: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// 日志目录：便携模式在 `data/logs`，否则是系统日志目录。与日志插件的落盘位置一致。
+pub fn log_dir(app: &AppHandle) -> Result<PathBuf> {
+    if let Some(dir) = portable::logs_dir() {
+        return Ok(dir);
+    }
+
+    Ok(app
+        .path()
+        .app_log_dir()
+        .context("failed to resolve app log dir")?)
 }
 
 /// `<app_data_dir>/db`：SQLite 主库与 sidecar 的目录。

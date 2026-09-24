@@ -7,7 +7,7 @@ import {
   WINDOW_OPEN_RANGE_OPTIONS,
 } from "@/constants/windowOpenSelection";
 import type { Settings } from "@/types/settings";
-import { isMac, isWin } from "@/utils/is";
+import { isMac, isPortable, isWin } from "@/utils/is";
 import { STORAGE_LIMIT_MAX_MB, STORAGE_LIMIT_MIN_MB } from "../constants";
 import type { PreferenceSetting, PreferenceTab } from "../types/preferences";
 
@@ -34,6 +34,8 @@ const STORAGE_LIMIT_ACTION_OPTIONS = [
   { value: "remind" },
   { value: "cleanup" },
 ];
+// 便携版不自动提权：计划任务记着 exe 路径，换电脑、挪文件夹后就失效。
+const SHOW_RUN_AS_ADMINISTRATOR = isWin && !isPortable;
 export const preferenceTabs: PreferenceTab[] = [
   {
     icon: "i-lucide:clipboard-plus",
@@ -686,7 +688,7 @@ export const preferenceTabs: PreferenceTab[] = [
           },
         ],
       },
-      ...(isMac || isWin
+      ...(isMac || SHOW_RUN_AS_ADMINISTRATOR
         ? [
             {
               id: "permissions",
@@ -721,7 +723,7 @@ export const preferenceTabs: PreferenceTab[] = [
                       },
                     ]
                   : []),
-                ...(isWin
+                ...(SHOW_RUN_AS_ADMINISTRATOR
                   ? [
                       {
                         control: {

@@ -89,6 +89,7 @@ pub async fn change_storage_location(
     db: tauri::State<'_, DatabaseState>,
     target_parent_dir: String,
 ) -> Result<ChangeStorageLocationResult> {
+    ensure_storage_relocatable(&app)?;
     let target = crate::core::paths::custom_data_dir(Path::new(&target_parent_dir));
     switch_storage_location(app, db.inner(), target).await
 }
@@ -99,8 +100,23 @@ pub async fn reset_storage_location(
     app: AppHandle,
     db: tauri::State<'_, DatabaseState>,
 ) -> Result<ChangeStorageLocationResult> {
+    ensure_storage_relocatable(&app)?;
     let target = crate::core::paths::default_data_dir(&app)?;
     switch_storage_location(app, db.inner(), target).await
+}
+
+/// 便携版的数据根固定在 exe 旁，偏好页不提供迁移入口，这里兜住绕过界面的调用。
+fn ensure_storage_relocatable(app: &AppHandle) -> Result<()> {
+    if !crate::core::portable::is_portable() {
+        return Ok(());
+    }
+
+    let lang = crate::i18n::current_language(app);
+    Err(anyhow::anyhow!(crate::i18n::commands::label(
+        lang,
+        crate::i18n::commands::Key::PortableStorageFixed
+    ))
+    .into())
 }
 
 /// 删除资源目录中不再被历史记录或资源索引引用的文件。
@@ -152,10 +168,7 @@ pub async fn open_preference_directory(
 ) -> Result<()> {
     let path = match target {
         PreferenceDirectoryTarget::Data => crate::core::paths::app_data_dir(&app)?,
-        PreferenceDirectoryTarget::Logs => app
-            .path()
-            .app_log_dir()
-            .context("failed to resolve app log dir")?,
+        PreferenceDirectoryTarget::Logs => crate::core::paths::log_dir(&app)?,
     };
 
     fs::create_dir_all(&path).with_context(|| format!("failed to create directory {path:?}"))?;

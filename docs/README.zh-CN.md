@@ -28,6 +28,7 @@
 在 [Releases](https://github.com/ManSanDADADA/KwikPaste/releases) 页面下载最新安装包：
 
 - **Windows**：`-setup.exe` 安装包，分 x64 和 ARM64 两种。
+- **Windows 便携版**：`_portable.zip`，同样分 x64 和 ARM64。解压后直接运行 `KwikPaste\KwikPaste.exe`，历史、设置和日志都保存在同目录的 `data` 文件夹里，整个文件夹可以拷到别的电脑或 U 盘。`portable.txt` 要和 exe 放在一起；便携版和安装版不能同时运行。
 - **macOS**：按芯片选择 `.dmg`，Apple 芯片选 `aarch64`，Intel 芯片选 `x64`。
 
 > [!NOTE]
