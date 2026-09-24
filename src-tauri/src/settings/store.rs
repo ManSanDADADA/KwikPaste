@@ -459,6 +459,21 @@ mod tests {
         assert_eq!(preview.text_view, crate::settings::PreviewTextView::Plain);
     }
 
+    // 已发布版本首次启动就把完整设置落盘，存量用户文件里一定带 hoverEnabled：默认改为开启只影响新装与恢复默认。
+    #[test]
+    fn hover_preview_defaults_on_but_keeps_released_choice() {
+        assert!(crate::settings::Preview::default().hover_enabled);
+
+        let released = r#"{
+            "clipboard": {
+                "preview": {"hoverEnabled": false, "hoverDelayMs": "ms500", "spaceEnabled": true}
+            }
+        }"#;
+        let parsed: Settings = serde_json::from_str(released).unwrap();
+
+        assert!(!parsed.clipboard.preview.hover_enabled);
+    }
+
     #[test]
     fn released_shortcut_settings_keep_quick_paste_disabled() {
         let released = r#"{
