@@ -352,14 +352,42 @@ mod tests {
         assert!(parsed.clipboard.window.scroll_to_top_on_open);
         assert_eq!(
             parsed.clipboard.window.select_range_on_open,
-            crate::settings::WindowOpenRangeSelection::Preserve
+            crate::settings::WindowOpenRangeSelection::All
         );
         assert_eq!(
             parsed.clipboard.window.select_category_on_open,
-            crate::settings::WindowOpenCategorySelection::Preserve
+            crate::settings::WindowOpenCategorySelection::All
         );
         assert_eq!(
             parsed.clipboard.window.select_group_on_open,
+            crate::settings::WINDOW_OPEN_SELECTION_ALL
+        );
+    }
+
+    #[test]
+    fn released_window_settings_keep_saved_open_selection() {
+        let released = r#"{
+            "clipboard": {
+                "window": {
+                    "selectRangeOnOpen": "preserve",
+                    "selectCategoryOnOpen": "preserve",
+                    "selectGroupOnOpen": "preserve"
+                }
+            }
+        }"#;
+        let parsed: Settings = serde_json::from_str(released).unwrap();
+        let window = parsed.clipboard.window;
+
+        assert_eq!(
+            window.select_range_on_open,
+            crate::settings::WindowOpenRangeSelection::Preserve
+        );
+        assert_eq!(
+            window.select_category_on_open,
+            crate::settings::WindowOpenCategorySelection::Preserve
+        );
+        assert_eq!(
+            window.select_group_on_open,
             crate::settings::WINDOW_OPEN_SELECTION_PRESERVE
         );
     }

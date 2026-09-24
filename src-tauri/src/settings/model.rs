@@ -605,14 +605,15 @@ pub struct Window {
     pub idle_destroy_seconds: u32,
 }
 
+/// 设置文件落盘时写入完整结构，已有安装会保留各自显式保存的打开选中项；这里的默认值只作用于全新安装与恢复默认。
 impl Default for Window {
     fn default() -> Self {
         Self {
             position: WindowPosition::FollowCursor,
             scroll_to_top_on_open: true,
-            select_range_on_open: WindowOpenRangeSelection::Preserve,
-            select_category_on_open: WindowOpenCategorySelection::Preserve,
-            select_group_on_open: WINDOW_OPEN_SELECTION_PRESERVE.to_owned(),
+            select_range_on_open: WindowOpenRangeSelection::All,
+            select_category_on_open: WindowOpenCategorySelection::All,
+            select_group_on_open: WINDOW_OPEN_SELECTION_ALL.to_owned(),
             lightweight_mode: true,
             idle_destroy_seconds: 60,
         }
@@ -622,8 +623,8 @@ impl Default for Window {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum WindowOpenRangeSelection {
-    #[default]
     Preserve,
+    #[default]
     All,
     Favorite,
 }
@@ -631,8 +632,8 @@ pub enum WindowOpenRangeSelection {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum WindowOpenCategorySelection {
-    #[default]
     Preserve,
+    #[default]
     All,
     Text,
     Image,
