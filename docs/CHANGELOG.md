@@ -2,6 +2,15 @@
 
 All notable changes to KwikPaste are documented here.
 
+## 1.3.5 - 2026-09-25
+
+- Fixed pasting an image copied from a browser or another app adding a duplicate record every time. Pasting large images is also faster, taking about 40% of the time it used to for a 2–3 megapixel image.
+- Fixed a newly copied image staying a grey placeholder, or showing the previous image, when the clipboard window was already open.
+- Hovering, selecting and scrolling in the clipboard list now redraw only the cards that changed instead of every visible card.
+- Paging through history, the category tabs, custom groups and history cleanup now use database indexes, so they stay fast as history grows. The first launch after updating builds the indexes once, which takes about a second with 20,000 records.
+- Copying no longer extracts the source app's icon every time; each app's icon is read once.
+- App Info now has a Website link to the official site, and the GitHub repository moved to its own Source Code link.
+
 ## 1.3.2 - 2026-09-24
 
 - Added Quick Paste: hold the modifier keys and press a number to paste without opening the clipboard window. 1–9 paste items 1–9 and 0 pastes item 10, in the same order as the All list. It is off by default; turn it on in Preference › Shortcuts, where the modifier keys (Ctrl+Shift by default) can be changed.
