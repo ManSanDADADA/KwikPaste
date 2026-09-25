@@ -1,5 +1,5 @@
-import type { DragEvent, FC, MouseEvent, PointerEvent, Ref } from "react";
-import { useState } from "react";
+import type { DragEvent, FC, MouseEvent, PointerEvent } from "react";
+import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { popupClipboardItemMenu, startDragClipboardItem } from "@/commands";
 import AssetImage from "@/components/AssetImage";
@@ -16,6 +16,9 @@ import NoteContentSwitcher from "./NoteContentSwitcher";
 import QuickSnippets from "./QuickSnippets";
 import TextCard from "./TextCard";
 
+/**
+ * 回调都把条目作为参数回传：列表对所有卡片传同一组稳定函数，`memo` 才能跳过没变的卡片。
+ */
 interface ClipboardCardProps {
   item: ClipboardItem;
   isSelected?: boolean;
@@ -27,7 +30,7 @@ interface ClipboardCardProps {
   /**
    * 快捷键触发时执行的粘贴操作，由父级列表注入。
    */
-  onQuickPaste?: () => void;
+  onQuickPaste?: (item: ClipboardItem) => void;
   /**
    * MOD 键按下时，URL / Email 文本以链接态展示。
    */
@@ -35,23 +38,41 @@ interface ClipboardCardProps {
   /**
    * 点击 URL / Email 文本时打开外部链接。
    */
-  onOpenLink?: () => void;
-  onPointerEnter?: (event: PointerEvent<HTMLDivElement>) => void;
+  onOpenLink?: (item: ClipboardItem) => void;
+  onPointerEnter?: (
+    item: ClipboardItem,
+    event: PointerEvent<HTMLDivElement>,
+  ) => void;
   onPointerLeave?: () => void;
-  onPointerMove?: (event: PointerEvent<HTMLDivElement>) => void;
-  onMouseDown?: (event: MouseEvent<HTMLDivElement>) => void;
+  onPointerMove?: (
+    item: ClipboardItem,
+    event: PointerEvent<HTMLDivElement>,
+  ) => void;
+  onMouseDown?: (
+    item: ClipboardItem,
+    event: MouseEvent<HTMLDivElement>,
+  ) => void;
   onAuxClick?: (event: MouseEvent<HTMLDivElement>) => void;
-  onDoubleClick?: (event: MouseEvent<HTMLDivElement>) => void;
-  availableActions?: ClipboardAction[];
-  quickActions?: ItemAction[];
+  onDoubleClick?: (item: ClipboardItem) => void;
+  /**
+   * 受收藏 / 置顶保护规则约束时为 false，右键菜单和快捷动作都去掉删除。
+   */
+  canDelete: boolean;
+  quickActions?: readonly ItemAction[];
   quickActionLabels?: ItemActionLabels;
-  onQuickAction?: (action: ItemAction) => Promise<void> | void;
+  onQuickAction?: (
+    item: ClipboardItem,
+    action: ItemAction,
+  ) => Promise<void> | void;
   /**
    * 点击卡片下方的快捷信息时单独粘贴 / 复制该片段，由列表层按左键设置决定。
    */
-  onPickSnippet?: (text: string) => void;
+  onPickSnippet?: (item: ClipboardItem, text: string) => void;
   showOriginalOnHover?: boolean;
-  rootRef?: Ref<HTMLDivElement>;
+  /**
+   * 登记卡片根节点，预览打开时用它采集 anchor rect；卸载时传 null。
+   */
+  onRootElement?: (id: string, node: HTMLDivElement | null) => void;
 }
 
 /**
@@ -74,13 +95,13 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
     onMouseDown,
     onAuxClick,
     onDoubleClick,
-    availableActions,
+    canDelete,
     quickActions = [],
     quickActionLabels,
     onQuickAction,
     onPickSnippet,
     showOriginalOnHover = true,
-    rootRef,
+    onRootElement,
   } = props;
   const {
     kind,
@@ -94,7 +115,15 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
   const [hovered, setHovered] = useState(false);
   const typeKey = subKind ?? kind;
   const typeLabel = t(`types.${typeKey}`);
-  const body = renderBody(item, isLinkActive, onOpenLink);
+  const visibleQuickActions = canDelete
+    ? quickActions
+    : quickActions.filter(isNotDeleteAction);
+
+  const handleOpenLink = () => {
+    onOpenLink?.(item);
+  };
+
+  const body = renderBody(item, isLinkActive, handleOpenLink);
   const showSensitiveIndicator = item.isSensitive && item.kind === "text";
   const showStatusIndicators = item.isPinned || showSensitiveIndicator;
   const indicatorCount = Number(item.isPinned) + Number(showSensitiveIndicator);
@@ -121,7 +150,10 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
   const handleContextMenu = async (event: MouseEvent) => {
     event.preventDefault();
 
-    const actions = availableActions ?? item.availableActions ?? [];
+    const allActions = item.availableActions ?? [];
+    const actions = canDelete
+      ? allActions
+      : allActions.filter(isNotDeleteAction);
     const { isFavorite, isPinned, note } = item;
 
     if (actions.length === 0) return;
@@ -138,12 +170,40 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
 
   const handlePointerEnter = (event: PointerEvent<HTMLDivElement>) => {
     setHovered(true);
-    onPointerEnter?.(event);
+    onPointerEnter?.(item, event);
   };
 
   const handlePointerLeave = () => {
     setHovered(false);
     onPointerLeave?.();
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    onPointerMove?.(item, event);
+  };
+
+  const handleMouseDown = (event: MouseEvent<HTMLDivElement>) => {
+    onMouseDown?.(item, event);
+  };
+
+  const handleDoubleClick = () => {
+    onDoubleClick?.(item);
+  };
+
+  const handleQuickPaste = () => {
+    onQuickPaste?.(item);
+  };
+
+  const handleQuickAction = (action: ItemAction) => {
+    return onQuickAction?.(item, action);
+  };
+
+  const handlePickSnippet = (text: string) => {
+    onPickSnippet?.(item, text);
+  };
+
+  const registerRoot = (node: HTMLDivElement | null) => {
+    onRootElement?.(item.id, node);
   };
 
   return (
@@ -162,20 +222,20 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
       draggable
       onAuxClick={onAuxClick}
       onContextMenu={handleContextMenu}
-      onDoubleClick={onDoubleClick}
+      onDoubleClick={handleDoubleClick}
       onDragStart={handleDragStart}
-      onMouseDown={onMouseDown}
+      onMouseDown={handleMouseDown}
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
-      onPointerMove={onPointerMove}
-      ref={rootRef}
+      onPointerMove={handlePointerMove}
+      ref={registerRoot}
       role="option"
       tabIndex={-1}
     >
       <div className="flex items-center justify-between text-ant-secondary text-xs">
         <div className="flex min-w-0 items-center gap-1 overflow-hidden">
           {hintKey ? (
-            <KeyHint hintKey={hintKey} onKeyPress={onQuickPaste}>
+            <KeyHint hintKey={hintKey} onKeyPress={handleQuickPaste}>
               {sourceAppIcon}
             </KeyHint>
           ) : (
@@ -188,8 +248,8 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
         <ClipboardQuickActions
           item={item}
           labels={quickActionLabels}
-          onQuickAction={onQuickAction}
-          quickActions={quickActions}
+          onQuickAction={onQuickAction ? handleQuickAction : void 0}
+          quickActions={visibleQuickActions}
           visible={hovered}
         />
       </div>
@@ -207,7 +267,7 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
       {quickSnippets.length > 0 && onPickSnippet ? (
         <QuickSnippets
           indicatorCount={indicatorCount}
-          onPick={onPickSnippet}
+          onPick={handlePickSnippet}
           snippets={quickSnippets}
         />
       ) : null}
@@ -216,6 +276,10 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
         : null}
     </div>
   );
+};
+
+const isNotDeleteAction = (action: ClipboardAction | ItemAction) => {
+  return action !== "delete";
 };
 
 /**
@@ -248,4 +312,4 @@ const renderBody = (
   );
 };
 
-export default ClipboardCard;
+export default memo(ClipboardCard);

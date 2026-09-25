@@ -1,4 +1,4 @@
-import { useMount } from "ahooks";
+import { useMemoizedFn, useMount } from "ahooks";
 import { Empty, Spin } from "antd";
 import type { TFunction } from "i18next";
 import type {
@@ -6,7 +6,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type TopItemListProps,
@@ -125,7 +125,9 @@ const List: FC = () => {
     settings.clipboard.content.deleteFavoriteItemsOnlyInFavoriteGroup;
   const { fileMaxCount, quickSnippets } = display;
   const showOriginalPreview = settings.clipboard.content.showOriginalPreview;
-  const quickActionLabels = buildItemActionLabels(t);
+  const quickActionLabels = useMemo(() => {
+    return buildItemActionLabels(t);
+  }, [t]);
   const currentGroupName = getCurrentGroupName(customGroups, groupId);
 
   const {
@@ -424,16 +426,16 @@ const List: FC = () => {
   /**
    * 注册虚拟列表项对应的 DOM 节点，预览打开时用它采集 anchor rect。
    */
-  const registerItemElement = (id: string) => {
-    return (node: HTMLDivElement | null) => {
+  const registerItemElement = useMemoizedFn(
+    (id: string, node: HTMLDivElement | null) => {
       if (node) {
         itemElementMapRef.current.set(id, node);
         return;
       }
 
       itemElementMapRef.current.delete(id);
-    };
-  };
+    },
+  );
 
   /**
    * 快捷键触发的删除：复用 `deleteClipboardItem` 内置的二次确认弹窗，
@@ -839,6 +841,164 @@ const List: FC = () => {
 
   useKeyboardEvent("keyup", handleKeyUp);
 
+  // 卡片回调对所有条目共用一份稳定引用（条目由卡片回传），hover / 选中变化时 memo 卡片不必全部重渲染。
+  const handleCardPointerEnter = useMemoizedFn(
+    (item: ClipboardItem, event: ReactPointerEvent<HTMLDivElement>) => {
+      handleItemPointerEnter(item, event);
+    },
+  );
+
+  const handleCardPointerLeave = useMemoizedFn(() => {
+    handleItemPointerLeave();
+  });
+
+  const handleCardPointerMove = useMemoizedFn(
+    (item: ClipboardItem, event: ReactPointerEvent<HTMLDivElement>) => {
+      handleItemPointerMove(item, event);
+    },
+  );
+
+  const quickPasteItem = useMemoizedFn((item: ClipboardItem) => {
+    closePreview("quickPaste");
+    pasteClipboardItem(item.id, false);
+  });
+
+  const openItemLink = useMemoizedFn((item: ClipboardItem) => {
+    closePreview("openLink");
+    openClipboardItemLink(item.id, item.subKind === "email");
+  });
+
+  const pickItemSnippet = useMemoizedFn((item: ClipboardItem, text: string) => {
+    void pickSnippet(item, text);
+  });
+
+  const handleCardQuickAction = useMemoizedFn(
+    async (item: ClipboardItem, action: ItemAction) => {
+      if (action === "delete" && !canDeleteItem(item)) return;
+
+      switch (action) {
+        case "paste":
+          closePreview("quickPaste");
+          await pasteClipboardItem(item.id, false);
+          return;
+        case "pastePlain":
+          closePreview("quickPastePlain");
+          await pasteClipboardItem(item.id, true);
+          return;
+        case "pastePath":
+          closePreview("quickPastePath");
+          await pasteClipboardItem(item.id, true);
+          return;
+        case "copy":
+          if (previewSession?.itemId === item.id) closePreview("quickCopy");
+          await writeToClipboard(item.id, false);
+          return;
+        case "copyPlain":
+          if (previewSession?.itemId === item.id) {
+            closePreview("quickCopyPlain");
+          }
+          await writeToClipboard(item.id, true);
+          return;
+        case "splitWords":
+          openSplit(item);
+          return;
+        case "openLink":
+          if (previewSession?.itemId === item.id) {
+            closePreview("quickOpenLink");
+          }
+          await openClipboardItemLink(item.id, false);
+          return;
+        case "sendEmail":
+          if (previewSession?.itemId === item.id) {
+            closePreview("quickSendEmail");
+          }
+          await openClipboardItemLink(item.id, true);
+          return;
+        case "reveal":
+          if (previewSession?.itemId === item.id) closePreview("quickReveal");
+          await revealClipboardItem(item.id);
+          return;
+        case "note":
+          handleOpenNote(item, "editNote");
+          return;
+        case "pinItem":
+          await handleTogglePinned(item.id);
+          return;
+        case "star":
+          await handleShortcutToggleFavorite(item.id);
+          return;
+        case "delete":
+          await handleShortcutDelete(item.id);
+          return;
+      }
+    },
+  );
+
+  const handleCardMouseDown = useMemoizedFn(
+    (item: ClipboardItem, event: ReactMouseEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        if (event.button !== 1) return;
+
+        event.preventDefault();
+
+        if (middleClick === "singleClickPaste") {
+          setSelectedId(item.id);
+          closePreview("middleClickPaste");
+          pasteClipboardItem(item.id, false);
+          return;
+        }
+
+        if (middleClick === "singleClickPastePlain") {
+          setSelectedId(item.id);
+          closePreview("middleClickPastePlain");
+          pasteClipboardItem(item.id, true);
+          return;
+        }
+
+        if (middleClick === "singleClickCopy") {
+          setSelectedId(item.id);
+          closePreview("middleClickCopy");
+          writeToClipboard(item.id, false);
+          return;
+        }
+
+        if (middleClick === "singleClickCopyPlain") {
+          setSelectedId(item.id);
+          closePreview("middleClickCopyPlain");
+          writeToClipboard(item.id, true);
+        }
+
+        return;
+      }
+
+      setSelectedId(item.id);
+
+      if (autoPaste === "singleClickPaste") {
+        closePreview("singleClickPaste");
+        pasteClipboardItem(item.id, false);
+        return;
+      }
+
+      if (autoPaste === "singleClickCopy") {
+        closePreview("singleClickCopy");
+        writeToClipboard(item.id, false);
+      }
+    },
+  );
+
+  const handleCardDoubleClick = useMemoizedFn((item: ClipboardItem) => {
+    if (autoPaste === "doubleClickPaste") {
+      closePreview("doubleClickPaste");
+      pasteClipboardItem(item.id, false);
+      return;
+    }
+
+    if (autoPaste === "doubleClickCopy") {
+      closePreview("doubleClickCopy");
+      writeToClipboard(item.id, false);
+    }
+  });
+
   const handleRangeChanged = ({
     endIndex,
     startIndex,
@@ -932,7 +1092,7 @@ const List: FC = () => {
     return (
       <Virtuoso
         atTopStateChange={handleAtTopStateChange}
-        components={{ TopItemList }}
+        components={VIRTUOSO_COMPONENTS}
         computeItemKey={computeItemKey}
         itemContent={renderItemContent}
         rangeChanged={handleRangeChanged}
@@ -944,21 +1104,13 @@ const List: FC = () => {
     );
   }
 
+  function computeItemKey(index: number) {
+    return getItem(index)?.id ?? `placeholder-${index}`;
+  }
+
   function renderItemContent(index: number) {
     const item = getItem(index);
     if (!item) return renderPlaceholderItem();
-
-    const handlePointerEnter = (event: ReactPointerEvent<HTMLDivElement>) => {
-      handleItemPointerEnter(item, event);
-    };
-
-    const handlePointerLeave = () => {
-      handleItemPointerLeave();
-    };
-
-    const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-      handleItemPointerMove(item, event);
-    };
 
     const relativeIndex = index - firstVisibleIndex;
     const hintKey =
@@ -966,169 +1118,11 @@ const List: FC = () => {
         ? KEY_HINTS[relativeIndex]
         : void 0;
 
-    const handleQuickPaste = () => {
-      closePreview("quickPaste");
-      pasteClipboardItem(item.id, false);
-    };
-
-    const handleOpenLink = () => {
-      closePreview("openLink");
-      openClipboardItemLink(item.id, item.subKind === "email");
-    };
-
-    const handleEditNote = () => {
-      handleOpenNote(item, "editNote");
-    };
-
-    const handlePickSnippet = (text: string) => {
-      void pickSnippet(item, text);
-    };
-
-    const handleQuickAction = async (action: ItemAction) => {
-      if (action === "delete" && !canDeleteItem(item)) return;
-
-      switch (action) {
-        case "paste":
-          closePreview("quickPaste");
-          await pasteClipboardItem(item.id, false);
-          return;
-        case "pastePlain":
-          closePreview("quickPastePlain");
-          await pasteClipboardItem(item.id, true);
-          return;
-        case "pastePath":
-          closePreview("quickPastePath");
-          await pasteClipboardItem(item.id, true);
-          return;
-        case "copy":
-          if (previewSession?.itemId === item.id) closePreview("quickCopy");
-          await writeToClipboard(item.id, false);
-          return;
-        case "copyPlain":
-          if (previewSession?.itemId === item.id) {
-            closePreview("quickCopyPlain");
-          }
-          await writeToClipboard(item.id, true);
-          return;
-        case "splitWords":
-          openSplit(item);
-          return;
-        case "openLink":
-          if (previewSession?.itemId === item.id) {
-            closePreview("quickOpenLink");
-          }
-          await openClipboardItemLink(item.id, false);
-          return;
-        case "sendEmail":
-          if (previewSession?.itemId === item.id) {
-            closePreview("quickSendEmail");
-          }
-          await openClipboardItemLink(item.id, true);
-          return;
-        case "reveal":
-          if (previewSession?.itemId === item.id) closePreview("quickReveal");
-          await revealClipboardItem(item.id);
-          return;
-        case "note":
-          handleEditNote();
-          return;
-        case "pinItem":
-          await handleTogglePinned(item.id);
-          return;
-        case "star":
-          await handleShortcutToggleFavorite(item.id);
-          return;
-        case "delete":
-          await handleShortcutDelete(item.id);
-          return;
-      }
-    };
-
-    const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (event.button !== 0) {
-        if (event.button !== 1) return;
-
-        event.preventDefault();
-
-        if (middleClick === "singleClickPaste") {
-          setSelectedId(item.id);
-          closePreview("middleClickPaste");
-          pasteClipboardItem(item.id, false);
-          return;
-        }
-
-        if (middleClick === "singleClickPastePlain") {
-          setSelectedId(item.id);
-          closePreview("middleClickPastePlain");
-          pasteClipboardItem(item.id, true);
-          return;
-        }
-
-        if (middleClick === "singleClickCopy") {
-          setSelectedId(item.id);
-          closePreview("middleClickCopy");
-          writeToClipboard(item.id, false);
-          return;
-        }
-
-        if (middleClick === "singleClickCopyPlain") {
-          setSelectedId(item.id);
-          closePreview("middleClickCopyPlain");
-          writeToClipboard(item.id, true);
-        }
-
-        return;
-      }
-
-      setSelectedId(item.id);
-
-      if (autoPaste === "singleClickPaste") {
-        closePreview("singleClickPaste");
-        pasteClipboardItem(item.id, false);
-        return;
-      }
-
-      if (autoPaste === "singleClickCopy") {
-        closePreview("singleClickCopy");
-        writeToClipboard(item.id, false);
-      }
-    };
-
-    const handleAuxClick = (event: ReactMouseEvent<HTMLDivElement>) => {
-      if (event.button !== 1) return;
-
-      event.preventDefault();
-    };
-
-    const handleDoubleClick = () => {
-      if (autoPaste === "doubleClickPaste") {
-        closePreview("doubleClickPaste");
-        pasteClipboardItem(item.id, false);
-        return;
-      }
-
-      if (autoPaste === "doubleClickCopy") {
-        closePreview("doubleClickCopy");
-        writeToClipboard(item.id, false);
-      }
-    };
-
-    const availableActions = getAllowedClipboardActions(
-      item.availableActions,
-      item,
-      canDeleteItem,
-    );
-    const visibleQuickActions = getAllowedItemActions(
-      quickActions,
-      item,
-      canDeleteItem,
-    );
-
     // 首项同样留出上边距：选中态外环画在边框外侧，贴着视口顶边会被裁掉一截。
     return (
       <div className="px-3 pt-3">
         <ClipboardCard
-          availableActions={availableActions}
+          canDelete={canDeleteItem(item)}
           hintKey={hintKey}
           isLinkActive={isModifierPressed}
           isSelected={
@@ -1137,19 +1131,19 @@ const List: FC = () => {
               : item.id === selectedId
           }
           item={item}
-          onAuxClick={handleAuxClick}
-          onDoubleClick={handleDoubleClick}
-          onMouseDown={handleMouseDown}
-          onOpenLink={handleOpenLink}
-          onPickSnippet={handlePickSnippet}
-          onPointerEnter={handlePointerEnter}
-          onPointerLeave={handlePointerLeave}
-          onPointerMove={handlePointerMove}
-          onQuickAction={handleQuickAction}
-          onQuickPaste={hintKey ? handleQuickPaste : void 0}
+          onAuxClick={preventMiddleClickDefault}
+          onDoubleClick={handleCardDoubleClick}
+          onMouseDown={handleCardMouseDown}
+          onOpenLink={openItemLink}
+          onPickSnippet={pickItemSnippet}
+          onPointerEnter={handleCardPointerEnter}
+          onPointerLeave={handleCardPointerLeave}
+          onPointerMove={handleCardPointerMove}
+          onQuickAction={handleCardQuickAction}
+          onQuickPaste={quickPasteItem}
+          onRootElement={registerItemElement}
           quickActionLabels={quickActionLabels}
-          quickActions={visibleQuickActions}
-          rootRef={registerItemElement(item.id)}
+          quickActions={quickActions}
           showOriginalOnHover={showOriginalPreview}
         />
       </div>
@@ -1388,21 +1382,6 @@ function getNextKeyboardIndex(
 }
 
 /**
- * 按条目保护规则过滤右键菜单动作，避免受保护项出现删除入口。
- */
-function getAllowedClipboardActions(
-  actions: ClipboardAction[] | undefined,
-  item: ClipboardItem,
-  canDeleteItem: (item: ClipboardItem) => boolean,
-) {
-  if (canDeleteItem(item)) return actions;
-
-  return actions?.filter((action) => {
-    return action !== "delete";
-  });
-}
-
-/**
  * 从后端声明的右键动作中取出可由 Cmd/Ctrl+O 触发的“打开”动作。
  */
 function getOpenClipboardAction(actions: ClipboardAction[] | undefined) {
@@ -1415,21 +1394,6 @@ function getOpenClipboardAction(actions: ClipboardAction[] | undefined) {
 
   return actions?.find((action) => {
     return openActions.includes(action);
-  });
-}
-
-/**
- * 按条目保护规则过滤悬停快捷动作，避免受保护项出现删除按钮。
- */
-function getAllowedItemActions(
-  actions: readonly ItemAction[],
-  item: ClipboardItem,
-  canDeleteItem: (item: ClipboardItem) => boolean,
-) {
-  if (canDeleteItem(item)) return [...actions];
-
-  return actions.filter((action) => {
-    return action !== "delete";
   });
 }
 
@@ -1473,8 +1437,13 @@ function shouldUseNativeCopy(event: KeyboardEvent) {
   return Boolean(selection && !selection.isCollapsed);
 }
 
-const computeItemKey = (index: number, item?: ClipboardItem) => {
-  return item?.id ?? `placeholder-${index}`;
+/**
+ * 中键动作已在 mousedown 里处理，这里只拦掉中键 auxclick 的默认行为。
+ */
+const preventMiddleClickDefault = (event: ReactMouseEvent<HTMLDivElement>) => {
+  if (event.button !== 1) return;
+
+  event.preventDefault();
 };
 
 /**
@@ -1489,6 +1458,8 @@ const TopItemList: FC<TopItemListProps> = (props) => {
     </div>
   );
 };
+
+const VIRTUOSO_COMPONENTS = { TopItemList };
 
 /**
  * 统计当前已加载页开头连续置顶条目数，供 Virtuoso sticky top items 使用。

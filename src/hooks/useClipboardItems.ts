@@ -111,6 +111,7 @@ export const useClipboardItems = (query: ClipboardItemQuery) => {
           ? new Map<number, ClipboardItem>()
           : new Map(itemsRef.current);
 
+        dropStaleDuplicates(nextItems, range, page.list);
         page.list.forEach((item, offset) => {
           const index = range.start + offset;
           if (index < nextTotal) nextItems.set(index, item);
@@ -378,6 +379,27 @@ function hasCoveringLoadingRange(
   return ranges.some((range) => {
     return range.start <= target.start && range.end >= target.end;
   });
+}
+
+/**
+ * 列表以条目 id 作 React key。两页请求之间后端顺序可能变了（复制、删除），
+ * 旧页里还留着新页已包含的条目；按新页为准删掉旧位置，空出来的行会按需重拉。
+ */
+function dropStaleDuplicates(
+  items: Map<number, ClipboardItem>,
+  range: ClipboardItemsRange,
+  pageItems: ClipboardItem[],
+) {
+  const pageIds = new Set(
+    pageItems.map((item) => {
+      return item.id;
+    }),
+  );
+
+  for (const [index, item] of items) {
+    if (index >= range.start && index <= range.end) continue;
+    if (pageIds.has(item.id)) items.delete(index);
+  }
 }
 
 function trimCache(

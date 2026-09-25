@@ -17,7 +17,7 @@ interface ClipboardQuickActionsProps {
   item: ClipboardItem;
   labels?: ItemActionLabels;
   onQuickAction?: (action: ItemAction) => Promise<void> | void;
-  quickActions: ItemAction[];
+  quickActions: readonly ItemAction[];
   visible: boolean;
 }
 
@@ -38,6 +38,8 @@ const ClipboardQuickActions: FC<ClipboardQuickActionsProps> = (props) => {
   const { item, labels, onQuickAction, quickActions, visible } = props;
   const shouldReduceMotion = useReducedMotion();
   const availableActions = filterAvailableItemActions(quickActions, item);
+  // 不给 layoutDependency 时 motion 每次渲染都测一遍布局；按钮只在动作集合变化时才需要位移动画。
+  const layoutDependency = availableActions.join();
   const enabled =
     availableActions.length > 0 && Boolean(labels && onQuickAction);
   const actionsVisible = visible && enabled;
@@ -85,6 +87,7 @@ const ClipboardQuickActions: FC<ClipboardQuickActionsProps> = (props) => {
                   initial={{ opacity: 0, scale: 0.9, width: 0, x: 4 }}
                   key={action}
                   layout
+                  layoutDependency={layoutDependency}
                   transition={actionTransition}
                 >
                   <QuickActionButton
