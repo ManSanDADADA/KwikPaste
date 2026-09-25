@@ -551,16 +551,30 @@ fn escape_like(keyword: &str) -> String {
     out
 }
 
-/// 拼装查询：过滤（含可选关键词匹配） + 排序（置顶恒前置） + 分页。
-/// 所有 bind 均传入拥有所有权/Copy 的值，避免 `QueryBuilder` 借用 `q` 引发的生命周期问题。
+/// 按 [`push_list_query`] 取一页列表项。
 async fn fetch_items(
     pool: &SqlitePool,
     q: &ClipboardItemQuery,
     keyword: KeywordFilter,
 ) -> Result<Vec<ClipboardItem>> {
-    let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(LIST_SELECT_ITEM);
+    let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new("");
+    push_list_query(&mut qb, q, &keyword);
+
+    let items = qb
+        .build_query_as::<ClipboardItem>()
+        .fetch_all(pool)
+        .await
+        .context("failed to query clipboard items")?;
+    Ok(items)
+}
+
+/// 拼装列表查询：过滤（含可选关键词匹配） + 排序（置顶恒前置） + 分页。
+/// 排序列与 `0003_list_sort_indexes` 的复合索引一一对应，改 ORDER BY 时同步改索引。
+/// 所有 bind 均传入拥有所有权/Copy 的值，避免 `QueryBuilder` 借用 `q` 引发的生命周期问题。
+fn push_list_query(qb: &mut QueryBuilder<Sqlite>, q: &ClipboardItemQuery, keyword: &KeywordFilter) {
+    qb.push(LIST_SELECT_ITEM);
     qb.push(" WHERE 1 = 1");
-    push_filter_clauses(&mut qb, q, &keyword);
+    push_filter_clauses(qb, q, keyword);
 
     qb.push(" ORDER BY clipboard_items.is_pinned DESC, ");
     match q.sort {
@@ -577,13 +591,6 @@ async fn fetch_items(
 
     qb.push(" LIMIT ").push_bind(q.limit);
     qb.push(" OFFSET ").push_bind(q.offset);
-
-    let items = qb
-        .build_query_as::<ClipboardItem>()
-        .fetch_all(pool)
-        .await
-        .context("failed to query clipboard items")?;
-    Ok(items)
 }
 
 /// 统计满足同样过滤条件的总条数（不参与排序 / 分页），与 [`fetch_items`] 共用 [`push_filter_clauses`]。
@@ -1909,5 +1916,66 @@ mod tests {
 
         let err = fts_integrity_check(&pool).await.unwrap_err();
         assert!(matches!(err, sqlx::Error::Database(_)), "{err}");
+    }
+
+    /// 返回 `EXPLAIN QUERY PLAN` 的 detail 列，逐行一个计划节点。
+    async fn query_plan(pool: &SqlitePool, q: &ClipboardItemQuery) -> Vec<String> {
+        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new("EXPLAIN QUERY PLAN ");
+        push_list_query(&mut qb, q, &KeywordFilter::None);
+        let rows: Vec<(i64, i64, i64, String)> = qb.build_query_as().fetch_all(pool).await.unwrap();
+        rows.into_iter().map(|row| row.3).collect()
+    }
+
+    #[tokio::test]
+    async fn list_queries_walk_sort_indexes() {
+        let pool = memory_pool().await;
+        let cases = [
+            (
+                "all",
+                ClipboardItemQuery {
+                    group: Some(ClipboardGroupFilter::All),
+                    ..ClipboardItemQuery::default()
+                },
+                "idx_clipboard_items_pinned_updated",
+            ),
+            (
+                "created sort",
+                ClipboardItemQuery {
+                    group: Some(ClipboardGroupFilter::All),
+                    sort: ClipboardItemSort::CreatedAt,
+                    ..ClipboardItemQuery::default()
+                },
+                "idx_clipboard_items_pinned_created",
+            ),
+            (
+                "image tab",
+                ClipboardItemQuery {
+                    group: Some(ClipboardGroupFilter::Image),
+                    ..ClipboardItemQuery::default()
+                },
+                "idx_clipboard_items_kind_pinned_updated",
+            ),
+            (
+                "custom group",
+                ClipboardItemQuery {
+                    group: Some(ClipboardGroupFilter::All),
+                    group_id: Some("g1".to_owned()),
+                    ..ClipboardItemQuery::default()
+                },
+                "idx_clipboard_items_group_pinned_updated",
+            ),
+        ];
+
+        for (label, q, index) in cases {
+            let plan = query_plan(&pool, &q).await;
+            assert!(
+                plan.iter().any(|step| step.contains(index)),
+                "{label}: expected {index}, got {plan:?}"
+            );
+            assert!(
+                !plan.iter().any(|step| step.contains("TEMP B-TREE")),
+                "{label}: list query sorts in a temp b-tree: {plan:?}"
+            );
+        }
     }
 }
