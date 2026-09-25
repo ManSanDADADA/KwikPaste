@@ -43,7 +43,7 @@ const PREVIEW_PREWARM_DELAY_MS: u64 = 300;
 const PREVIEW_READY_TIMEOUT_MS: u64 = 1_200;
 const PREVIEW_PANEL_MARGIN: f64 = 32.0;
 
-/// 面板尺寸区间与各区块高度，单位是逻辑像素，必须与预览页的渲染保持一致：
+/// 面板尺寸区间与各区块高度，单位是页面 CSS px，必须与预览页的渲染保持一致：
 /// header 固定 `h-12`，文本行 `leading-5.5`，文件行 `min-h-10`，图片区上下左右各 16。
 const PREVIEW_PANEL_MIN_WIDTH: f64 = 288.0;
 const PREVIEW_PANEL_MAX_WIDTH: f64 = 480.0;
@@ -201,7 +201,7 @@ pub struct PreviewClipboardWindowRect {
     pub height: u32,
 }
 
-/// 显示器局部逻辑像素中的矩形。窗口几何全在 Rust 侧算，不再序列化给前端。
+/// 显示器局部的页面 CSS px 矩形。窗口几何全在 Rust 侧算，不再序列化给前端。
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct PreviewRect {
     left: f64,
@@ -258,7 +258,9 @@ pub fn show_clipboard_preview(
     let window = ensure_preview_window(app)?;
     let monitor = resolve_preview_monitor(app)?;
     let monitor_bounds = preview_monitor_bounds(&monitor);
-    let scale_factor = monitor.scale_factor();
+    // 面板度量与卡片矩形都是页面 CSS px。WebView2 把系统「文本大小」当整页缩放叠加在 DPI 上，
+    // CSS px 换物理像素要乘两者之积，否则面板比内容小一圈，卡片位置也对不上。
+    let scale_factor = monitor.scale_factor() * super::text_scale_factor();
     let clipboard_window = clipboard_window_rect(app);
     let prefer_left = preferred_panel_side(
         session_id,
@@ -836,7 +838,7 @@ fn apply_preview_window_bounds(
     Ok(())
 }
 
-/// 把显示器局部逻辑矩形换算成窗口的物理位置与尺寸。
+/// 把显示器局部的 CSS px 矩形换算成窗口的物理位置与尺寸。
 fn preview_window_bounds(
     panel: PreviewRect,
     monitor: &PhysicalRect<i32, u32>,
@@ -1017,7 +1019,7 @@ fn image_panel_size(
     )
 }
 
-/// 把卡片矩形从剪贴板 webview 坐标映射到显示器局部逻辑坐标。
+/// 把卡片矩形从剪贴板 webview 坐标映射到显示器局部的 CSS px 坐标。
 fn resolve_source_rect(
     anchor: &PreviewAnchorRect,
     scale_factor: f64,
@@ -1574,6 +1576,46 @@ mod tests {
 
         assert_eq!((position.x, position.y), (2120, 100));
         assert_eq!((size.width, size.height), (800, 600));
+    }
+
+    // 175% DPI 叠 150% 文本缩放：面板按 CSS px 放大 2.625 倍，并且仍然贴在卡片右侧 40 CSS px 处。
+    #[test]
+    fn text_scale_enlarges_the_panel_and_keeps_it_beside_the_card() {
+        let scale = 1.75 * 1.5;
+        let monitor = PhysicalRect {
+            position: PhysicalPosition::new(0, 0),
+            size: PhysicalSize::new(3840, 2160),
+        };
+        let clipboard = PreviewClipboardWindowRect {
+            x: 300,
+            y: 250,
+            width: 945,
+            height: 1575,
+        };
+        let anchor = PreviewAnchorRect {
+            left: 8.0,
+            top: 120.0,
+            width: 224.0,
+            height: 80.0,
+            pointer_x: None,
+        };
+        let geometry = build_preview_geometry(
+            &anchor,
+            Some(PreviewContentMetrics::Text { rows: 3 }),
+            scale,
+            &monitor,
+            Some(&clipboard),
+            false,
+        );
+        let (position, size) = preview_window_bounds(geometry.panel, &monitor, scale);
+        let card_right = clipboard.x + ((anchor.left + anchor.width) * scale).round() as i32;
+
+        assert!(matches!(geometry.placement, PreviewPlacement::Right));
+        assert_eq!(
+            position.x,
+            card_right + (PREVIEW_PANEL_GAP * scale).round() as i32
+        );
+        assert_eq!((size.width, size.height), (1260, 383));
     }
 
     // 同一块面板边界上的重定向复用已显示的窗口；边界一变就要重新定位。

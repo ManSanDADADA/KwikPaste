@@ -35,8 +35,8 @@ pub const CONTEXT_SUBMENU_WINDOW_LABEL: &str = "context-submenu";
 const CONTEXT_MENU_SHOW_EVENT: &str = "context-menu://show";
 const CONTEXT_SUBMENU_SHOW_EVENT: &str = "context-submenu://show";
 
-// 几何常量（logical px）：跟前端 `ContextMenu` 的 CSS 必须一致，否则 hit-test
-// 与裁切会错位。前端那侧用同名 token 写在 `ContextMenu/index.tsx` 头部。
+// 几何常量（CSS px）：跟前端 `ContextMenu` 的 CSS 必须一致，否则 hit-test 与裁切会错位。
+// 窗口尺寸再乘系统「文本大小」缩放换成逻辑像素，见 [`text_scaled`]。
 const MENU_WIDTH: u32 = 220;
 const SUBMENU_WIDTH: u32 = 220;
 const ITEM_HEIGHT: u32 = 32;
@@ -142,7 +142,7 @@ pub(super) fn show_for_clipboard_item(
         return Ok(());
     }
 
-    let (width, height) = compute_size(&groups);
+    let (width, height) = text_scaled(compute_size(&groups), crate::window::text_scale_factor());
     let payload = ContextMenuShowPayload {
         item_id: request.item_id.clone(),
         is_favorite: request.is_favorite,
@@ -200,8 +200,9 @@ pub fn show_submenu(app: &AppHandle, input: ShowContextSubmenuInput) -> Result<(
         .get_webview_window(CONTEXT_SUBMENU_WINDOW_LABEL)
         .ok_or_else(|| AppError::Other(anyhow::anyhow!("context-submenu window missing")))?;
 
-    let (width, height) = compute_submenu_size(input.groups.len() as u32);
-    let (x, y) = compute_submenu_position(&root, &input.anchor, width, height)?;
+    let text_scale = crate::window::text_scale_factor();
+    let (width, height) = text_scaled(compute_submenu_size(input.groups.len() as u32), text_scale);
+    let (x, y) = compute_submenu_position(&root, &input.anchor, width, height, text_scale)?;
 
     submenu
         .set_size(LogicalSize::new(width as f64, height as f64))
@@ -294,6 +295,15 @@ fn add_surface_border(width: u32, height: u32) -> (u32, u32) {
     (width, height + SURFACE_BORDER)
 }
 
+/// 把 CSS px 的菜单尺寸换成窗口逻辑尺寸。WebView2 按系统「文本大小」整页放大，
+/// 窗口不跟着放大的话页面视口会被压缩，底部的菜单项和长文案都会被裁掉。
+fn text_scaled((width, height): (u32, u32), text_scale: f64) -> (u32, u32) {
+    (
+        (width as f64 * text_scale).ceil() as u32,
+        (height as f64 * text_scale).ceil() as u32,
+    )
+}
+
 /// 取光标所在显示器，把菜单矩形 clamp 在显示器内（鼠标处尽量为菜单左上角，
 /// 右 / 下越界时翻到屏幕另一边）。返回 logical 坐标。
 fn compute_position(window: &tauri::WebviewWindow, width: u32, height: u32) -> Result<(i32, i32)> {
@@ -330,6 +340,7 @@ fn compute_submenu_position(
     anchor: &crate::commands::ContextSubmenuAnchor,
     width: u32,
     height: u32,
+    text_scale: f64,
 ) -> Result<(i32, i32)> {
     let scale = root
         .scale_factor()
@@ -337,8 +348,9 @@ fn compute_submenu_position(
     let root_position = root
         .outer_position()
         .map_err(|err| AppError::Other(anyhow::anyhow!("context-menu outer_position: {err}")))?;
-    let probe_x = root_position.x + ((anchor.left + anchor.width / 2.0) * scale) as i32;
-    let probe_y = root_position.y + ((anchor.top + anchor.height / 2.0) * scale) as i32;
+    let page_scale = scale * text_scale;
+    let probe_x = root_position.x + ((anchor.left + anchor.width / 2.0) * page_scale) as i32;
+    let probe_y = root_position.y + ((anchor.top + anchor.height / 2.0) * page_scale) as i32;
     let monitor = root
         .monitor_from_point(probe_x as f64, probe_y as f64)
         .map_err(|err| AppError::Other(anyhow::anyhow!("monitor_from_point: {err}")))?
@@ -368,6 +380,7 @@ fn compute_submenu_position(
         monitor_rect,
         width,
         height,
+        text_scale,
     ))
 }
 
@@ -379,23 +392,32 @@ struct LogicalRect {
     height: f64,
 }
 
+/// 二级菜单贴着一级菜单项摆放。`anchor` 是一级菜单页面里的 CSS px 矩形，间距也按 CSS px 设计，
+/// 两者先乘 `text_scale` 换成逻辑像素；`width` / `height` 已经是换算后的窗口逻辑尺寸。
 fn compute_submenu_position_in_monitor(
     root: LogicalRect,
     anchor: LogicalRect,
     monitor: LogicalRect,
     width: u32,
     height: u32,
+    text_scale: f64,
 ) -> (i32, i32) {
+    let anchor = LogicalRect {
+        x: anchor.x * text_scale,
+        y: anchor.y * text_scale,
+        width: anchor.width * text_scale,
+        height: anchor.height * text_scale,
+    };
     let width = width as f64;
     let height = height as f64;
-    let gap = SUBMENU_GAP as f64;
+    let gap = SUBMENU_GAP as f64 * text_scale;
     let monitor_right = monitor.x + monitor.width;
     let monitor_bottom = monitor.y + monitor.height;
     let max_x = (monitor_right - width).max(monitor.x);
     let max_y = (monitor_bottom - height).max(monitor.y);
 
     let right_surface_x = root.x + anchor.x + anchor.width + gap;
-    let left_surface_x = root.x + anchor.x - gap - SUBMENU_WIDTH as f64;
+    let left_surface_x = root.x + anchor.x - gap - width;
     let preferred_x = if right_surface_x + width <= monitor_right {
         right_surface_x
     } else {
@@ -567,6 +589,7 @@ mod tests {
             rect(0.0, 0.0, 800.0, 600.0),
             SUBMENU_WIDTH,
             120,
+            1.0,
         );
 
         assert_eq!(position, (332, 172));
@@ -580,6 +603,7 @@ mod tests {
             rect(0.0, 0.0, 800.0, 600.0),
             SUBMENU_WIDTH,
             120,
+            1.0,
         );
 
         assert_eq!(position, (344, 172));
@@ -593,9 +617,52 @@ mod tests {
             rect(0.0, 0.0, 800.0, 600.0),
             SUBMENU_WIDTH,
             120,
+            1.0,
         );
 
         assert_eq!(position, (332, 480));
+    }
+
+    // 14 项、4 组的完整菜单是 220×485 CSS px；150% 文本缩放下窗口要 330×728 逻辑像素才装得下。
+    #[test]
+    fn text_scaled_grows_the_window_with_the_page_zoom() {
+        let css = (MENU_WIDTH, 485);
+
+        assert_eq!(text_scaled(css, 1.0), css);
+        assert_eq!(text_scaled(css, 1.5), (330, 728));
+        assert_eq!(text_scaled(css, 2.25), (495, 1092));
+    }
+
+    // 菜单项矩形来自一级菜单页面（CSS px），换成逻辑像素后二级菜单才贴得住那一项。
+    #[test]
+    fn compute_submenu_position_scales_the_css_anchor() {
+        let text_scale = 1.5;
+        let (width, height) = text_scaled((SUBMENU_WIDTH, 120), text_scale);
+        let anchor = rect(8.0, 72.0, 220.0, 32.0);
+        let monitor = rect(0.0, 0.0, 1600.0, 1200.0);
+
+        assert_eq!(
+            compute_submenu_position_in_monitor(
+                rect(100.0, 100.0, 0.0, 0.0),
+                anchor,
+                monitor,
+                width,
+                height,
+                text_scale,
+            ),
+            (448, 208)
+        );
+        assert_eq!(
+            compute_submenu_position_in_monitor(
+                rect(1200.0, 100.0, 0.0, 0.0),
+                anchor,
+                monitor,
+                width,
+                height,
+                text_scale,
+            ),
+            (876, 208)
+        );
     }
 
     #[test]

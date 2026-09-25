@@ -33,6 +33,11 @@ pub const UPDATE_WINDOW_LABEL: &str = "update";
 
 /// 引导页按 900×600 CSS px 设计；实际窗口尺寸在每次显示时按缩放和工作区换算。
 const ONBOARDING_DESIGN_SIZE: (f64, f64) = (900.0, 600.0);
+/// 以下页面同样按 CSS px 设计，建窗时用作逻辑尺寸；系统「文本大小」放大时由
+/// [`position::fit_text_scale`] 在显示前同比放大。剪贴板窗口的值与 `tauri.conf.json` 的最小尺寸一致。
+const CLIPBOARD_DESIGN_MIN_SIZE: (f64, f64) = (360.0, 600.0);
+const PREFERENCE_DESIGN_SIZE: (f64, f64) = (960.0, 600.0);
+const UPDATE_DESIGN_SIZE: (f64, f64) = (520.0, 230.0);
 
 /// Synchronizes the persisted appearance material to the native clipboard-window shell.
 pub fn apply_clipboard_window_material(
@@ -227,13 +232,18 @@ pub fn show_window(app_handle: &AppHandle, label: &str) -> Result<()> {
             log::warn!("fit onboarding window failed: {err}");
         }
     } else {
-        let visible = get_window(app_handle, label)?.is_visible().unwrap_or(false);
+        let window = get_window(app_handle, label)?;
 
-        if !visible {
+        if !window.is_visible().unwrap_or(false) {
             // 次级窗口（如 preference）：只在从隐藏态打开时恢复位置 + 尺寸。
             // 已可见窗口可能刚被用户移动但尚未落盘，重复恢复会把窗口拉回旧位置。
             if let Err(err) = state::restore_window_state(app_handle, label) {
                 log::warn!("restore window state failed for {label}: {err}");
+            }
+            if let Some(design) = page_design_size(label) {
+                if let Err(err) = position::fit_text_scale(&window, design) {
+                    log::warn!("fit text scale failed for {label}: {err}");
+                }
             }
         }
     }
@@ -326,6 +336,15 @@ pub(crate) fn text_scale_factor() -> f64 {
     return windows::text_scale_factor();
 }
 
+/// 走通用显示流程、页面尺寸固定的次级窗口的设计尺寸（CSS px）。
+fn page_design_size(label: &str) -> Option<(f64, f64)> {
+    match label {
+        PREFERENCE_WINDOW_LABEL => Some(PREFERENCE_DESIGN_SIZE),
+        UPDATE_WINDOW_LABEL => Some(UPDATE_DESIGN_SIZE),
+        _ => None,
+    }
+}
+
 pub fn position_window(app_handle: &AppHandle, label: &str, pos: WindowPosition) -> Result<()> {
     let window = get_window(app_handle, label)?;
     position::position_window(&window, pos)
@@ -344,11 +363,15 @@ fn apply_clipboard_window_layout(app_handle: &AppHandle) -> Result<()> {
 
     let _ = state::restore_window_state(app_handle, CLIPBOARD_WINDOW_LABEL)?;
 
+    let window = get_window(app_handle, CLIPBOARD_WINDOW_LABEL)?;
+    if let Err(err) = position::fit_text_scale(&window, CLIPBOARD_DESIGN_MIN_SIZE) {
+        log::warn!("fit text scale failed for clipboard window: {err}");
+    }
+
     if matches!(position, WindowPosition::Remember) {
         return Ok(());
     }
 
-    let window = get_window(app_handle, CLIPBOARD_WINDOW_LABEL)?;
     position::position_window(&window, position)
 }
 
@@ -409,8 +432,8 @@ pub fn build_preference_window(app_handle: &AppHandle) -> Result<()> {
         WebviewUrl::App("index.html/#/preference".into()),
     ))
     .title("KwikPaste Preference")
-    .inner_size(960.0, 600.0)
-    .min_inner_size(960.0, 600.0)
+    .inner_size(PREFERENCE_DESIGN_SIZE.0, PREFERENCE_DESIGN_SIZE.1)
+    .min_inner_size(PREFERENCE_DESIGN_SIZE.0, PREFERENCE_DESIGN_SIZE.1)
     .center()
     .maximizable(false)
     .skip_taskbar(true)
@@ -443,8 +466,8 @@ pub fn build_update_window(app_handle: &AppHandle) -> Result<()> {
         WebviewUrl::App("index.html/#/update".into()),
     ))
     .title("KwikPaste Update")
-    .inner_size(520.0, 230.0)
-    .min_inner_size(520.0, 230.0)
+    .inner_size(UPDATE_DESIGN_SIZE.0, UPDATE_DESIGN_SIZE.1)
+    .min_inner_size(UPDATE_DESIGN_SIZE.0, UPDATE_DESIGN_SIZE.1)
     .center()
     .maximizable(false)
     .resizable(false)
