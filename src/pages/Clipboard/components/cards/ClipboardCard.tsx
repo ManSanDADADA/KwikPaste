@@ -213,7 +213,7 @@ const ClipboardCard: FC<ClipboardCardProps> = (props) => {
         "relative flex flex-col gap-1 overflow-hidden rounded-2 border border-ant-border-secondary p-2 transition-colors duration-150 ease-out motion-reduce:transition-none",
         {
           // 外环和边框互不干扰，置顶项被选中时两种标记可以同时读出来。
-          "border-ant-primary bg-ant-container": item.isPinned,
+          "border-ant-primary": item.isPinned,
           // 选中只加一圈柔和外环，底色和边框都不动：整圈亮蓝框在深色下太跳，
           // 而且会和置顶项的 primary 边框撞在一起分不出来。
           "ring-2 ring-ant-primary/35": isSelected,

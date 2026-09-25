@@ -6,13 +6,9 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  type TopItemListProps,
-  Virtuoso,
-  type VirtuosoHandle,
-} from "react-virtuoso";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { useSnapshot } from "valtio";
 import {
   copyClipboardFragment,
@@ -94,7 +90,7 @@ interface PreviewSelectionPayload {
 const List: FC = () => {
   const { t } = useTranslation("clipboard");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [firstVisibleIndex, setFirstVisibleIndex] = useState(0);
+  const [listStartIndex, setListStartIndex] = useState(0);
   const [isModifierPressed, setIsModifierPressed] = useState(false);
   const [customGroups, setCustomGroups] = useState<ClipboardGroupRecord[]>([]);
   const [noteTarget, setNoteTarget] = useState<ClipboardItem | null>(null);
@@ -149,7 +145,9 @@ const List: FC = () => {
     kind: category ?? void 0,
     sort,
   });
-  const topItemCount = countLeadingPinnedItems(getItem);
+  const pinnedCount = countLeadingPinnedItems(getItem);
+  // 虚拟列表只承载置顶之后的条目，其余逻辑一律用全局下标。
+  const firstVisibleIndex = listStartIndex + pinnedCount;
   const {
     closeHoverPreviewForScroll,
     closePreview,
@@ -808,10 +806,7 @@ const List: FC = () => {
     if (!next) return;
 
     setSelectedId(next.item.id);
-    virtuosoRef.current?.scrollIntoView({
-      behavior: "smooth",
-      index: next.index,
-    });
+    scrollItemIntoView(next.index);
 
     handleKeyboardPreviewMove(next.item);
   };
@@ -1006,10 +1001,10 @@ const List: FC = () => {
     startIndex: number;
     endIndex: number;
   }) => {
-    setFirstVisibleIndex(startIndex);
+    setListStartIndex(startIndex);
 
     closeHoverPreviewForScroll();
-    loadRange(startIndex, endIndex);
+    loadRange(startIndex + pinnedCount, endIndex + pinnedCount);
   };
 
   const handleAtTopStateChange = (atTop: boolean) => {
@@ -1072,11 +1067,15 @@ const List: FC = () => {
 
   return (
     <div
-      className="relative flex-1 overflow-hidden"
+      className="relative flex flex-1 flex-col overflow-hidden"
       onPointerLeave={handlePreviewAreaPointerLeave}
       role="listbox"
     >
-      <VirtuosoScroller>{renderVirtuoso}</VirtuosoScroller>
+      {renderPinnedItems()}
+
+      <VirtuosoScroller className="min-h-0 flex-1">
+        {renderVirtuoso}
+      </VirtuosoScroller>
 
       <NoteModal
         item={noteTarget}
@@ -1092,20 +1091,58 @@ const List: FC = () => {
     return (
       <Virtuoso
         atTopStateChange={handleAtTopStateChange}
-        components={VIRTUOSO_COMPONENTS}
-        computeItemKey={computeItemKey}
-        itemContent={renderItemContent}
+        computeItemKey={computeListItemKey}
+        itemContent={renderListItemContent}
         rangeChanged={handleRangeChanged}
         ref={virtuosoRef}
         scrollerRef={scrollerRef}
-        topItemCount={topItemCount}
-        totalCount={total}
+        totalCount={total - pinnedCount}
       />
+    );
+  }
+
+  /**
+   * 置顶项固定在滚动区上方而不是 sticky 盖在列表上：云母 / 亚克力下任何遮挡底色
+   * 都会成为一块不透明色块，backdrop-filter 在透明窗口里也遮不住下方条目。
+   */
+  function renderPinnedItems() {
+    if (pinnedCount === 0) return null;
+
+    return (
+      <div className="relative z-1 shrink-0">
+        {Array.from({ length: pinnedCount }, (_, index) => {
+          return (
+            <Fragment key={computeItemKey(index)}>
+              {renderItemContent(index)}
+            </Fragment>
+          );
+        })}
+      </div>
     );
   }
 
   function computeItemKey(index: number) {
     return getItem(index)?.id ?? `placeholder-${index}`;
+  }
+
+  function computeListItemKey(index: number) {
+    return computeItemKey(index + pinnedCount);
+  }
+
+  function renderListItemContent(index: number) {
+    return renderItemContent(index + pinnedCount);
+  }
+
+  /**
+   * 置顶项常驻滚动区上方，只有普通条目需要换算成虚拟列表下标再滚动。
+   */
+  function scrollItemIntoView(index: number) {
+    if (index < pinnedCount) return;
+
+    virtuosoRef.current?.scrollIntoView({
+      behavior: "smooth",
+      index: index - pinnedCount,
+    });
   }
 
   function renderItemContent(index: number) {
@@ -1447,22 +1484,7 @@ const preventMiddleClickDefault = (event: ReactMouseEvent<HTMLDivElement>) => {
 };
 
 /**
- * Virtuoso 的置顶项会 sticky 覆盖滚动内容；这里补实底色避免下方条目透出。
- */
-const TopItemList: FC<TopItemListProps> = (props) => {
-  const { children, style } = props;
-
-  return (
-    <div className="relative z-10 bg-ant-container" style={style}>
-      {children}
-    </div>
-  );
-};
-
-const VIRTUOSO_COMPONENTS = { TopItemList };
-
-/**
- * 统计当前已加载页开头连续置顶条目数，供 Virtuoso sticky top items 使用。
+ * 统计当前已加载页开头连续置顶条目数，这些条目固定渲染在虚拟列表上方。
  */
 function countLeadingPinnedItems(
   getItem: (index: number) => ClipboardItem | null,
