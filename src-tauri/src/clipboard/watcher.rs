@@ -77,12 +77,11 @@ impl WatcherPause {
     }
 }
 
-/// 把同步抓到的 [`FrontmostApp`] 落 icon 字节 + 拼成可入库的 [`ClipboardApp`]。
-/// icon 落盘失败不阻断（仍保留应用名），仅 warn。
+/// 把同步抓到的 [`FrontmostApp`] 拼成可入库的 [`ClipboardApp`]。
+/// 图标抽取或落盘失败不阻断（仍保留应用名），仅 warn。
 ///
-/// `registry` 命中缓存时优先复用，省掉一次 PNG 字节 sha256/IO；
-/// 缓存未命中再走 FrontmostApp.icon_png 路径，
-/// 并把结果回写缓存，让首次见到的应用后续直接命中。
+/// `registry` 命中缓存时直接复用，不抽图标；缓存未命中才从 `icon_source` 抽一次图标
+/// （256px 抽取 + PNG 编码 + 落盘），并把结果回写缓存，让首次见到的应用后续直接命中。
 pub fn materialize_source(
     store: &AppIconStore,
     registry: Option<&AppsRegistry>,
@@ -95,9 +94,10 @@ pub fn materialize_source(
     }
 
     let icon_file = src
-        .icon_png
+        .icon_source
         .as_deref()
-        .and_then(|bytes| match store.store(bytes) {
+        .and_then(|path| super::icon::icon_png(path, None))
+        .and_then(|bytes| match store.store(&bytes) {
             Ok(name) => Some(name),
             Err(err) => {
                 log::warn!("app icon store failed for {}: {err}", src.id);
@@ -547,6 +547,35 @@ mod tests {
                 .unwrap()
                 .kind,
             crate::db::models::ClipboardKind::Image
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn materialize_source_extracts_icon_from_icon_source_on_cache_miss() {
+        let dir = TempDir::new();
+        let store = AppIconStore::for_test(dir.path().to_path_buf());
+        let exe = std::env::current_exe().unwrap();
+        let source = FrontmostApp {
+            id: exe.display().to_string(),
+            name: "test".to_owned(),
+            platform: crate::db::models::Platform::Windows,
+            icon_source: Some(exe),
+        };
+
+        let app = materialize_source(&store, None, source.clone());
+        let icon_file = app
+            .icon_file
+            .expect("expected an icon extracted from the exe");
+        assert!(store.icon_path(&icon_file).exists());
+
+        let without_path = FrontmostApp {
+            icon_source: None,
+            ..source
+        };
+        assert_eq!(
+            materialize_source(&store, None, without_path).icon_file,
+            None
         );
     }
 

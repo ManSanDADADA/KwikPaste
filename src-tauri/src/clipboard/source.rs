@@ -1,11 +1,16 @@
 //! 「这次剪贴板变更来自哪个应用」的探测：在剪贴板事件回调里调用，
-//! 返回稳定 id（macOS bundle id / Windows exe 绝对路径）、显示名、可选的 icon PNG 字节。
+//! 返回稳定 id（macOS bundle id / Windows exe 绝对路径）、显示名、抽取图标用的路径。
 //!
 //! 必须**同步**在监听回调一发生时立即抓——延后到 await 之后再问，前台应用很可能已经切走。
 //! 探测失败（无前台应用 / 自身复制 / 平台 API 错误）一律返回 `None`，不阻断入库。
 //!
 //! 平台 API：macOS 走 `NSWorkspace.frontmostApplication`，Windows 走 `GetForegroundWindow`
-//! + `QueryFullProcessImageNameW`。图标统一交给 `crate::clipboard::icon` 跨平台抽取。
+//! + `QueryFullProcessImageNameW`。
+//!
+//! 这里只记下图标来源路径，不抽图标：绝大多数复制来自已登记的应用，
+//! 图标由 [`crate::clipboard::materialize_source`] 在缓存未命中时才抽取。
+
+use std::path::PathBuf;
 
 use crate::db::models::Platform;
 
@@ -16,8 +21,8 @@ pub struct FrontmostApp {
     /// 显示名（localizedName / FileDescription / exe stem 的优先回落）。
     pub name: String,
     pub platform: Platform,
-    /// 应用图标的 PNG 字节；提取失败则 `None`。
-    pub icon_png: Option<Vec<u8>>,
+    /// 抽取应用图标用的路径（macOS `.app` 包 / Windows exe）；拿不到则 `None`。
+    pub icon_source: Option<PathBuf>,
 }
 
 /// 探测当前前台应用。失败不报错，只在 trace 级别记日志（监听回调高频，避免噪声）。
@@ -39,7 +44,6 @@ pub fn detect_frontmost() -> Option<FrontmostApp> {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::{FrontmostApp, Platform};
-    use crate::clipboard::icon;
 
     use std::path::PathBuf;
 
@@ -60,14 +64,11 @@ mod macos {
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| id.clone());
 
-            let icon_png =
-                unsafe { bundle_path(&app) }.and_then(|path| icon::icon_png(&path, None));
-
             Some(FrontmostApp {
                 id,
                 name,
                 platform: Platform::Macos,
-                icon_png,
+                icon_source: unsafe { bundle_path(&app) },
             })
         })
     }
@@ -85,9 +86,8 @@ mod macos {
 #[cfg(target_os = "windows")]
 mod windows {
     use super::{FrontmostApp, Platform};
-    use crate::clipboard::icon;
 
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use winapi::shared::minwindef::{DWORD, FALSE};
     use winapi::shared::windef::HWND;
@@ -106,13 +106,12 @@ mod windows {
             .and_then(|s| s.to_str())
             .unwrap_or(&exe_path)
             .to_owned();
-        let icon_png = icon::icon_png(Path::new(&exe_path), None);
 
         Some(FrontmostApp {
+            icon_source: Some(PathBuf::from(&exe_path)),
             id: exe_path,
             name,
             platform: Platform::Windows,
-            icon_png,
         })
     }
 
