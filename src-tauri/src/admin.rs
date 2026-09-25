@@ -12,6 +12,8 @@ use anyhow::Context;
 use serde::Deserialize;
 
 #[cfg(target_os = "windows")]
+use crate::autostart::AUTO_LAUNCH_ARG;
+#[cfg(target_os = "windows")]
 use crate::core::windows_args;
 use crate::core::{AppError, Result};
 
@@ -237,13 +239,17 @@ fn is_scheduled_task_path_valid() -> bool {
         .contains(&current_exe)
 }
 
+/// 每次提权启动都重建任务，老版本用命令行参数建的任务会在这里换成 XML 定义。
 #[cfg(target_os = "windows")]
 fn create_scheduled_task() -> Result<()> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
     let exe = std::env::current_exe().context("failed to resolve current executable")?;
-    let action = scheduled_task_action(&exe);
+    let xml_path =
+        std::env::temp_dir().join(format!("kwikpaste-admin-task-{}.xml", std::process::id()));
+    std::fs::write(&xml_path, utf16le_with_bom(&scheduled_task_xml(&exe)))
+        .context("failed to write administrator launch task definition")?;
 
     let _ = Command::new("schtasks")
         .args(["/Delete", "/TN", TASK_NAME, "/F"])
@@ -251,13 +257,13 @@ fn create_scheduled_task() -> Result<()> {
         .output();
 
     let output = Command::new("schtasks")
-        .args([
-            "/Create", "/TN", TASK_NAME, "/TR", &action, "/SC", "ONCE", "/ST", "00:00", "/RL",
-            "HIGHEST", "/F",
-        ])
+        .args(["/Create", "/TN", TASK_NAME, "/XML"])
+        .arg(&xml_path)
+        .arg("/F")
         .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .context("failed to create administrator launch task")?;
+        .output();
+    let _ = std::fs::remove_file(&xml_path);
+    let output = output.context("failed to create administrator launch task")?;
 
     if output.status.success() {
         return Ok(());
@@ -283,13 +289,15 @@ fn delete_scheduled_task() -> Result<()> {
     Ok(())
 }
 
+/// `/I` 忽略任务条件：老版本建的任务带「仅接通电源时启动」，电池供电时 `/Run`
+/// 会被静默跳过却仍返回成功，应用就不会启动。
 #[cfg(target_os = "windows")]
 fn run_via_scheduled_task() -> bool {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
     let output = Command::new("schtasks")
-        .args(["/Run", "/TN", TASK_NAME])
+        .args(["/Run", "/I", "/TN", TASK_NAME])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
 
@@ -298,7 +306,7 @@ fn run_via_scheduled_task() -> bool {
 
 #[cfg(target_os = "windows")]
 fn try_launch_elevated_current_process() -> bool {
-    if can_use_scheduled_task_for_current_args()
+    if can_use_scheduled_task_for_args(std::env::args().skip(1))
         && is_scheduled_task_exists()
         && is_scheduled_task_path_valid()
         && run_via_scheduled_task()
@@ -389,20 +397,65 @@ fn early_data_dir(bootstrap: &Path) -> Result<PathBuf> {
     Ok(manifest.data_dir)
 }
 
+/// 按需启动的提权任务定义，不设触发器。`schtasks /Create` 的默认设置只在接通电源时启动，
+/// 还会以低于正常的优先级运行，这里显式改掉，并去掉运行时长上限、允许并行实例。
 #[cfg(target_os = "windows")]
-fn scheduled_task_action(exe: &Path) -> String {
+fn scheduled_task_xml(exe: &Path) -> String {
     format!(
-        "{} {}",
-        windows_args::quote_arg(exe.to_string_lossy()),
-        windows_args::quote_arg(ADMIN_RESTARTED_ARG)
+        r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>4</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{}</Command>
+      <Arguments>{ADMIN_RESTARTED_ARG}</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+"#,
+        xml_escape(&exe.to_string_lossy())
     )
 }
 
 #[cfg(target_os = "windows")]
-fn can_use_scheduled_task_for_current_args() -> bool {
-    std::env::args()
-        .skip(1)
-        .all(|arg| arg == ADMIN_RESTARTED_ARG)
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+/// 与 XML 声明的 `encoding="UTF-16"` 保持一致，写成带 BOM 的 UTF-16LE 交给 `schtasks /XML`。
+#[cfg(target_os = "windows")]
+fn utf16le_with_bom(value: &str) -> Vec<u8> {
+    [0xFEFF_u16]
+        .into_iter()
+        .chain(value.encode_utf16())
+        .flat_map(u16::to_le_bytes)
+        .collect()
+}
+
+/// `schtasks /Run` 不能传参，只有丢掉参数也无妨的启动才能走计划任务。
+/// `--auto-launch` 只在单实例回调里用来识别重复自启，首个实例不读它，
+/// 开机自启因此也走任务，不再每次弹 UAC。
+#[cfg(target_os = "windows")]
+fn can_use_scheduled_task_for_args(args: impl IntoIterator<Item = String>) -> bool {
+    args.into_iter()
+        .all(|arg| arg == ADMIN_RESTARTED_ARG || arg == AUTO_LAUNCH_ARG)
 }
 
 #[cfg(target_os = "windows")]
@@ -437,4 +490,63 @@ fn wide_null(value: &str) -> Vec<u16> {
         .encode_wide()
         .chain(std::iter::once(0))
         .collect()
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    #[test]
+    fn autostart_launch_can_use_the_scheduled_task() {
+        assert!(can_use_scheduled_task_for_args(args(&[])));
+        assert!(can_use_scheduled_task_for_args(args(&["--auto-launch"])));
+        assert!(can_use_scheduled_task_for_args(args(&[
+            "--auto-launch",
+            ADMIN_RESTARTED_ARG
+        ])));
+    }
+
+    #[test]
+    fn launches_with_other_args_keep_the_uac_path() {
+        assert!(!can_use_scheduled_task_for_args(args(&[
+            r"C:\Users\me\history.kwikpastebak"
+        ])));
+        assert!(!can_use_scheduled_task_for_args(args(&[
+            "--auto-launch",
+            "--unknown"
+        ])));
+    }
+
+    #[test]
+    fn task_xml_overrides_schtasks_defaults() {
+        let xml = scheduled_task_xml(Path::new(r"C:\Program Files\KwikPaste\KwikPaste.exe"));
+
+        assert!(xml.contains("<RunLevel>HighestAvailable</RunLevel>"));
+        assert!(xml.contains("<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"));
+        assert!(xml.contains("<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>"));
+        assert!(xml.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
+        assert!(xml.contains("<Priority>4</Priority>"));
+        assert!(xml.contains(r"<Command>C:\Program Files\KwikPaste\KwikPaste.exe</Command>"));
+        assert!(xml.contains("<Arguments>--kwikpaste-admin-restarted</Arguments>"));
+        assert!(!xml.contains("<Triggers>"));
+    }
+
+    #[test]
+    fn task_xml_escapes_the_executable_path() {
+        let xml = scheduled_task_xml(Path::new(r"D:\Tools & <Apps>\KwikPaste.exe"));
+
+        assert!(xml.contains(r"<Command>D:\Tools &amp; &lt;Apps&gt;\KwikPaste.exe</Command>"));
+    }
+
+    #[test]
+    fn task_xml_file_is_utf16le_with_bom() {
+        assert_eq!(
+            utf16le_with_bom("<a/>"),
+            [0xFF, 0xFE, b'<', 0, b'a', 0, b'/', 0, b'>', 0]
+        );
+    }
 }
