@@ -973,7 +973,7 @@ async fn merge_import(
     let next = app
         .state::<crate::settings::SettingsStore>()
         .update(patch)?;
-    emit_settings_updated(app, &next);
+    apply_imported_settings(app, &next);
 
     Ok(ImportHistoryBackupResult {
         strategy: BackupImportStrategy::Merge,
@@ -1017,7 +1017,7 @@ async fn overwrite_import(
     let next = app
         .state::<crate::settings::SettingsStore>()
         .replace_from_file(&settings_path)?;
-    emit_settings_updated(app, &next);
+    apply_imported_settings(app, &next);
 
     Ok(ImportHistoryBackupResult {
         strategy: BackupImportStrategy::Overwrite,
@@ -1411,12 +1411,11 @@ fn emit_clipboard_imported(app: &AppHandle) {
     }
 }
 
-fn emit_settings_updated(app: &AppHandle, settings: &crate::settings::Settings) {
-    crate::window::apply_existing_window_material(app, &settings.appearance);
-
-    if let Err(err) = app.emit("settings://updated", settings) {
-        log::warn!("emit settings import update failed: {err}");
-    }
+/// 导入会整体替换设置：先按新设置重注册快捷键、同步托盘和自启等系统状态，再广播给前端，
+/// 否则旧快捷键仍在生效而偏好页显示的是导入后的值。
+fn apply_imported_settings(app: &AppHandle, settings: &crate::settings::Settings) {
+    crate::commands::apply_settings_side_effects(app, settings);
+    crate::commands::emit_settings_updated(app, settings);
 }
 
 fn copy_file_into_writer<W: Write>(path: &Path, writer: &mut W) -> Result<()> {

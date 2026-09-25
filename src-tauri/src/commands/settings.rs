@@ -90,28 +90,29 @@ pub async fn update_settings(app: AppHandle, patch: serde_json::Value) -> Result
 pub async fn reset_settings(app: AppHandle) -> Result<Settings> {
     let next = app.state::<SettingsStore>().reset()?;
 
-    apply_reset_side_effects(&app, &next);
+    apply_settings_side_effects(&app, &next);
     emit_settings_updated(&app, &next);
 
     Ok(next)
 }
 
-/// 重置后按默认设置同步系统级副作用，失败只记日志，不回滚已落盘设置。
-fn apply_reset_side_effects(app: &AppHandle, settings: &Settings) {
+/// 设置被整体替换（恢复默认、导入备份）后按新设置同步系统级副作用；
+/// 失败只记日志，不回滚已落盘设置。
+pub(crate) fn apply_settings_side_effects(app: &AppHandle, settings: &Settings) {
     if let Err(err) = autostart::set_enabled(app, settings.general.auto_start) {
-        log::warn!("reset autostart failed: {err}");
+        log::warn!("sync autostart after settings replace failed: {err}");
     }
 
     if let Err(err) = shortcut::apply(app, &settings.shortcuts) {
-        log::warn!("reset shortcuts failed: {err}");
+        log::warn!("sync shortcuts after settings replace failed: {err}");
     }
 
     if let Err(err) = tray::apply(app, settings) {
-        log::warn!("reset tray failed: {err}");
+        log::warn!("sync tray after settings replace failed: {err}");
     }
 
     if let Err(err) = window::show_taskbar_icon(app, settings.general.dock_icon) {
-        log::warn!("reset taskbar icon failed: {err}");
+        log::warn!("sync taskbar icon after settings replace failed: {err}");
     }
 
     window::apply_existing_window_material(app, &settings.appearance);
