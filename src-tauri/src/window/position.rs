@@ -13,12 +13,20 @@ struct MonitorInfo {
 
 fn cursor_monitor(window: &WebviewWindow) -> Result<Option<(Monitor, PhysicalPosition<f64>)>> {
     let cursor = window.cursor_position().map_err(|e| anyhow::anyhow!(e))?;
-    let scale = window.scale_factor().map_err(|e| anyhow::anyhow!(e))?;
 
-    let logical = cursor.to_logical::<f64>(scale);
+    // Windows 上 tao 把点原样交给 `MonitorFromPoint`，进程是 per-monitor DPI aware，要物理
+    // 虚拟屏坐标；按窗口缩放折成逻辑坐标会把副屏上的光标缩回主屏范围。
+    #[cfg(target_os = "windows")]
+    let point = cursor;
+    // macOS 上 tao 拿 `CGDisplayBounds`（point）比对，要逻辑坐标。
+    #[cfg(target_os = "macos")]
+    let point = {
+        let scale = window.scale_factor().map_err(|e| anyhow::anyhow!(e))?;
+        cursor.to_logical::<f64>(scale)
+    };
 
     let monitor = window
-        .monitor_from_point(logical.x, logical.y)
+        .monitor_from_point(point.x, point.y)
         .map_err(|e| anyhow::anyhow!(e))?;
 
     Ok(monitor.map(|monitor| (monitor, cursor)))
