@@ -31,6 +31,9 @@ pub const CLIPBOARD_PREVIEW_WINDOW_LABEL: &str = "clipboard-preview";
 pub const ONBOARDING_WINDOW_LABEL: &str = "onboarding";
 pub const UPDATE_WINDOW_LABEL: &str = "update";
 
+/// 引导页按 900×600 CSS px 设计；实际窗口尺寸在每次显示时按缩放和工作区换算。
+const ONBOARDING_DESIGN_SIZE: (f64, f64) = (900.0, 600.0);
+
 /// Synchronizes the persisted appearance material to the native clipboard-window shell.
 pub fn apply_clipboard_window_material(
     app_handle: &AppHandle,
@@ -219,8 +222,9 @@ pub fn show_window(app_handle: &AppHandle, label: &str) -> Result<()> {
             log::warn!("apply clipboard window layout failed: {err}");
         }
     } else if label == ONBOARDING_WINDOW_LABEL {
-        if let Err(err) = position_window(app_handle, label, WindowPosition::Center) {
-            log::warn!("center onboarding window failed: {err}");
+        let window = get_window(app_handle, label)?;
+        if let Err(err) = position::fit_to_cursor_monitor(&window, ONBOARDING_DESIGN_SIZE) {
+            log::warn!("fit onboarding window failed: {err}");
         }
     } else {
         let visible = get_window(app_handle, label)?.is_visible().unwrap_or(false);
@@ -312,6 +316,14 @@ pub fn show_taskbar_icon(app_handle: &AppHandle, visible: bool) -> Result<()> {
     return macos::show_taskbar_icon(app_handle, visible);
     #[cfg(target_os = "windows")]
     return windows::show_taskbar_icon(app_handle, visible);
+}
+
+/// 系统「文本大小」缩放比例。WebView2 会把它当整页缩放叠加在 DPI 上；macOS 没有对应设置。
+pub(crate) fn text_scale_factor() -> f64 {
+    #[cfg(target_os = "macos")]
+    return 1.0;
+    #[cfg(target_os = "windows")]
+    return windows::text_scale_factor();
 }
 
 pub fn position_window(app_handle: &AppHandle, label: &str, pos: WindowPosition) -> Result<()> {
@@ -470,7 +482,7 @@ pub fn build_onboarding_window(app_handle: &AppHandle) -> Result<()> {
         WebviewUrl::App("index.html/#/onboarding".into()),
     ))
     .title("KwikPaste Onboarding")
-    .inner_size(900.0, 600.0)
+    .inner_size(ONBOARDING_DESIGN_SIZE.0, ONBOARDING_DESIGN_SIZE.1)
     .center()
     .resizable(false)
     .maximizable(false)

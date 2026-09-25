@@ -22,7 +22,7 @@ const OnboardingStepLayout: FC<OnboardingStepLayoutProps> = (props) => {
   } = props;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col justify-center px-10">
+    <div className="flex flex-1 flex-col justify-center px-6 pt-2 pb-6 md:px-20">
       <StepHero
         description={description}
         icon={icon}
@@ -30,7 +30,7 @@ const OnboardingStepLayout: FC<OnboardingStepLayoutProps> = (props) => {
         title={title}
       />
 
-      <div className={cn("mx-auto mt-8 min-h-0 w-full", contentClassName)}>
+      <div className={cn("mx-auto mt-8 w-full", contentClassName)}>
         {children}
       </div>
     </div>

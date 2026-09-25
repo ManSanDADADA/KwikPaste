@@ -68,7 +68,10 @@ const OnboardingActions: FC<OnboardingActionsProps> = (props) => {
   };
 
   return (
-    <footer className="absolute inset-x-0 bottom-0 z-10 flex h-18 items-center justify-between px-10">
+    <footer
+      className="flex h-18 shrink-0 items-center justify-between px-10"
+      data-tauri-drag-region="deep"
+    >
       <div>
         {showBack && (
           <Button disabled={busy} onClick={handleBackClick} size="large">

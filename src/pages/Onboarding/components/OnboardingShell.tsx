@@ -2,6 +2,7 @@ import { Progress } from "antd";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { FC, ReactNode } from "react";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import ScrollArea from "@/components/ScrollArea";
 import WindowMaterialSurface from "@/components/WindowMaterialSurface";
 import { cn } from "@/utils/cn";
 import { isMac } from "@/utils/is";
@@ -48,9 +49,10 @@ const OnboardingShell: FC<OnboardingShellProps> = (props) => {
         })}
         tone="layout"
       >
-        <div className="absolute inset-x-0 top-0 h-12" data-tauri-drag-region />
-
-        <div className="relative z-1 flex shrink-0 items-center justify-between px-5 pt-4">
+        <header
+          className="flex shrink-0 items-center justify-between gap-4 px-5 pt-4"
+          data-tauri-drag-region="deep"
+        >
           <div className="flex min-w-0 items-center gap-3">
             <div className="relative overflow-hidden rounded-full">
               <Progress
@@ -80,10 +82,12 @@ const OnboardingShell: FC<OnboardingShellProps> = (props) => {
             </span>
           </div>
 
-          <LanguageSwitcher />
-        </div>
+          <div data-tauri-drag-region="false">
+            <LanguageSwitcher />
+          </div>
+        </header>
 
-        <div className="relative z-1 flex min-h-0 flex-1 flex-col overflow-hidden px-10 pb-24">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <AnimatePresence initial={false} mode="wait">
             <motion.div
               animate={contentVariants.animate}
@@ -103,7 +107,12 @@ const OnboardingShell: FC<OnboardingShellProps> = (props) => {
                     }
               }
             >
-              {children}
+              <ScrollArea
+                className="min-h-0 flex-1"
+                contentClassName="flex min-h-full flex-col"
+              >
+                {children}
+              </ScrollArea>
             </motion.div>
           </AnimatePresence>
         </div>

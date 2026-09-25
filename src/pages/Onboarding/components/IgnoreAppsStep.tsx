@@ -33,7 +33,7 @@ const IgnoreAppsStep: FC = () => {
 
   return (
     <OnboardingStepLayout
-      contentClassName="flex-1"
+      contentClassName="h-64"
       description={t("ignoreApps.description")}
       icon={<i aria-hidden="true" className="i-lucide:ban" />}
       title={t("ignoreApps.title")}

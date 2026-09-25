@@ -40,6 +40,15 @@ pub fn show_window(app_handle: &AppHandle, label: &str) -> Result<()> {
     Ok(())
 }
 
+/// 读取「设置 → 辅助功能 → 文本大小」（100%–225%），没设置过时是 1.0。
+pub fn text_scale_factor() -> f64 {
+    windows_registry::CURRENT_USER
+        .open(r"Software\Microsoft\Accessibility")
+        .and_then(|key| key.get_u32("TextScaleFactor"))
+        .map(|percent| (f64::from(percent) / 100.0).clamp(1.0, 2.25))
+        .unwrap_or(1.0)
+}
+
 /// 让弹层窗口跟随 Windows 11 的窗口圆角。
 ///
 /// 系统只给带标题栏或 `WS_THICKFRAME` 的窗口自动圆角；预览、右键菜单这类不要系统阴影的
