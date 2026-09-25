@@ -95,7 +95,12 @@ const App: FC = () => {
   });
 
   return (
-    <ConfigProvider locale={locale} modal={ANTD_MODAL_CONFIG} theme={antdTheme}>
+    <ConfigProvider
+      locale={locale}
+      modal={ANTD_MODAL_CONFIG}
+      popupMatchSelectWidth={false}
+      theme={antdTheme}
+    >
       <AntdApp>
         <AppContent />
       </AntdApp>
