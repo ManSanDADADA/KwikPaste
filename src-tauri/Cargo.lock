@@ -13,6 +13,7 @@ dependencies = [
  "chacha20poly1305",
  "chrono",
  "clipboard-rs",
+ "clipboard-win",
  "core-graphics 0.25.0",
  "drag",
  "file_icon_provider",

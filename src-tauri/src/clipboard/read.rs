@@ -151,11 +151,11 @@ impl ClipboardReader {
     }
 }
 
-/// 平台剪贴板里 PNG 的原始格式标识符，用于 `get_buffer` 直取原始字节。
+/// 平台剪贴板里 PNG 的原始格式标识符：读取时 `get_buffer` 直取原始字节，写回时原样放回。
 #[cfg(target_os = "macos")]
-const PNG_FORMAT: &str = "public.png";
+pub(super) const PNG_FORMAT: &str = "public.png";
 #[cfg(target_os = "windows")]
-const PNG_FORMAT: &str = "PNG";
+pub(super) const PNG_FORMAT: &str = "PNG";
 
 /// 从 PNG 字节解析宽高（不解码像素）。
 ///

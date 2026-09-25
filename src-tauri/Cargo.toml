@@ -77,6 +77,8 @@ tauri-plugin-macos-permissions = "2"
 rodio = { version = "0.20", default-features = false, features = ["wav"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# clipboard-rs 已依赖它；图片写回要同时放原始 PNG 和 CF_DIB，clipboard-rs 的接口做不到。
+clipboard-win = "5"
 winapi = { version = "0.3", features = [
     "winuser",
     "processthreadsapi",
