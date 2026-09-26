@@ -4,6 +4,7 @@ All notable changes to KwikPaste are documented here.
 
 ## 1.3.6 - 2026-09-26
 
+- Added Data Overview in Preference › Data. It shows what takes up storage, the total record count, daily additions, content types and source apps, and can clear all records of one content type or from one app at once while keeping favorites and pinned items. Click the storage usage at the bottom left to open it.
 - Fixed the clipboard window opening on the primary display instead of the one under the cursor on Windows setups with several displays and display scaling turned on.
 - Fixed the clipboard, Preference, update, context menu, preview and onboarding windows cutting off their content after raising the Windows Text size setting. These windows now grow with it, and onboarding steps that do not fit can be scrolled.
 - Fixed pinned items showing as a solid block with the Mica or Acrylic window material.
