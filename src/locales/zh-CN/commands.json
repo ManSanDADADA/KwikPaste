@@ -17,6 +17,7 @@
     "checkForUpdates": "检查更新",
     "cleanCache": "清理缓存",
     "clearClipboardItems": "清空记录",
+    "clearClipboardItemsInScope": "清理记录",
     "closePreview": "关闭预览",
     "closeWindow": "关闭窗口",
     "copy": "复制",
@@ -40,6 +41,7 @@
     "loadRunAsAdminStatus": "读取管理员启动状态",
     "loadSettings": "加载设置",
     "loadStorageLocation": "读取数据目录",
+    "loadStorageOverview": "读取数据概览",
     "loadStorageUsage": "读取存储占用",
     "loadUpdateStatus": "读取更新状态",
     "moveToGroup": "移动到分组",
@@ -95,6 +97,7 @@
     "itemUnpinned": "已取消置顶",
     "noteSaved": "已保存",
     "noteSavedAndFavorited": "已保存并收藏",
+    "scopedItemsCleared": "已清理 {{count}} 条记录",
     "settingsReset": "偏好已重置",
     "storageLocationChanged": "数据目录已更改",
     "storageLocationReset": "数据目录已还原"

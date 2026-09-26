@@ -50,6 +50,118 @@
   "controls": {
     "saving": "Saving…"
   },
+  "overview": {
+    "categories": {
+      "byBytes": "Size",
+      "byCount": "Count",
+      "bytesNote": "Measured by the content itself, without the search index or thumbnails.",
+      "names": {
+        "color": "Colors",
+        "email": "Emails",
+        "files": "Files",
+        "html": "HTML",
+        "image": "Images",
+        "path": "Paths",
+        "rtf": "RTF",
+        "text": "Text",
+        "url": "Links"
+      },
+      "title": "Content Types",
+      "tooltip": "{{value}} records · {{size}} · {{share}}"
+    },
+    "clear": {
+      "ariaLabel": "Clean up {{name}} records",
+      "categoryTitle": "Clean up {{name}} records",
+      "confirm": "Clean up",
+      "content": "{{value}} records will be deleted. This can't be undone.",
+      "contentWithKept": "{{value}} records will be deleted; {{kept}} favorites and pinned records are kept. This can't be undone.",
+      "nothing": "All of these are favorites or pinned, nothing to clean up",
+      "sourceAppTitle": "Clean up records from {{name}}",
+      "tooltip": "Clean up these records"
+    },
+    "empty": "No records yet",
+    "loadError": "Couldn't load the data overview",
+    "openDirectory": "Open data directory",
+    "organize": {
+      "favorites": "Favorites",
+      "groups": "Custom groups",
+      "hidden": "Hidden group",
+      "manageGroups": "Manage groups",
+      "marks": "Marks",
+      "noGroups": "No custom groups yet",
+      "noted": "With notes",
+      "pinned": "Pinned",
+      "sensitive": "Sensitive",
+      "title": "Groups & Marks",
+      "ungrouped": "Ungrouped"
+    },
+    "refresh": "Refresh",
+    "retry": "Retry",
+    "sources": {
+      "others": "{{apps}} more apps with {{value}} records",
+      "title": "Source Apps",
+      "tooltip": "{{name}} · {{value}} records · {{size}}",
+      "unknown": "Unknown source"
+    },
+    "space": {
+      "adjustLimit": "Adjust",
+      "cacheClean": "No cache to clean",
+      "cleanCache": "Clean",
+      "hints": {
+        "database": "Text records, search index and groups",
+        "icon": "Source app and file type icons",
+        "image": "Original images and thumbnails",
+        "other": "Settings, window state and other files"
+      },
+      "limit": "/ {{limit}} limit",
+      "limitAction": {
+        "cleanup": "Beyond the limit, the oldest regular records are removed first; favorites and pinned records are always kept",
+        "remind": "Beyond the limit you only get a reminder; nothing is deleted automatically"
+      },
+      "limitMarker": "Storage limit",
+      "reclaimable": "{{count}} unreferenced cache files, {{size}} in total",
+      "segments": {
+        "database": "Database",
+        "icon": "Icon cache",
+        "image": "Images",
+        "other": "Other"
+      },
+      "status": {
+        "ok": "{{percent}}% used",
+        "over": "Over the limit ({{percent}}%)",
+        "warning": "{{percent}}% used, near the limit"
+      },
+      "title": "Storage"
+    },
+    "tiles": {
+      "recent": {
+        "average": "{{value}} per day on average",
+        "label": "Added in 30 days"
+      },
+      "reuses": {
+        "hint": "Copied or pasted again",
+        "label": "Reuses"
+      },
+      "span": {
+        "empty": "No records yet",
+        "label": "History span",
+        "since": "Since {{date}}",
+        "value": "{{days}} days"
+      },
+      "total": {
+        "label": "Total records",
+        "today": "{{value}} added today"
+      }
+    },
+    "trend": {
+      "empty": "No new records in the last {{count}} days",
+      "peak": "Peak {{date}} · {{value}}",
+      "subtitle": "Last {{count}} days",
+      "title": "Daily Additions",
+      "today": "Today",
+      "tooltip": "{{date}} · {{value}} records"
+    }
+  },
   "schema": {
     "captureKinds": {
       "files": "Files and Folders",
@@ -114,6 +226,9 @@
       },
       "organizing": {
         "title": "Favorites & Notes"
+      },
+      "overview": {
+        "title": "Overview"
       },
       "paste": {
         "title": "Paste Behavior"
@@ -471,6 +586,12 @@
           "controlLabel": "Manage",
           "description": "Adjust custom group order, visibility, names, and icons.",
           "title": "Custom Groups"
+        }
+      },
+      "overview": {
+        "dashboard": {
+          "description": "See storage usage, record counts, daily additions, content types and source apps, and clean up records by type or source.",
+          "title": "Data Overview"
         }
       },
       "paste": {

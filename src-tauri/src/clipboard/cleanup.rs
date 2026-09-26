@@ -124,7 +124,7 @@ pub async fn storage_bytes_in_use(app: &AppHandle, pool: &SqlitePool) -> crate::
 }
 
 /// 清理完成后删除对应图片文件并通知前端刷新列表；没删到记录时什么都不做。
-fn apply_outcome(app: &AppHandle, outcome: &CleanupOutcome, reason: &str) {
+pub fn apply_outcome(app: &AppHandle, outcome: &CleanupOutcome, reason: &str) {
     if outcome.removed == 0 {
         return;
     }

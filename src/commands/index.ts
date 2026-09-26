@@ -141,6 +141,103 @@ export interface CleanCacheResult {
   storageUsage: StorageUsage;
 }
 
+/**
+ * 数据实际占用按来源拆分，各项之和等于 `StorageUsage.totalBytes`。
+ */
+export interface StorageBreakdown {
+  databaseBytes: number;
+  imageBytes: number;
+  iconBytes: number;
+  otherBytes: number;
+}
+
+export interface ReclaimableCache {
+  files: number;
+  bytes: number;
+}
+
+/** 与 Rust `db::overview::ContentCategory` 对应的内容类别。 */
+export type ContentCategory =
+  | "text"
+  | "html"
+  | "rtf"
+  | "url"
+  | "email"
+  | "color"
+  | "path"
+  | "image"
+  | "files";
+
+export interface ItemTotals {
+  total: number;
+  favorites: number;
+  pinned: number;
+  noted: number;
+  sensitive: number;
+  grouped: number;
+  reuses: number;
+}
+
+export interface CategoryStat {
+  category: ContentCategory;
+  count: number;
+  bytes: number;
+  /** 不是收藏也不是置顶、可以被批量清理的条数。 */
+  removable: number;
+}
+
+export interface SourceAppStat {
+  /** `null` 汇总没有记录到来源应用的条目。 */
+  appId: string | null;
+  name: string | null;
+  iconPath: string | null;
+  count: number;
+  bytes: number;
+  removable: number;
+}
+
+export interface OtherSourceApps {
+  apps: number;
+  count: number;
+}
+
+export interface GroupStat {
+  id: string;
+  name: string;
+  icon: string;
+  isHidden: boolean;
+  count: number;
+}
+
+export interface DailyCount {
+  /** 本地日期，`YYYY-MM-DD`。 */
+  date: string;
+  count: number;
+}
+
+export interface HistoryOverview {
+  totals: ItemTotals;
+  categories: CategoryStat[];
+  /** 最近 30 天，按日期升序，最后一项是今天。 */
+  daily: DailyCount[];
+  sourceApps: SourceAppStat[];
+  otherSourceApps: OtherSourceApps;
+  groups: GroupStat[];
+  oldestDate: string | null;
+}
+
+export interface StorageOverview {
+  usage: StorageUsage;
+  breakdown: StorageBreakdown;
+  reclaimable: ReclaimableCache;
+  history: HistoryOverview;
+}
+
+/** 批量清理范围；收藏与置顶记录始终保留。 */
+export type ClearScope =
+  | { type: "category"; category: ContentCategory }
+  | { type: "sourceApp"; appId: string | null };
+
 export interface StorageLocation {
   currentPath: string;
   defaultPath: string;
@@ -483,6 +580,34 @@ export const getStorageUsage = () => {
     TAURI_COMMAND.GET_STORAGE_USAGE,
     "commands:labels.loadStorageUsage",
   );
+};
+
+/**
+ * 汇总偏好页数据概览：占用拆分、可清理缓存和按类别 / 来源 / 分组 / 日期的记录统计。
+ */
+export const getStorageOverview = () => {
+  return call<StorageOverview>(
+    TAURI_COMMAND.GET_STORAGE_OVERVIEW,
+    "commands:labels.loadStorageOverview",
+  );
+};
+
+/**
+ * 清理某个内容类别或来源应用下的普通记录，收藏与置顶保留；返回删除条数。
+ * 确认弹窗由调用方负责，列表与存储占用由 Rust 的清理事件统一刷新。
+ */
+export const clearClipboardItemsInScope = async (scope: ClearScope) => {
+  const removed = await call<number>(
+    TAURI_COMMAND.CLEAR_CLIPBOARD_ITEMS_IN_SCOPE,
+    "commands:labels.clearClipboardItemsInScope",
+    { scope },
+  );
+
+  getMessageApi().success(
+    i18n.t("commands:messages.scopedItemsCleared", { count: removed }),
+  );
+
+  return removed;
 };
 
 /**

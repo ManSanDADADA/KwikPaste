@@ -180,6 +180,8 @@ pub fn run() {
             commands::take_pending_backup,
             commands::import_history_backup,
             commands::get_storage_usage,
+            commands::get_storage_overview,
+            commands::clear_clipboard_items_in_scope,
             commands::get_storage_location,
             commands::change_storage_location,
             commands::reset_storage_location,

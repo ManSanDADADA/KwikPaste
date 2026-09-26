@@ -18,7 +18,7 @@ interface PreferenceStorageUsagePanelProps {
 }
 
 /**
- * 侧栏里的本地存储摘要：展示数据目录占用与用户设定的存储上限，点击跳到存储设置。
+ * 侧栏里的本地存储摘要：展示数据目录占用与用户设定的存储上限，点击打开数据概览。
  */
 const PreferenceStorageUsagePanel: FC<PreferenceStorageUsagePanelProps> = (
   props,

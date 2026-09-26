@@ -825,6 +825,25 @@ export const preferenceTabs: PreferenceTab[] = [
     id: "data",
     sections: [
       {
+        id: "overview",
+        settings: [
+          {
+            control: { type: "storageOverview" },
+            id: "overview.dashboard",
+            keywords: [
+              "overview",
+              "statistics",
+              "storage",
+              "usage",
+              "count",
+              "category",
+              "trend",
+              "source",
+            ],
+          },
+        ],
+      },
+      {
         id: "localData",
         settings: [
           {

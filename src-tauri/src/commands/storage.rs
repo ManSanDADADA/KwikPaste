@@ -9,8 +9,10 @@ use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::clipboard::AppIconStore;
 use crate::core::disk::{dir_size, file_size};
 use crate::core::Result;
+use crate::db::overview::{ClearScope, HistoryOverview};
 use crate::db::DatabaseState;
 use crate::settings::Settings;
 use crate::window;
@@ -19,6 +21,9 @@ const SETTINGS_UPDATED_EVENT: &str = "settings://updated";
 const CLIPBOARD_UPDATED_EVENT: &str = "clipboard://updated";
 const STORAGE_CONTENT_DIRS: [&str; 4] = ["db", "resources", "config", "state"];
 const CUSTOM_STORAGE_CONTAINER_DIR: &str = "KwikPasteData";
+const CLIPBOARD_IMAGES_DIR: &str = "clipboard-images";
+const APP_ICONS_DIR: &str = "app-icons";
+const FILE_ICONS_DIR: &str = "file-icons";
 
 /// 偏好页侧栏展示的本地存储占用概览。
 #[derive(Debug, Clone, Serialize)]
@@ -38,6 +43,38 @@ pub struct CleanCacheResult {
     pub removed_files: u64,
     pub removed_bytes: u64,
     pub storage_usage: StorageUsage,
+}
+
+/// 数据实际占用按来源拆分，各项之和等于 [`StorageUsage::total_bytes`]。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageBreakdown {
+    /// 数据库主文件扣除 SQLite 可复用空闲页后的部分。
+    pub database_bytes: u64,
+    /// 图片原图与缩略图。
+    pub image_bytes: u64,
+    /// 来源应用图标与文件类型图标缓存。
+    pub icon_bytes: u64,
+    /// 设置、窗口状态等其余文件。
+    pub other_bytes: u64,
+}
+
+/// 资源目录里已不被任何记录引用、可以安全清理的缓存文件。
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReclaimableCache {
+    pub files: u64,
+    pub bytes: u64,
+}
+
+/// 偏好页「数据概览」：存储占用拆分、可清理缓存和历史记录的多维统计。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageOverview {
+    pub usage: StorageUsage,
+    pub breakdown: StorageBreakdown,
+    pub reclaimable: ReclaimableCache,
+    pub history: HistoryOverview,
 }
 
 /// 当前数据目录位置及是否已切到自定义目录。
@@ -80,6 +117,52 @@ pub async fn get_storage_usage(app: AppHandle) -> Result<StorageUsage> {
         resources_bytes,
         settings_bytes,
     })
+}
+
+/// 汇总偏好页数据概览：占用拆分、可清理缓存，以及按类别 / 来源 / 分组 / 日期的记录统计。
+#[tauri::command]
+pub async fn get_storage_overview(
+    app: AppHandle,
+    icon_store: tauri::State<'_, AppIconStore>,
+) -> Result<StorageOverview> {
+    let pool = app.state::<DatabaseState>().pool().await;
+    let usage = get_storage_usage(app.clone()).await?;
+    let breakdown = storage_breakdown(&app, &pool, usage.total_bytes).await?;
+    let reclaimable = sweep_resource_cache(&app, &pool, CacheSweep::Measure).await?;
+    let mut history =
+        crate::db::overview::load_history_overview(&pool, chrono::Utc::now(), &chrono::Local)
+            .await?;
+
+    for source_app in &mut history.source_apps {
+        source_app.icon_path = source_app
+            .icon_file
+            .as_deref()
+            .and_then(|file_name| icon_store.icon_path(file_name).to_str().map(str::to_owned));
+    }
+
+    Ok(StorageOverview {
+        usage,
+        breakdown,
+        reclaimable: ReclaimableCache {
+            files: reclaimable.files,
+            bytes: reclaimable.bytes,
+        },
+        history,
+    })
+}
+
+/// 清理某个内容类别或来源应用下的普通记录（收藏与置顶保留），返回删除条数。
+#[tauri::command]
+pub async fn clear_clipboard_items_in_scope(
+    app: AppHandle,
+    db: tauri::State<'_, DatabaseState>,
+    scope: ClearScope,
+) -> Result<u64> {
+    let pool = db.pool().await;
+    let outcome = crate::db::overview::clear_scope(&pool, &scope).await?;
+    crate::clipboard::apply_cleanup_outcome(&app, &outcome, "scoped");
+
+    Ok(outcome.removed)
 }
 
 /// 将数据目录迁移到用户选择的父目录下，并热切换当前运行时状态。
@@ -126,32 +209,7 @@ pub async fn clean_resource_cache(
     db: tauri::State<'_, DatabaseState>,
 ) -> Result<CleanCacheResult> {
     let pool = db.pool().await;
-    let resources_dir = crate::core::paths::resources_dir(&app)?;
-    let image_files = referenced_image_files(&pool).await?;
-    let app_icon_files = referenced_app_icon_files(&pool).await?;
-    let file_icon_files = referenced_file_icon_files(&pool).await?;
-
-    let mut removed = CleanCacheStats::default();
-    clean_sharded_files(
-        &resources_dir.join("clipboard-images").join("origin"),
-        &image_files,
-        &mut removed,
-    )?;
-    clean_sharded_files(
-        &resources_dir.join("clipboard-images").join("thumbnails"),
-        &image_files,
-        &mut removed,
-    )?;
-    clean_flat_files(
-        &resources_dir.join("app-icons"),
-        &app_icon_files,
-        &mut removed,
-    )?;
-    clean_flat_files(
-        &resources_dir.join("file-icons"),
-        &file_icon_files,
-        &mut removed,
-    )?;
+    let removed = sweep_resource_cache(&app, &pool, CacheSweep::Delete).await?;
 
     Ok(CleanCacheResult {
         removed_files: removed.files,
@@ -481,6 +539,73 @@ fn database_bytes(app: &AppHandle) -> Result<u64> {
     Ok(total)
 }
 
+/// 数据实际占用按数据库、图片、图标拆分，剩余部分归入其他。
+async fn storage_breakdown(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    total_bytes: u64,
+) -> Result<StorageBreakdown> {
+    let resources_dir = crate::core::paths::resources_dir(app)?;
+    let database_bytes = file_size(&crate::db::db_path(app)?)?
+        .saturating_sub(crate::db::items::reusable_page_bytes(pool).await?);
+    let image_bytes = dir_size(&resources_dir.join(CLIPBOARD_IMAGES_DIR))?;
+    let icon_bytes = dir_size(&resources_dir.join(APP_ICONS_DIR))?
+        + dir_size(&resources_dir.join(FILE_ICONS_DIR))?;
+    let other_bytes = total_bytes
+        .saturating_sub(database_bytes)
+        .saturating_sub(image_bytes)
+        .saturating_sub(icon_bytes);
+
+    Ok(StorageBreakdown {
+        database_bytes,
+        image_bytes,
+        icon_bytes,
+        other_bytes,
+    })
+}
+
+/// 扫描资源目录里不再被引用的图片与图标：`Measure` 只统计，`Delete` 同时删除。
+async fn sweep_resource_cache(
+    app: &AppHandle,
+    pool: &SqlitePool,
+    sweep: CacheSweep,
+) -> Result<CleanCacheStats> {
+    let resources_dir = crate::core::paths::resources_dir(app)?;
+    let images_dir = resources_dir.join(CLIPBOARD_IMAGES_DIR);
+    let image_files = referenced_image_files(pool).await?;
+    let app_icon_files = referenced_app_icon_files(pool).await?;
+    let file_icon_files = referenced_file_icon_files(pool).await?;
+
+    let mut stats = CleanCacheStats::default();
+    clean_sharded_files(&images_dir.join("origin"), &image_files, sweep, &mut stats)?;
+    clean_sharded_files(
+        &images_dir.join("thumbnails"),
+        &image_files,
+        sweep,
+        &mut stats,
+    )?;
+    clean_flat_files(
+        &resources_dir.join(APP_ICONS_DIR),
+        &app_icon_files,
+        sweep,
+        &mut stats,
+    )?;
+    clean_flat_files(
+        &resources_dir.join(FILE_ICONS_DIR),
+        &file_icon_files,
+        sweep,
+        &mut stats,
+    )?;
+
+    Ok(stats)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CacheSweep {
+    Measure,
+    Delete,
+}
+
 #[derive(Default)]
 struct CleanCacheStats {
     files: u64,
@@ -491,6 +616,7 @@ struct CleanCacheStats {
 fn clean_flat_files(
     root: &Path,
     referenced_files: &HashSet<String>,
+    sweep: CacheSweep,
     removed: &mut CleanCacheStats,
 ) -> Result<()> {
     if !root.exists() {
@@ -507,15 +633,15 @@ fn clean_flat_files(
             .with_context(|| format!("failed to read metadata at {path:?}"))?;
 
         if metadata.is_dir() {
-            clean_flat_files(&path, referenced_files, removed)?;
-            remove_dir_if_empty(&path);
+            clean_flat_files(&path, referenced_files, sweep, removed)?;
+            remove_dir_if_empty(&path, sweep);
             continue;
         }
 
-        remove_unreferenced_file(&path, metadata.len(), referenced_files, removed)?;
+        remove_unreferenced_file(&path, metadata.len(), referenced_files, sweep, removed)?;
     }
 
-    remove_dir_if_empty(root);
+    remove_dir_if_empty(root, sweep);
 
     Ok(())
 }
@@ -524,16 +650,18 @@ fn clean_flat_files(
 fn clean_sharded_files(
     root: &Path,
     referenced_files: &HashSet<String>,
+    sweep: CacheSweep,
     removed: &mut CleanCacheStats,
 ) -> Result<()> {
-    clean_flat_files(root, referenced_files, removed)
+    clean_flat_files(root, referenced_files, sweep, removed)
 }
 
-/// 文件名不在引用集合中时删除该文件，并累计删除数量与字节数。
+/// 文件名不在引用集合中时计入统计，`Delete` 模式下同时删除该文件。
 fn remove_unreferenced_file(
     path: &Path,
     file_bytes: u64,
     referenced_files: &HashSet<String>,
+    sweep: CacheSweep,
     removed: &mut CleanCacheStats,
 ) -> Result<()> {
     let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
@@ -543,7 +671,9 @@ fn remove_unreferenced_file(
         return Ok(());
     }
 
-    fs::remove_file(path).with_context(|| format!("failed to remove cache file {path:?}"))?;
+    if sweep == CacheSweep::Delete {
+        fs::remove_file(path).with_context(|| format!("failed to remove cache file {path:?}"))?;
+    }
     removed.files += 1;
     removed.bytes += file_bytes;
 
@@ -551,8 +681,10 @@ fn remove_unreferenced_file(
 }
 
 /// 尽力删除空目录；非空、缺失或无权限时由文件清理主流程处理即可。
-fn remove_dir_if_empty(path: &Path) {
-    let _ = fs::remove_dir(path);
+fn remove_dir_if_empty(path: &Path, sweep: CacheSweep) {
+    if sweep == CacheSweep::Delete {
+        let _ = fs::remove_dir(path);
+    }
 }
 
 /// 统计设置主文件大小。
@@ -599,7 +731,7 @@ mod tests {
         let referenced = HashSet::from(["keep.png".to_string()]);
         let mut removed = CleanCacheStats::default();
 
-        clean_flat_files(&root, &referenced, &mut removed).unwrap();
+        clean_flat_files(&root, &referenced, CacheSweep::Delete, &mut removed).unwrap();
 
         assert!(root.join("keep.png").exists());
         assert!(!root.join("drop.png").exists());
@@ -617,11 +749,29 @@ mod tests {
 
         let mut removed = CleanCacheStats::default();
 
-        clean_sharded_files(&root, &HashSet::new(), &mut removed).unwrap();
+        clean_sharded_files(&root, &HashSet::new(), CacheSweep::Delete, &mut removed).unwrap();
 
         assert_eq!(removed.files, 1);
         assert!(!shard.exists());
         assert!(!root.exists());
+    }
+
+    #[test]
+    fn measure_sweep_counts_without_deleting() {
+        let temp = TempDir::new();
+        let root = temp.path().join("clipboard-images").join("thumbnails");
+        let shard = root.join("cd");
+        fs::create_dir_all(&shard).unwrap();
+        fs::write(shard.join("orphan.png"), b"orphan").unwrap();
+        fs::write(shard.join("kept.png"), b"kept").unwrap();
+
+        let referenced = HashSet::from(["kept.png".to_string()]);
+        let mut found = CleanCacheStats::default();
+
+        clean_sharded_files(&root, &referenced, CacheSweep::Measure, &mut found).unwrap();
+
+        assert_eq!((found.files, found.bytes), (1, 6));
+        assert!(shard.join("orphan.png").exists());
     }
 
     #[test]

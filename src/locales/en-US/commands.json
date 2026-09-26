@@ -17,6 +17,7 @@
     "checkForUpdates": "Check for updates",
     "cleanCache": "Clean cache",
     "clearClipboardItems": "Clear records",
+    "clearClipboardItemsInScope": "Clean up records",
     "closePreview": "Close preview",
     "closeWindow": "Close window",
     "copy": "Copy",
@@ -40,6 +41,7 @@
     "loadRunAsAdminStatus": "Load administrator launch state",
     "loadSettings": "Load settings",
     "loadStorageLocation": "Load data directory",
+    "loadStorageOverview": "Load data overview",
     "loadStorageUsage": "Load storage usage",
     "loadUpdateStatus": "Load update status",
     "moveToGroup": "Move to Group",
@@ -95,6 +97,7 @@
     "itemUnpinned": "Unpinned from top",
     "noteSaved": "Saved",
     "noteSavedAndFavorited": "Saved and favorited",
+    "scopedItemsCleared": "Cleaned up {{count}} records",
     "settingsReset": "Preferences reset",
     "storageLocationChanged": "Data directory changed",
     "storageLocationReset": "Data directory reset"

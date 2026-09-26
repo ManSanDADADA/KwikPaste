@@ -50,6 +50,118 @@
   "controls": {
     "saving": "保存中…"
   },
+  "overview": {
+    "categories": {
+      "byBytes": "大小",
+      "byCount": "条数",
+      "bytesNote": "按内容本身的大小统计，不含搜索索引与缩略图。",
+      "names": {
+        "color": "颜色",
+        "email": "邮箱",
+        "files": "文件",
+        "html": "HTML",
+        "image": "图片",
+        "path": "路径",
+        "rtf": "RTF",
+        "text": "纯文本",
+        "url": "链接"
+      },
+      "title": "内容构成",
+      "tooltip": "{{value}} 条 · {{size}} · 占 {{share}}"
+    },
+    "clear": {
+      "ariaLabel": "清理{{name}}记录",
+      "categoryTitle": "清理「{{name}}」记录",
+      "confirm": "清理",
+      "content": "将删除 {{value}} 条记录，删除后无法恢复。",
+      "contentWithKept": "将删除 {{value}} 条记录，另有 {{kept}} 条收藏或置顶记录会保留。删除后无法恢复。",
+      "nothing": "全部是收藏或置顶记录，无需清理",
+      "sourceAppTitle": "清理来自「{{name}}」的记录",
+      "tooltip": "清理这些记录"
+    },
+    "empty": "还没有记录",
+    "loadError": "数据概览加载失败",
+    "openDirectory": "打开数据目录",
+    "organize": {
+      "favorites": "收藏",
+      "groups": "自定义分组",
+      "hidden": "已隐藏的分组",
+      "manageGroups": "管理分组",
+      "marks": "标记",
+      "noGroups": "还没有自定义分组",
+      "noted": "有备注",
+      "pinned": "置顶",
+      "sensitive": "敏感内容",
+      "title": "分组与标记",
+      "ungrouped": "未分组"
+    },
+    "refresh": "刷新",
+    "retry": "重试",
+    "sources": {
+      "others": "其余 {{apps}} 个应用共 {{value}} 条",
+      "title": "来源应用",
+      "tooltip": "{{name}} · {{value}} 条 · {{size}}",
+      "unknown": "未知来源"
+    },
+    "space": {
+      "adjustLimit": "调整",
+      "cacheClean": "没有需要清理的缓存",
+      "cleanCache": "清理",
+      "hints": {
+        "database": "文本记录、搜索索引与分组",
+        "icon": "来源应用与文件类型图标",
+        "image": "图片原图与缩略图",
+        "other": "设置与窗口状态等文件"
+      },
+      "limit": "/ 上限 {{limit}}",
+      "limitAction": {
+        "cleanup": "超出上限后自动从最旧的普通记录删起，收藏和置顶始终保留",
+        "remind": "超出上限后只提醒，不会自动删除记录"
+      },
+      "limitMarker": "存储上限",
+      "reclaimable": "{{count}} 个未引用的缓存文件，共 {{size}}",
+      "segments": {
+        "database": "数据库",
+        "icon": "图标缓存",
+        "image": "图片",
+        "other": "其他"
+      },
+      "status": {
+        "ok": "已用 {{percent}}%",
+        "over": "已超出上限（{{percent}}%）",
+        "warning": "已用 {{percent}}%，接近上限"
+      },
+      "title": "存储空间"
+    },
+    "tiles": {
+      "recent": {
+        "average": "日均 {{value}} 条",
+        "label": "近 30 天新增"
+      },
+      "reuses": {
+        "hint": "重复复制与再次粘贴",
+        "label": "复用次数"
+      },
+      "span": {
+        "empty": "暂无记录",
+        "label": "记录跨度",
+        "since": "始于 {{date}}",
+        "value": "{{days}} 天"
+      },
+      "total": {
+        "label": "记录总数",
+        "today": "今日新增 {{value}}"
+      }
+    },
+    "trend": {
+      "empty": "近 {{count}} 天没有新记录",
+      "peak": "峰值 {{date}} · {{value}} 条",
+      "subtitle": "近 {{count}} 天",
+      "title": "每日新增",
+      "today": "今天",
+      "tooltip": "{{date}} · {{value}} 条"
+    }
+  },
   "schema": {
     "captureKinds": {
       "files": "文件和文件夹",
@@ -114,6 +226,9 @@
       },
       "organizing": {
         "title": "收藏与备注"
+      },
+      "overview": {
+        "title": "数据概览"
       },
       "paste": {
         "title": "粘贴行为"
@@ -471,6 +586,12 @@
           "controlLabel": "管理",
           "description": "调整自定义分组的顺序、显示状态、名称和图标。",
           "title": "自定义分组"
+        }
+      },
+      "overview": {
+        "dashboard": {
+          "description": "查看存储占用、记录数量、每日新增、内容构成和来源应用，并按类别或来源清理记录。",
+          "title": "数据概览"
         }
       },
       "paste": {

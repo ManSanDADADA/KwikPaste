@@ -452,7 +452,7 @@ pub async fn reusable_page_bytes(pool: &SqlitePool) -> Result<u64> {
 }
 
 /// 把一批被删行计入 outcome：累加行数，并收集其中的图片文件名。
-fn absorb_deleted(outcome: &mut CleanupOutcome, rows: Vec<(ClipboardKind, String)>) {
+pub(crate) fn absorb_deleted(outcome: &mut CleanupOutcome, rows: Vec<(ClipboardKind, String)>) {
     outcome.removed += rows.len() as u64;
     outcome.image_files.extend(
         rows.into_iter()

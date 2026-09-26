@@ -60,7 +60,8 @@ interface ClipboardCleanupPayload {
   cleanup?: number;
 }
 
-const STORAGE_DIRECTORY_SETTING_ID = "localData.dataDirectory";
+const STORAGE_OVERVIEW_TAB_ID: PreferenceTabId = "data";
+const STORAGE_OVERVIEW_SECTION_ID = "overview";
 
 interface PreferenceHighlightSettingPayload {
   settingId: string;
@@ -159,8 +160,22 @@ const Preference: FC = () => {
     });
   };
 
-  const openStorageSettings = () => {
-    highlightSetting(STORAGE_DIRECTORY_SETTING_ID);
+  /**
+   * 侧栏存储卡片直达数据概览。
+   */
+  const openStorageOverview = () => {
+    setActiveTabId(STORAGE_OVERVIEW_TAB_ID);
+    setActiveSectionId(STORAGE_OVERVIEW_SECTION_ID);
+    setSearchQuery("");
+    resetContentScroll(contentRef.current);
+  };
+
+  /**
+   * 数据概览或清理操作拿到最新占用后同步侧栏，省一次单独统计。
+   */
+  const handleStorageUsageChange = (usage: StorageUsage) => {
+    setStorageUsage(usage);
+    setStorageState("ready");
   };
 
   const handleSettingChange = async (
@@ -373,7 +388,7 @@ const Preference: FC = () => {
           activeTabId={activeTabId}
           appName={appMetadata.name}
           appVersion={appMetadata.version}
-          onStorageSelect={openStorageSettings}
+          onStorageSelect={openStorageOverview}
           onTabSelect={handleTabSelect}
           storageLimitMb={settings.clipboard.history.storageLimitMb}
           storageState={storageState}
@@ -420,6 +435,8 @@ const Preference: FC = () => {
                     highlightToken={highlightTarget?.token ?? 0}
                     onActionComplete={handleActionComplete}
                     onChange={handleSettingChange}
+                    onNavigateSetting={highlightSetting}
+                    onStorageUsageChange={handleStorageUsageChange}
                     section={activeSection}
                     settings={settings}
                     shouldReduceMotion={reduceMotion}

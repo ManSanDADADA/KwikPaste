@@ -73,7 +73,8 @@ export type PreferenceControl =
   | { type: "appExclusion" }
   | { type: "action"; danger?: boolean }
   | { type: "status" }
-  | { type: "shortcutTags"; shortcuts: PreferenceShortcutTag[] };
+  | { type: "shortcutTags"; shortcuts: PreferenceShortcutTag[] }
+  | { type: "storageOverview" };
 
 export interface PreferenceSetting {
   control: PreferenceControl;

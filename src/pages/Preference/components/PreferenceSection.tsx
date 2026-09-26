@@ -6,6 +6,7 @@ import type {
   CleanCacheResult,
   ExportHistoryBackupResult,
   StorageLocation,
+  StorageUsage,
 } from "@/commands";
 import type { Settings } from "@/types/settings";
 import type {
@@ -17,6 +18,7 @@ import { translatePreferenceSection } from "../utils/preferenceI18n";
 import PreferenceCountTag from "./PreferenceCountTag";
 import PreferenceSettingRow from "./PreferenceSettingRow";
 import SourceAppsTransfer from "./SourceAppsTransfer";
+import StorageOverviewPanel from "./storageOverview";
 
 interface PreferenceSectionProps {
   highlightedSettingId: string | null;
@@ -33,6 +35,8 @@ interface PreferenceSectionProps {
       | ExportHistoryBackupResult,
   ) => void;
   onChange: (setting: PreferenceSetting, value: SettingValue) => Promise<void>;
+  onNavigateSetting: (settingId: string) => void;
+  onStorageUsageChange: (usage: StorageUsage) => void;
 }
 
 interface SectionVisual {
@@ -53,9 +57,24 @@ const PreferenceSection: FC<PreferenceSectionProps> = (props) => {
     storageLocation,
     onActionComplete,
     onChange,
+    onNavigateSetting,
+    onStorageUsageChange,
   } = props;
   const visual = resolveSectionVisual(section.id);
   const sourceAppsSettings = resolveSourceAppsSettings(section.settings);
+  const isStorageOverview = section.settings.some((setting) => {
+    return setting.control.type === "storageOverview";
+  });
+
+  if (isStorageOverview) {
+    return (
+      <StorageOverviewPanel
+        onNavigateSetting={onNavigateSetting}
+        onStorageUsageChange={onStorageUsageChange}
+        settings={settings}
+      />
+    );
+  }
 
   if (sourceAppsSettings) {
     return (
