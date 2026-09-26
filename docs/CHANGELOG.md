@@ -2,6 +2,15 @@
 
 All notable changes to KwikPaste are documented here.
 
+## 1.3.6 - 2026-09-26
+
+- Fixed the clipboard window opening on the primary display instead of the one under the cursor on Windows setups with several displays and display scaling turned on.
+- Fixed the clipboard, Preference, update, context menu, preview and onboarding windows cutting off their content after raising the Windows Text size setting. These windows now grow with it, and onboarding steps that do not fit can be scrolled.
+- Fixed pinned items showing as a solid block with the Mica or Acrylic window material.
+- Fixed a User Account Control prompt appearing at every login when Run as Administrator and Launch at Login were both on. Starting with administrator privileges on a laptop running on battery no longer fails.
+- Fixed shortcuts, the tray icon and Launch at Login still following the old settings after importing a backup.
+- Fixed drop-down options in Preference being cut off, such as the Quick Paste modifier keys showing only "Ctr...".
+
 ## 1.3.5 - 2026-09-25
 
 - Fixed pasting an image copied from a browser or another app adding a duplicate record every time. Pasting large images is also faster, taking about 40% of the time it used to for a 2–3 megapixel image.
