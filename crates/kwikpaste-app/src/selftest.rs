@@ -473,6 +473,11 @@ fn preferences(cx: &mut App) {
     let core = crate::core_host::core(cx).cloned();
     cx.spawn(async move |cx| {
         cx.background_executor().timer(Duration::from_secs(3)).await;
+        #[cfg(target_os = "macos")]
+        if !cx.update(crate::preferences::view::foreground_ready) {
+            log::error!("preferences selftest: window is not visible, key and active");
+            std::process::exit(1);
+        }
         let setting_updated = if let Some(core) = core.clone() {
             let before = core.settings().general.tray_icon;
             let toggled = core

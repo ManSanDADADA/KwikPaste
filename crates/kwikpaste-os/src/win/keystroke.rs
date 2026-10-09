@@ -8,6 +8,12 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 const VK_V: VIRTUAL_KEY = VIRTUAL_KEY(0x56);
+const PASTE_KEYS: [(VIRTUAL_KEY, KEYBD_EVENT_FLAGS); 4] = [
+    (VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
+    (VK_V, KEYBD_EVENT_FLAGS(0)),
+    (VK_V, KEYEVENTF_KEYUP),
+    (VK_CONTROL, KEYEVENTF_KEYUP),
+];
 /// 没有分配给任何按键的虚拟键码，注入后目标应用没有可见反应。
 const VK_UNASSIGNED: VIRTUAL_KEY = VIRTUAL_KEY(0xE8);
 
@@ -16,12 +22,12 @@ pub fn ensure_accessibility_trusted() -> io::Result<()> {
 }
 
 pub fn simulate_paste() -> io::Result<()> {
-    send_keys(&[
-        (VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
-        (VK_V, KEYBD_EVENT_FLAGS(0)),
-        (VK_V, KEYEVENTF_KEYUP),
-        (VK_CONTROL, KEYEVENTF_KEYUP),
-    ])
+    send_keys(&PASTE_KEYS, None)
+}
+
+/// Recheck destination ownership and actual foreground immediately before SendInput.
+pub fn simulate_paste_to(target: crate::paste_target::PasteTarget) -> io::Result<()> {
+    send_keys(&PASTE_KEYS, Some(target))
 }
 
 pub fn mask_modifier_release() -> io::Result<()> {
@@ -29,10 +35,13 @@ pub fn mask_modifier_release() -> io::Result<()> {
         return Ok(());
     }
 
-    send_keys(&[
-        (VK_UNASSIGNED, KEYBD_EVENT_FLAGS(0)),
-        (VK_UNASSIGNED, KEYEVENTF_KEYUP),
-    ])
+    send_keys(
+        &[
+            (VK_UNASSIGNED, KEYBD_EVENT_FLAGS(0)),
+            (VK_UNASSIGNED, KEYEVENTF_KEYUP),
+        ],
+        None,
+    )
 }
 
 pub fn modifiers_pressed() -> bool {
@@ -47,7 +56,10 @@ fn is_key_down(vk: VIRTUAL_KEY) -> bool {
 }
 
 /// 按顺序注入一组键盘事件；系统拒收（例如被更高完整性级别的窗口挡住）时返回错误。
-fn send_keys(keys: &[(VIRTUAL_KEY, KEYBD_EVENT_FLAGS)]) -> io::Result<()> {
+fn send_keys(
+    keys: &[(VIRTUAL_KEY, KEYBD_EVENT_FLAGS)],
+    target: Option<crate::paste_target::PasteTarget>,
+) -> io::Result<()> {
     let inputs: Vec<INPUT> = keys
         .iter()
         .map(|&(vk, flags)| INPUT {
@@ -63,6 +75,22 @@ fn send_keys(keys: &[(VIRTUAL_KEY, KEYBD_EVENT_FLAGS)]) -> io::Result<()> {
             },
         })
         .collect();
+
+    if let Some(target) = target {
+        let destination = super::paste_target::WindowTarget {
+            window: target.window,
+            process_id: target.process_id,
+        };
+        if !super::is_live_paste_target(destination)
+            || super::foreground_window() != target.window
+            || super::keyboard::is_captured()
+            || modifiers_pressed()
+        {
+            return Err(io::Error::other(
+                "paste destination or input handoff changed before SendInput",
+            ));
+        }
+    }
 
     let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
     if sent as usize != inputs.len() {

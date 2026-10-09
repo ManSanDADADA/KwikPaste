@@ -4,7 +4,7 @@ name: Native CI
 #
 #   check  Windows x64：vendored GPUI 与“原版 + 补丁”逐字节一致、补丁版确实被用上、4 个发布目标都没有
 #          rustls / ring、UI 分层与颜色 token 守卫、fmt、clippy、测试，以及更新器在 e2e-overrides 特性下的 clippy 与测试。
-#   core-macos  macOS 上跑 kwikpaste-core、kwikpaste-os、kwikpaste-updater 的测试：迁移校验和在 macOS 是 LF 那一侧；
+#   core-macos  macOS 上跑完整 workspace 测试与严格 clippy：迁移校验和在 macOS 是 LF 那一侧；
 #               os 的应用包扫描、NSSound 解码提示音和更新器的换包代码只在 macOS 上编译，本机没有 Mac。
 #   build  4 个发布目标的 release 构建，配置与以后发布一致（Windows 静态 CRT，macOS 最低 10.15）。
 #   smoke  在 4 个目标上真正启动应用：`--selftest-smoke` 打开窗口、几秒后正常退出，看退出码。
@@ -181,7 +181,7 @@ jobs:
           cargo test --locked -p kwikpaste-updater --features e2e-overrides
 
   core-macos:
-    name: Core, OS and updater tests (macOS)
+    name: Workspace tests and clippy (macOS)
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -198,10 +198,10 @@ jobs:
           key: native-core-macos
 
       - name: Test
-        run: cargo test --locked -p kwikpaste-core -p kwikpaste-os -p kwikpaste-updater
+        run: cargo test --locked --workspace
 
-      - name: Updater clippy
-        run: cargo clippy --locked -p kwikpaste-updater --no-deps --all-targets -- -D warnings
+      - name: Workspace clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
   build:
     name: Build ${{ matrix.label }}
@@ -399,6 +399,21 @@ jobs:
         if: matrix.target == 'x86_64-pc-windows-msvc'
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File source/tools/platform-probes/panel-invariants.ps1 -Exe ./KwikPaste.exe -Rounds 20
+
+      # 只在一次性测试 runner 上驱动脚本自己的窗口和合成剪贴板；进程使用 selftest 独立身份。
+      - name: Paste into synthetic Windows targets
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        env:
+          RUST_LOG: info
+        run: powershell -STA -NoProfile -ExecutionPolicy Bypass -File source/tools/platform-probes/paste.ps1 -Exe ./KwikPaste.exe -Rounds 3 -IdleSeconds 0 -UiPanel -QuickPaste -PastePlain
+
+      - name: Image paste and clipboard writeback on Windows
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        env:
+          RUST_LOG: info
+        run: powershell -STA -NoProfile -ExecutionPolicy Bypass -File source/tools/platform-probes/image-paste.ps1 -Exe ./KwikPaste.exe -IdleSeconds 0
 
       - name: Upload panel probe results
         if: failure() && matrix.target == 'x86_64-pc-windows-msvc'

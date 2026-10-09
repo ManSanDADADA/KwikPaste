@@ -11,6 +11,7 @@ use kwikpaste_core::settings::WindowPosition;
 use kwikpaste_core::window_state::WindowGeometry;
 use kwikpaste_os::geometry::Size;
 use kwikpaste_os::mac::panel as mac_panel;
+use kwikpaste_os::paste_target::PasteTarget;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::editing::{EditReport, EditTrigger};
@@ -100,11 +101,17 @@ impl NativePanel {
             log::warn!("macOS outside-click hook has no panel command channel");
             return;
         };
-        if let Err(err) = self.panel.start_global_mouse_monitor(move || {
-            let _ = sender.try_send(PanelCommand::Hide(Trigger::now(
-                TriggerSource::OutsideClick,
-            )));
-        }) {
+        let inside_sender = sender.clone();
+        if let Err(err) = self.panel.start_global_mouse_monitor(
+            move || {
+                let _ = sender.try_send(
+                    PanelCommand::Hide(Trigger::now(TriggerSource::OutsideClick)).observed(),
+                );
+            },
+            move || {
+                let _ = inside_sender.try_send(PanelCommand::SetInputCapture(true).observed());
+            },
+        ) {
             log::error!("global mouse monitor is unavailable: {err}");
         }
     }
@@ -114,11 +121,45 @@ impl NativePanel {
     }
 
     /// macOS 由 NSPanel 的 key window 分发按键，没有 Windows 的按键捕获。
-    pub fn should_recapture_on_toggle(&self, _visible: bool, _summon: bool) -> bool {
-        false
+    pub fn should_recapture_on_toggle(&self, visible: bool, summon: bool) -> bool {
+        visible && summon && !self.panel.is_key()
     }
 
-    pub fn set_input_capture(&self, _captured: bool) {}
+    pub fn set_input_capture(&self, captured: bool) {
+        if captured {
+            self.panel.begin_editing();
+        } else if let Err(err) = self.panel.release_input_capture() {
+            log::warn!("macOS panel keyboard handoff: {err}");
+        }
+    }
+
+    pub fn begin_paste_handoff(&self) -> anyhow::Result<PasteTarget> {
+        self.panel
+            .begin_paste_handoff()
+            .context("macOS paste target")
+    }
+
+    pub fn paste_handoff_ready(&self, target: PasteTarget) -> anyhow::Result<bool> {
+        self.panel
+            .paste_handoff_ready(target)
+            .context("macOS paste handoff")
+    }
+
+    pub fn cancel_paste_handoff(&self) {
+        self.panel.cancel_paste_handoff();
+    }
+
+    pub fn cancel_paste_handoff_if(&self, target: PasteTarget) {
+        self.panel.cancel_paste_handoff_if(target);
+    }
+
+    /// Mac readiness only reads identity/focus; false means keyboard release is still pending.
+    pub fn validate_paste_handoff(&self, target: PasteTarget) -> anyhow::Result<()> {
+        self.panel
+            .paste_handoff_ready(target)
+            .map(|_| ())
+            .context("macOS paste target")
+    }
 
     pub fn verify(&self, _: &Placement) {}
 
@@ -151,8 +192,8 @@ impl NativePanel {
         if !self.editing.replace(false) {
             return;
         }
-        if restore_foreground {
-            self.panel.restore_previous_foreground();
+        if restore_foreground && let Err(err) = self.panel.release_input_capture() {
+            log::warn!("macOS editing keyboard handoff: {err}");
         }
     }
 

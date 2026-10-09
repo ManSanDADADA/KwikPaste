@@ -6,16 +6,61 @@ use kwikpaste_os::single_instance::{self, Claim, Invocation, PrimaryInstance};
 
 use super::editing::EditTrigger;
 use super::panel::{PanelCommand, Trigger, TriggerSource};
+use super::paste_coordinator::{PasteCoordinator, shared_coordinator};
 use super::{host, paste, probe, updater, watchdog};
 use crate::{core_host, selftest};
 
 /// 传给正在运行的主实例，让它走和托盘「退出应用」相同的有序退出路径。
 pub const QUIT: &str = "--quit";
 
+/// Application-only arrival metadata; the native IPC payload and protocol are unchanged.
+#[derive(Debug)]
+pub(super) struct ObservedInvocation {
+    invocation: Invocation,
+    ticks: i64,
+}
+
+impl ObservedInvocation {
+    pub(super) fn received(invocation: Invocation) -> Self {
+        Self::received_with(invocation, &shared_coordinator())
+    }
+
+    /// 在桥接生产端分类并取消；只读探针和重复自启不会影响待粘贴任务。
+    fn received_with(invocation: Invocation, coordinator: &PasteCoordinator) -> Self {
+        let ticks = kwikpaste_os::clock::now_ticks();
+        if invocation_controls_window(&invocation) {
+            coordinator.cancel_before(ticks);
+        }
+        Self { invocation, ticks }
+    }
+}
+
+/// Autolaunch and read-only selftest probes are not window-control observations.
+fn invocation_controls_window(invocation: &Invocation) -> bool {
+    let args = invocation.args.get(1..).unwrap_or_default();
+    if args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            QUIT | selftest::QUIT
+                | selftest::SHOW
+                | selftest::HIDE
+                | selftest::TOGGLE
+                | selftest::EDIT
+                | selftest::END_EDIT
+        ) || arg.starts_with(selftest::COPY_ITEM)
+    }) {
+        return true;
+    }
+    if args.iter().any(|arg| arg.starts_with("--selftest-")) {
+        return false;
+    }
+    host::request_for_invocation(args, &invocation.cwd).is_some()
+}
+
 /// 持有主实例守卫：退出前丢弃，释放单实例名字。`sender` 是转交参数的入口，重新占回单实例时用。
 struct Instance {
     guard: Option<PrimaryInstance>,
-    sender: Sender<Invocation>,
+    sender: Sender<ObservedInvocation>,
 }
 
 impl Global for Instance {}
@@ -23,7 +68,7 @@ impl Global for Instance {}
 pub fn serve(
     cx: &mut App,
     guard: PrimaryInstance,
-    (sender, invocations): (Sender<Invocation>, Receiver<Invocation>),
+    (sender, invocations): (Sender<ObservedInvocation>, Receiver<ObservedInvocation>),
     commands: Sender<PanelCommand>,
 ) {
     cx.set_global(Instance {
@@ -38,7 +83,7 @@ pub fn serve(
 
     cx.spawn(async move |cx: &mut AsyncApp| {
         while let Ok(invocation) = invocations.recv().await {
-            handle(&invocation, &commands, cx).await;
+            handle(&invocation.invocation, invocation.ticks, &commands, cx).await;
         }
     })
     .detach();
@@ -63,7 +108,7 @@ pub fn reclaim(cx: &mut App) -> anyhow::Result<()> {
     }
     let sender = instance.sender.clone();
     let claim = single_instance::claim(crate::identity::identifier(), move |invocation| {
-        let _ = sender.try_send(invocation);
+        let _ = sender.try_send(ObservedInvocation::received(invocation));
     })?;
     match claim {
         Claim::Primary(guard) => {
@@ -74,7 +119,12 @@ pub fn reclaim(cx: &mut App) -> anyhow::Result<()> {
     }
 }
 
-async fn handle(invocation: &Invocation, commands: &Sender<PanelCommand>, cx: &mut AsyncApp) {
+async fn handle(
+    invocation: &Invocation,
+    ticks: i64,
+    commands: &Sender<PanelCommand>,
+    cx: &mut AsyncApp,
+) {
     let args = invocation.args.get(1..).unwrap_or_default();
     log::info!("another launch handed over {args:?}");
 
@@ -84,22 +134,26 @@ async fn handle(invocation: &Invocation, commands: &Sender<PanelCommand>, cx: &m
         return;
     }
 
-    if selftest::enabled(selftest::PLATFORM) && handle_selftest(args, commands, cx).await {
+    if selftest::enabled(selftest::PLATFORM) && handle_selftest(args, ticks, commands, cx).await {
         return;
     }
     // 备份文件 → 导入，重复的自启 → 忽略，其它 → 偏好设置（与 1.x 相同），交给 UI。
     if let Some(request) = host::request_for_invocation(args, &invocation.cwd) {
-        cx.update(|cx| host::dispatch(cx, request));
+        cx.update(|cx| host::dispatch_observed(cx, request, ticks));
     }
 }
 
 /// 平台自测的远程命令（主实例本身也处于 `--selftest-platform` 时才接受）；处理了返回 `true`。
 async fn handle_selftest(
     args: &[String],
+    ticks: i64,
     commands: &Sender<PanelCommand>,
     cx: &mut AsyncApp,
 ) -> bool {
-    let trigger = Trigger::now(TriggerSource::SecondInstance);
+    let trigger = Trigger {
+        source: TriggerSource::SecondInstance,
+        ticks,
+    };
     for arg in args {
         let command = match arg.as_str() {
             selftest::SHOW => Some(PanelCommand::Show(trigger)),
@@ -110,7 +164,7 @@ async fn handle_selftest(
             _ => None,
         };
         if let Some(command) = command {
-            let _ = commands.try_send(command);
+            let _ = commands.try_send(command.observed_at(ticks));
             return true;
         }
 
@@ -150,6 +204,9 @@ async fn handle_selftest(
                     let code = code.parse().unwrap_or(0);
                     cx.update(|cx| updater::rehearse_handoff(cx, code));
                 } else if let Some(id) = arg.strip_prefix(selftest::COPY_ITEM) {
+                    if cx.update(|cx| paste::control_is_stale(cx, ticks)) {
+                        return true;
+                    }
                     let copied = cx.update(|cx| paste::copy(cx, id.to_owned(), false, true));
                     if let Err(err) = copied.await {
                         log::error!("selftest copy of {id} failed: {err}");
@@ -242,5 +299,79 @@ async fn update_settings(patch: &str, cx: &mut AsyncApp) {
     };
     if let Err(err) = core.update_settings(patch).await {
         log::error!("selftest settings patch was rejected: {err}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::paste_coordinator::PasteCoordinator;
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn delayed_second_launch_keeps_arrival_time_and_cannot_cancel_a_newer_paste() {
+        for extra_args in [vec![], vec!["history.kwikpastebak".to_owned()]] {
+            let coordinator = Arc::new(PasteCoordinator::default());
+            let mut args = vec!["KwikPaste".to_owned()];
+            args.extend(extra_args);
+            let event = ObservedInvocation::received_with(
+                Invocation {
+                    cwd: String::new(),
+                    args,
+                },
+                &coordinator,
+            );
+            let arrival_ticks = event.ticks;
+            let (sender, receiver) = async_channel::bounded(1);
+            sender
+                .try_send(event)
+                .expect("queue the arrived invocation");
+
+            let newer_paste = coordinator.try_begin(arrival_ticks + 1).unwrap();
+            let delivered = receiver.try_recv().expect("consume the delayed invocation");
+            assert_eq!(delivered.ticks, arrival_ticks);
+            assert!(
+                host::request_for_invocation(
+                    &delivered.invocation.args[1..],
+                    &delivered.invocation.cwd
+                )
+                .is_some()
+            );
+            assert!(coordinator.started_after(delivered.ticks));
+            coordinator.cancel_before(delivered.ticks);
+            assert!(newer_paste.is_current());
+
+            let control = PanelCommand::EndEditing.observed_with(delivered.ticks, &coordinator);
+            assert!(
+                matches!(control, PanelCommand::Observed { ticks, .. } if ticks == arrival_ticks)
+            );
+        }
+    }
+
+    #[test]
+    fn only_ipc_window_controls_cancel_at_arrival_not_autolaunch_or_read_probes() {
+        for (argument, cancels) in [
+            ("--auto-launch", false),
+            (selftest::READ_NOW, false),
+            (selftest::COUNT, false),
+            (selftest::SHOW, true),
+            ("history.kwikpastebak", true),
+            ("", true),
+        ] {
+            let coordinator = Arc::new(PasteCoordinator::default());
+            let lease = coordinator.try_begin(-1).unwrap();
+            let mut args = vec!["KwikPaste".to_owned()];
+            if !argument.is_empty() {
+                args.push(argument.to_owned());
+            }
+            let _event = ObservedInvocation::received_with(
+                Invocation {
+                    cwd: String::new(),
+                    args,
+                },
+                &coordinator,
+            );
+            assert_eq!(!lease.is_current(), cancels, "IPC argument {argument}");
+        }
     }
 }

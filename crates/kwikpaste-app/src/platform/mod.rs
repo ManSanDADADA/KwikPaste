@@ -42,6 +42,7 @@ pub mod material;
 mod mouse;
 mod panel;
 pub mod paste;
+mod paste_coordinator;
 mod probe;
 mod probe_view;
 mod seed;
@@ -61,10 +62,11 @@ mod native;
 #[path = "native_windows.rs"]
 mod native;
 
+use std::{path::PathBuf, rc::Rc};
+
+#[cfg(target_os = "windows")]
 use std::{
     cell::{Cell, RefCell},
-    path::PathBuf,
-    rc::Rc,
     time::Duration,
 };
 
@@ -73,7 +75,7 @@ use gpui::{
     AnyWindowHandle, App, AppContext as _, CursorHideMode, Entity, Platform, QuitMode, Render,
     Window, WindowOptions,
 };
-use kwikpaste_os::single_instance::{self, Claim, Invocation, PrimaryInstance};
+use kwikpaste_os::single_instance::{self, Claim, PrimaryInstance};
 
 #[cfg(target_os = "windows")]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -196,8 +198,8 @@ pub fn exit_code() -> i32 {
 pub struct Launch {
     instance: PrimaryInstance,
     invocations: (
-        async_channel::Sender<Invocation>,
-        async_channel::Receiver<Invocation>,
+        async_channel::Sender<instance::ObservedInvocation>,
+        async_channel::Receiver<instance::ObservedInvocation>,
     ),
     core: StartedCore,
 }
@@ -214,7 +216,7 @@ pub fn launch() -> anyhow::Result<Option<Launch>> {
     let (sender, invocations) = async_channel::unbounded();
     let forward = sender.clone();
     let on_invocation = move |invocation| {
-        let _ = forward.try_send(invocation);
+        let _ = forward.try_send(instance::ObservedInvocation::received(invocation));
     };
     // 崩溃重启的子进程不把参数转交给正在死去的前一个实例，而是等它退出后接管。
     let claim = if health::relaunch_count() > 0 {
@@ -313,6 +315,7 @@ pub fn start<V: Render>(
     cx.set_quit_mode(QuitMode::Explicit);
     // 钩子派发的按键会命中 action，默认模式会因此隐藏停在面板上的鼠标指针。
     cx.set_cursor_hide_mode(CursorHideMode::Never);
+    paste::init(cx);
     probe::init();
     watchdog::serve(cx);
     if selftest::enabled(selftest::PLATFORM) {
@@ -459,6 +462,10 @@ impl Drop for PhaseGuard {
 
 /// 请求显示、隐藏、切换面板或进出编辑态。
 pub fn request(cx: &App, command: PanelCommand) {
+    let command = command.observed();
+    if let PanelCommand::Observed { ticks, .. } = &command {
+        paste::cancel_pending_before(cx, *ticks);
+    }
     if let Some(panel) = cx.try_global::<Panel>() {
         panel.request(command);
     }

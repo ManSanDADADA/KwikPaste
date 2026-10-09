@@ -46,9 +46,9 @@ impl Global for OnboardingWindow {}
 /// 打开首次引导窗。窗口不抢焦点，但按偏好窗相同的方式带到前台。
 pub fn open(cx: &mut App) -> anyhow::Result<()> {
     if let Some(handle) = cx.try_global::<OnboardingWindow>().map(|host| host.handle) {
-        return handle.update(cx, |_, window, _| {
+        return handle.update(cx, |_, window, cx| {
             #[cfg(any(target_os = "windows", target_os = "macos"))]
-            view::bring_window_to_front(window);
+            view::bring_window_to_front(window, cx);
         });
     }
     let options = WindowOptions {
@@ -63,8 +63,8 @@ pub fn open(cx: &mut App) -> anyhow::Result<()> {
     };
     let (handle, view) = crate::platform::open_window(options, cx, |window, cx| {
         let view = cx.new(|cx| Onboarding::new(window, cx));
-        crate::platform::reveal_after_first_frame(window, cx, |window, _| {
-            view::bring_window_to_front(window);
+        crate::platform::reveal_after_first_frame(window, cx, |window, cx| {
+            view::bring_window_to_front(window, cx);
         });
         view
     })?;

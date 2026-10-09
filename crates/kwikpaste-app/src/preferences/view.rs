@@ -60,6 +60,32 @@ struct PreferencesWindow {
     handle: AnyWindowHandle,
 }
 
+/// 偏好窗口的真实 AppKit 状态，只供双门控自测读取。
+#[cfg(target_os = "macos")]
+pub(crate) fn foreground_ready(cx: &mut App) -> bool {
+    use kwikpaste_os::mac::window::OrdinaryWindow;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Some(handle) = cx
+        .try_global::<PreferencesWindow>()
+        .map(|window| window.handle)
+    else {
+        return false;
+    };
+    handle
+        .update(cx, |_, window, _| {
+            let Ok(handle) = HasWindowHandle::window_handle(window) else {
+                return false;
+            };
+            let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+                return false;
+            };
+            // SAFETY: GPUI 的主线程窗口借用保证这里的 NSView 有效。
+            unsafe { OrdinaryWindow::from_raw(handle.ns_view) }
+                .is_ok_and(|native| native.is_key_and_visible())
+        })
+        .unwrap_or(false)
+}
+
 impl Global for PreferencesWindow {}
 
 pub(crate) fn logo() -> Arc<Image> {
@@ -108,7 +134,7 @@ pub(super) fn open(cx: &mut App) -> anyhow::Result<()> {
         .try_global::<PreferencesWindow>()
         .map(|window| window.handle)
     {
-        let _ = handle.update(cx, |_, window, _| bring_window_to_front(window));
+        let _ = handle.update(cx, |_, window, cx| bring_window_to_front(window, cx));
         return Ok(());
     }
     let options = WindowOptions {
@@ -140,8 +166,8 @@ pub(super) fn open(cx: &mut App) -> anyhow::Result<()> {
                 cx,
             );
         }
-        crate::platform::reveal_after_first_frame(window, cx, |window, _| {
-            bring_window_to_front(window);
+        crate::platform::reveal_after_first_frame(window, cx, |window, cx| {
+            bring_window_to_front(window, cx);
         });
         view
     })?;
@@ -173,8 +199,8 @@ pub(super) fn open_import(path: PathBuf, cx: &mut App) -> anyhow::Result<()> {
             this.refresh_storage_overview(cx);
             this.refresh_image_text(cx);
         });
-        crate::platform::reveal_after_first_frame(window, cx, |window, _| {
-            bring_window_to_front(window);
+        crate::platform::reveal_after_first_frame(window, cx, |window, cx| {
+            bring_window_to_front(window, cx);
         });
         Preferences::show_import_confirmation(path.clone(), window, cx);
         view
@@ -191,7 +217,7 @@ pub(super) fn open_import(path: PathBuf, cx: &mut App) -> anyhow::Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-pub(super) fn bring_window_to_front(window: &Window) {
+pub(super) fn bring_window_to_front(window: &Window, _: &App) {
     use kwikpaste_os::win::foreground::bring_to_front;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -205,9 +231,35 @@ pub(super) fn bring_window_to_front(window: &Window) {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn bring_window_to_front(_: &Window) {
-    // TODO: bridge to NSWindow makeKeyAndOrderFront without activating the panel.
-    log::debug!("macOS preferences foreground handoff is not implemented yet");
+pub(super) fn bring_window_to_front(window: &Window, cx: &App) {
+    use kwikpaste_os::mac::window::OrdinaryWindow;
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let Ok(handle) = HasWindowHandle::window_handle(window) else {
+        return;
+    };
+    let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+        return;
+    };
+    // SAFETY: GPUI 的主线程窗口借用保证 NSView 在此处有效；helper 持有 NSWindow。
+    let native = match unsafe { OrdinaryWindow::from_raw(handle.ns_view) } {
+        Ok(native) => native,
+        Err(error) => {
+            log::warn!("could not capture preferences window: {error}");
+            return;
+        }
+    };
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        // 主线程任务在当前 GPUI 借用结束后执行；关闭后的窗口不得重新显示。
+        if handle.update(cx, |_, _, _| ()).is_err() {
+            return;
+        }
+        if let Err(error) = native.bring_to_front() {
+            log::warn!("could not bring preferences window to front: {error}");
+        }
+    })
+    .detach();
 }
 
 struct Preferences {

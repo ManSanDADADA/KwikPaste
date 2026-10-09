@@ -12,6 +12,7 @@
 //! - image：watcher 走 PNG 直通读回原始字节 → 文件名 → 哈希，所以写回必须把落盘的 PNG
 //!   原样放上剪贴板（见 [`ClipboardBackend::set_png`]）。重新编码会让浏览器等来源的图片读回后哈希对不上，
 //!   粘贴一次多一条。
+//!   当 OS 只回显重编码后的 PNG 时，以短期尺寸/RGBA 指纹回退识别；原图与历史哈希保持不变。
 //!
 //! 纯文本模式（`plain = true`）：忽略 `sub_kind`，写 `search_text`（OS 提供的纯文本表示），
 //! 缺失时退回 `content`。供「纯文本粘贴」快捷路径使用。
@@ -111,7 +112,7 @@ fn write_image(
         AppError::Clipboard(err.to_string())
     })?;
 
-    guard.suppress(item.content_hash.clone());
+    guard.suppress_image(item.content_hash.clone(), &bytes);
     backend.set_png(bytes)
 }
 
@@ -352,6 +353,7 @@ mod tests {
         // 往返期望 PNG 字节哈希一致 → 同 content_hash → guard 抑制。
         assert_eq!(read_item.content_hash, item.content_hash);
         assert!(guard.should_skip(&read_item.content_hash));
+        assert!(!guard.should_skip_image(&clipboard.snapshot().png.unwrap()));
     }
 
     // 浏览器等来源的 PNG 与本地编码器的产物字节不同：写回必须原样放回，读回哈希才对得上。
@@ -385,6 +387,33 @@ mod tests {
         let read_item = read_back(&clipboard, &store);
         assert_eq!(read_item.content_hash, item.content_hash);
         assert!(guard.should_skip(&read_item.content_hash));
+    }
+
+    #[test]
+    fn image_fingerprint_failure_does_not_block_original_write() {
+        let (_dir, store) = temp_store();
+        let original = sample_png(48, 32);
+        let stored = store
+            .store(&ImagePayload {
+                bytes: original,
+                width: 48,
+                height: 32,
+            })
+            .unwrap();
+        let mut item = text_item("", None, None);
+        item.kind = ClipboardKind::Image;
+        item.content = stored.file_name;
+        item.content_hash = content_hash(ClipboardKind::Image, &item.content);
+
+        // MemoryClipboard 接受原始字节，只验证辅助解码不会新增写回失败。
+        for bytes in [b"invalid png".to_vec(), vec![0; 20 * 1024 * 1024 + 1]] {
+            std::fs::write(store.origin_path(&item.content), &bytes).unwrap();
+            let guard = WritebackGuard::new();
+            let clipboard = MemoryClipboard::new();
+            write_to_clipboard(&clipboard, &store, &guard, &item, false).unwrap();
+            assert_eq!(clipboard.snapshot().png.as_ref(), Some(&bytes));
+            assert!(guard.should_skip(&item.content_hash));
+        }
     }
 
     /// 用与本地默认不同的压缩和滤波编码，模拟浏览器复制来的 PNG。

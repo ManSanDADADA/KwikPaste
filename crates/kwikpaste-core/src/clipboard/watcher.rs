@@ -172,7 +172,13 @@ pub(crate) fn capture_change<B: ClipboardBackend>(
     // 刚复制过的内容马上被写回时，写回的通知也是「重复」，但仍要消费掉写回登记，
     // 不然它会吞掉之后一次真的复制。
     let repeat = repeats.is_repeat(&item.content_hash, Instant::now());
-    let own_writeback = core.guard.should_skip(&item.content_hash);
+    let own_writeback = core.guard.should_skip(&item.content_hash)
+        || match &payload {
+            super::payload::ClipboardPayload::Image(image) => {
+                core.guard.should_skip_image(&image.bytes)
+            }
+            _ => false,
+        };
     if repeat || own_writeback {
         return None;
     }
@@ -274,6 +280,63 @@ mod tests {
     use super::*;
 
     const ZERO_DELAY_RETRIES: [Duration; 3] = [Duration::ZERO; 3];
+
+    #[test]
+    fn reencoded_image_writeback_is_skipped_once_without_changing_original() {
+        use super::super::backend::{MemoryClipboard, MemoryState};
+        use super::super::payload::{ClipboardPayload, ImagePayload};
+        use image::ImageEncoder;
+
+        let fixture = crate::testing::Fixture::new();
+        let core = fixture.start();
+        let original = crate::testing::sample_png(64, 48);
+        let pixels = image::load_from_memory(&original).unwrap().into_rgba8();
+        let mut reencoded = Vec::new();
+        image::codecs::png::PngEncoder::new_with_quality(
+            &mut reencoded,
+            image::codecs::png::CompressionType::Best,
+            image::codecs::png::FilterType::NoFilter,
+        )
+        .write_image(pixels.as_raw(), 64, 48, image::ExtendedColorType::Rgba8)
+        .unwrap();
+        assert_ne!(original, reencoded);
+        let payload = ClipboardPayload::Image(ImagePayload {
+            bytes: original.clone(),
+            width: 64,
+            height: 48,
+        });
+        let item = super::super::ingest::build_item(&core.0.images, &payload)
+            .unwrap()
+            .unwrap();
+        let original_hash = item.content_hash.clone();
+        let clipboard = MemoryClipboard::new();
+        super::super::write::write_to_clipboard(
+            &clipboard,
+            &core.0.images,
+            &core.0.guard,
+            &item,
+            false,
+        )
+        .unwrap();
+        assert_eq!(clipboard.snapshot().png, Some(original.clone()));
+
+        // TIFF/DIB 回退已经转成 PNG，使用重编码 PNG 模拟这种 OS 回显。
+        let reader = ClipboardReader::with_backend(MemoryClipboard::with_state(MemoryState {
+            png: Some(reencoded),
+            ..MemoryState::default()
+        }));
+        let mut repeats = RepeatFilter::new(Duration::ZERO);
+        assert!(capture_change(&core.0, &reader, &[], &mut repeats).is_none());
+        assert!(!core.0.guard.should_skip(&original_hash));
+
+        let (genuine, _) = capture_change(&core.0, &reader, &[], &mut repeats).unwrap();
+        assert_ne!(genuine.content_hash, original_hash);
+        assert_eq!(item.content_hash, original_hash);
+        assert_eq!(
+            std::fs::read(core.0.images.origin_path(&item.content)).unwrap(),
+            original
+        );
+    }
 
     #[test]
     fn repeat_filter_merges_notifications_of_one_copy() {

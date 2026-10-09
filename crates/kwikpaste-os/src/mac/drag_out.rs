@@ -266,6 +266,9 @@ pub fn selftest_escape() -> io::Result<()> {
 /// AppKit 的拖动 tracking loop 在 CI 上没有真实鼠标松开事件，因此先为本次会话 armed，
 /// 再由 `begin_session_sync` 把合成的 `LeftMouseUp` 放进本进程事件队列，让 `endedAtPoint`
 /// 走正常的清理路径。
+///
+/// # Safety
+/// `native` 必须是主线程上仍然存活的 NSView 指针。
 pub unsafe fn selftest_drag(native: isize) -> io::Result<()> {
     let view = unsafe { &*(native as *const NSView) };
     let bounds = view.bounds();

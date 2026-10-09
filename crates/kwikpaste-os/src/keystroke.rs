@@ -15,6 +15,19 @@ pub fn simulate_paste() -> std::io::Result<()> {
     platform::simulate_paste()
 }
 
+/// Inject only after the application has rechecked the short-lived handoff in the same main-thread turn.
+pub fn simulate_paste_to(target: crate::paste_target::PasteTarget) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        platform::simulate_paste_to(target)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = target;
+        platform::simulate_paste()
+    }
+}
+
 /// 确认 macOS 辅助功能权限；未授权时打开系统设置引导用户授权。
 pub fn ensure_accessibility_trusted() -> std::io::Result<()> {
     platform::ensure_accessibility_trusted()

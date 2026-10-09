@@ -8,8 +8,10 @@ use gpui::Window;
 use kwikpaste_core::settings::WindowPosition;
 use kwikpaste_core::window_state::WindowGeometry;
 use kwikpaste_os::geometry::{Point, Rect, Size, center_in, follow_cursor, scale_size};
+use kwikpaste_os::paste_target::PasteTarget;
 use kwikpaste_os::win::monitor::{self, BASE_DPI, MonitorInfo};
 use kwikpaste_os::win::panel::{self as win_panel, PanelOptions};
+use kwikpaste_os::win::paste_target::{self, PasteSession, WindowTarget};
 use kwikpaste_os::win::{self as os, keyboard, mouse};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -33,8 +35,10 @@ pub struct NativePanel {
     last: Cell<Option<WindowGeometry>>,
     /// 系统「文本大小」系数。
     text_scale: Cell<f64>,
-    /// 编辑态：进入前的前台窗口；`None` 表示不在编辑态。
-    editing: Cell<Option<isize>>,
+    editing: Cell<bool>,
+    /// Entering edit mode keeps the external HWND and its captured process identity together.
+    edit_origin: Cell<Option<WindowTarget>>,
+    paste: RefCell<PasteSession>,
     /// 拖动区、缩放边上的按下要收起弹出菜单，经它发给面板任务。
     commands: RefCell<Option<async_channel::Sender<PanelCommand>>>,
 }
@@ -56,7 +60,9 @@ impl NativePanel {
             panel: unsafe { win_panel::Panel::from_raw(handle.hwnd.get()) },
             last: Cell::new(None),
             text_scale: Cell::new(text_scale),
-            editing: Cell::new(None),
+            editing: Cell::new(false),
+            edit_origin: Cell::new(None),
+            paste: RefCell::new(PasteSession::default()),
             commands: RefCell::new(None),
         })
     }
@@ -68,7 +74,7 @@ impl NativePanel {
         })?;
         if let Some(sender) = self.commands.borrow().clone() {
             self.panel.set_drag_sink(Box::new(move || {
-                let _ = sender.try_send(PanelCommand::DismissPopup);
+                let _ = sender.try_send(PanelCommand::DismissPopup.observed());
             }));
         }
         Ok(())
@@ -170,6 +176,10 @@ impl NativePanel {
     }
 
     pub fn show(&self) {
+        self.paste.borrow_mut().show(
+            os::external_window(os::foreground_window()),
+            self.is_visible(),
+        );
         self.panel.show_without_activating();
     }
 
@@ -196,6 +206,8 @@ impl NativePanel {
     /// 按键交给面板（目标记为当前前台窗口）或还给目标应用。
     pub fn set_input_capture(&self, captured: bool) {
         if captured {
+            self.cancel_paste_handoff();
+            self.remember_external_foreground();
             keyboard::capture(os::foreground_window());
         } else {
             keyboard::release();
@@ -231,6 +243,7 @@ impl NativePanel {
         if geometry.is_some() {
             self.last.set(geometry);
         }
+        self.panel.set_activatable(false);
         self.panel.hide();
         geometry
     }
@@ -250,7 +263,7 @@ impl NativePanel {
     }
 
     pub fn is_editing(&self) -> bool {
-        self.editing.get().is_some()
+        self.editing.get()
     }
 
     /// 进入编辑态，见 [`super::editing`]。失败时已回滚到非编辑态。
@@ -258,6 +271,13 @@ impl NativePanel {
         let started = Instant::now();
         let hwnd = self.panel.raw();
         let previous = os::foreground_window();
+        self.cancel_paste_handoff();
+        self.remember_external_foreground();
+        let origin = self
+            .paste
+            .borrow()
+            .origin
+            .filter(|target| os::is_live_paste_target(*target));
 
         keyboard::set_navigation(false);
         self.panel.set_activatable(true);
@@ -280,8 +300,8 @@ impl NativePanel {
             );
         }
 
-        self.editing
-            .set(Some(if previous == hwnd { 0 } else { previous }));
+        self.edit_origin.set(origin);
+        self.editing.set(true);
         Ok(EditReport {
             previous_foreground: previous,
             marked_alt_swallowed,
@@ -296,20 +316,119 @@ impl NativePanel {
 
     /// 退出编辑态。`restore_foreground` 为真且面板仍是前台时，把前台还给进入前的窗口。
     pub fn end_editing(&self, restore_foreground: bool) {
-        let Some(previous) = self.editing.take() else {
+        if !self.editing.replace(false) {
             return;
-        };
+        }
+        let previous = self
+            .edit_origin
+            .take()
+            .filter(|target| os::is_live_paste_target(*target));
         let foreground_is_panel = os::foreground_window() == self.panel.raw();
 
         self.panel.set_activatable(false);
         keyboard::set_navigation(true);
-        keyboard::capture(previous);
+        keyboard::capture(previous.map_or(0, |target| target.window));
         if restore_foreground
             && foreground_is_panel
-            && os::is_window(previous)
-            && !os::set_foreground(previous)
+            && let Some(previous) = previous
+            && !os::set_foreground(previous.window)
         {
-            log::debug!("Windows refused to give the foreground back to 0x{previous:X}");
+            log::debug!(
+                "Windows refused to give the foreground back to 0x{:X}",
+                previous.window
+            );
+        }
+    }
+
+    /// Remember a live external identity before the panel can take focus for editing.
+    fn remember_external_foreground(&self) {
+        if let Some(current) = os::external_window(os::foreground_window()) {
+            self.paste.borrow_mut().origin = Some(current);
+        }
+    }
+
+    /// Choose the current external target, or a validated retained origin, before yielding input.
+    pub fn begin_paste_handoff(&self) -> anyhow::Result<PasteTarget> {
+        self.paste
+            .borrow_mut()
+            .begin(
+                os::external_window(os::foreground_window()),
+                os::is_live_paste_target,
+            )
+            .ok_or_else(|| anyhow!("no live external paste target"))
+    }
+
+    pub fn cancel_paste_handoff(&self) {
+        self.paste.borrow_mut().cancel();
+    }
+
+    pub fn cancel_paste_handoff_if(&self, target: PasteTarget) {
+        if self.paste.borrow().is_current(target) {
+            self.cancel_paste_handoff();
+        }
+    }
+
+    /// Validate the captured identity without changing native focus or establishing a new session.
+    pub fn validate_paste_handoff(&self, target: PasteTarget) -> anyhow::Result<()> {
+        paste_target::handoff_ready(
+            &self.paste.borrow(),
+            target,
+            os::window_owner(target.window),
+            std::process::id(),
+            os::foreground_window(),
+            self.panel.raw(),
+            false,
+        )
+        .map(|_| ())
+        .map_err(|error| anyhow!("paste target is invalid: {error:?}"))
+    }
+
+    /// The native reset and foreground must be acknowledged before Ctrl+V may be injected.
+    pub fn paste_handoff_ready(&self, target: PasteTarget) -> anyhow::Result<bool> {
+        let input_released = !self.is_editing()
+            && self.panel.is_non_activating()
+            && !keyboard::is_captured()
+            && !os::keystroke::modifiers_pressed();
+        let readiness = paste_target::handoff_ready(
+            &self.paste.borrow(),
+            target,
+            os::window_owner(target.window),
+            std::process::id(),
+            os::foreground_window(),
+            self.panel.raw(),
+            input_released,
+        );
+        match readiness {
+            Ok(true) => Ok(true),
+            Err(error) => {
+                if self.paste.borrow().is_current(target) {
+                    self.cancel_paste_handoff();
+                }
+                bail!("paste handoff is invalid: {error:?}");
+            }
+            Ok(false) if !input_released => Ok(false),
+            Ok(false) => {
+                // Only reclaim focus from this panel or the transient empty foreground, never a user-chosen window.
+                let foreground = os::foreground_window();
+                if foreground != 0 && foreground != self.panel.raw() && foreground != target.window
+                {
+                    self.cancel_paste_handoff();
+                    bail!("foreground changed during paste handoff");
+                }
+                let destination = WindowTarget {
+                    window: target.window,
+                    process_id: target.process_id,
+                };
+                if !os::is_live_paste_target(destination) {
+                    self.cancel_paste_handoff();
+                    bail!("paste target ownership changed during handoff");
+                }
+                if foreground != target.window && !os::set_foreground(target.window) {
+                    self.cancel_paste_handoff();
+                    bail!("Windows refused foreground activation for the paste target");
+                }
+                Ok(false)
+            }
         }
     }
 

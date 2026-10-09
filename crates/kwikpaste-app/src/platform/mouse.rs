@@ -25,14 +25,14 @@ pub fn serve(cx: &mut App, commands: Sender<PanelCommand>) {
     let installed = mouse::set_sink(move |event| match event {
         MouseEvent::OutsideClick(_) => {
             let trigger = Trigger::now(TriggerSource::OutsideClick);
-            let _ = commands.try_send(PanelCommand::Hide(trigger));
+            let _ = commands.try_send(PanelCommand::Hide(trigger).observed());
         }
         MouseEvent::InsideClick(_) => {
-            let _ = commands.try_send(PanelCommand::SetInputCapture(true));
+            let _ = commands.try_send(PanelCommand::SetInputCapture(true).observed());
         }
         MouseEvent::Trigger => {
             let trigger = Trigger::now(TriggerSource::MouseButton);
-            let _ = commands.try_send(PanelCommand::Toggle(trigger));
+            let _ = commands.try_send(PanelCommand::Toggle(trigger).observed());
         }
     });
     if let Err(err) = installed {
@@ -41,7 +41,7 @@ pub fn serve(cx: &mut App, commands: Sender<PanelCommand>) {
 
     let win_v = kwikpaste_os::win::win_v::set_sink(move || {
         let trigger = Trigger::now(TriggerSource::WinV);
-        let _ = win_v_commands.try_send(PanelCommand::Toggle(trigger));
+        let _ = win_v_commands.try_send(PanelCommand::Toggle(trigger).observed());
     });
     if let Err(err) = win_v {
         log::error!("Win+V cannot open the panel: {err}");
@@ -100,7 +100,7 @@ pub fn serve(cx: &mut App, commands: Sender<PanelCommand>) {
     let installed = kwikpaste_os::mac::mouse::set_sink(move |event| {
         if matches!(event, kwikpaste_os::mac::mouse::MouseEvent::Trigger) {
             let trigger = super::panel::Trigger::now(super::panel::TriggerSource::MouseButton);
-            let _ = commands.try_send(PanelCommand::Toggle(trigger));
+            let _ = commands.try_send(PanelCommand::Toggle(trigger).observed());
         }
     });
     if let Err(err) = installed {

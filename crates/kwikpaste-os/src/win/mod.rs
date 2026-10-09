@@ -15,6 +15,7 @@ pub mod menu_theme;
 pub mod monitor;
 pub mod mouse;
 pub mod panel;
+pub mod paste_target;
 pub mod single_instance;
 pub mod system;
 pub mod trigger_pause;
@@ -24,7 +25,9 @@ use std::{ffi::c_void, io, mem::size_of};
 
 use windows::Win32::Foundation::{HWND, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{DWMWA_CLOAK, DwmSetWindowAttribute};
-use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, IsWindow, SetForegroundWindow};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
+};
 
 use crate::geometry::{Point, Rect};
 
@@ -43,6 +46,31 @@ pub fn set_foreground(hwnd: isize) -> bool {
 /// 句柄是否仍是一个存在的窗口。
 pub fn is_window(hwnd: isize) -> bool {
     hwnd != 0 && unsafe { IsWindow(Some(HWND(hwnd as *mut c_void))) }.as_bool()
+}
+
+/// Query the live owner every time; HWND values can be reused after a window is destroyed.
+pub fn window_owner(hwnd: isize) -> Option<u32> {
+    if !is_window(hwnd) {
+        return None;
+    }
+    let mut process_id = 0;
+    let thread_id =
+        unsafe { GetWindowThreadProcessId(HWND(hwnd as *mut c_void), Some(&mut process_id)) };
+    (thread_id != 0 && process_id != 0).then_some(process_id)
+}
+
+/// Capture a currently live destination belonging to another process.
+pub fn external_window(hwnd: isize) -> Option<paste_target::WindowTarget> {
+    let target = paste_target::WindowTarget {
+        window: hwnd,
+        process_id: window_owner(hwnd)?,
+    };
+    is_live_paste_target(target).then_some(target)
+}
+
+/// Validate the retained window and owner pair without substituting its current owner.
+pub fn is_live_paste_target(target: paste_target::WindowTarget) -> bool {
+    paste_target::is_valid_target(target, window_owner(target.window), std::process::id())
 }
 
 /// 用 DWM 隐藏（cloak）或重新显示一个窗口：窗口仍是可见状态、照常绘制，只是不上屏。

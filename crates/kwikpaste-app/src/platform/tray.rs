@@ -80,22 +80,30 @@ pub fn create(cx: &mut App, commands: Sender<PanelCommand>) -> anyhow::Result<()
                     MENU_EXIT => TrayAction::Exit,
                     _ => continue,
                 };
-                if actions.send_blocking(action).is_err() {
+                let ticks = kwikpaste_os::clock::now_ticks();
+                super::paste_coordinator::observe_control(ticks);
+                if actions.send_blocking((action, ticks)).is_err() {
                     break;
                 }
             }
         })?;
 
     cx.spawn(async move |cx: &mut AsyncApp| {
-        while let Ok(action) = receiver.recv().await {
+        while let Ok((action, ticks)) = receiver.recv().await {
+            if !matches!(action, TrayAction::Exit)
+                && cx.update(|cx| super::paste::control_is_stale(cx, ticks))
+            {
+                continue;
+            }
             match action {
                 TrayAction::Exit => cx.update(|cx| cx.quit()),
                 TrayAction::Preference => cx.update(|cx| {
-                    host::dispatch(
+                    host::dispatch_observed(
                         cx,
                         HostRequest::OpenPreferences {
                             source: RequestSource::TrayMenu,
                         },
+                        ticks,
                     );
                 }),
                 TrayAction::LeftClick => {
@@ -104,17 +112,23 @@ pub fn create(cx: &mut App, commands: Sender<PanelCommand>) -> anyhow::Result<()
                     });
                     if click == Some(TrayClick::Preference) {
                         cx.update(|cx| {
-                            host::dispatch(
+                            host::dispatch_observed(
                                 cx,
                                 HostRequest::OpenPreferences {
                                     source: RequestSource::TrayClick,
                                 },
+                                ticks,
                             );
                         });
                         continue;
                     }
-                    let trigger = Trigger::now(TriggerSource::Tray);
-                    let _ = commands.send(PanelCommand::Show(trigger)).await;
+                    let trigger = Trigger {
+                        source: TriggerSource::Tray,
+                        ticks,
+                    };
+                    let _ = commands
+                        .send(PanelCommand::Show(trigger).observed_at(ticks))
+                        .await;
                 }
             }
         }
@@ -163,7 +177,7 @@ fn build_menu(settings: &Settings) -> anyhow::Result<Menu> {
 
 /// Windows 左键单击托盘（松开）；macOS 左键弹菜单，不走这里。
 #[cfg(target_os = "windows")]
-fn bridge_left_click(actions: Sender<TrayAction>) -> std::io::Result<()> {
+fn bridge_left_click(actions: Sender<(TrayAction, i64)>) -> std::io::Result<()> {
     use tray_icon::{MouseButton, MouseButtonState, TrayIconEvent};
 
     std::thread::Builder::new()
@@ -179,7 +193,12 @@ fn bridge_left_click(actions: Sender<TrayAction>) -> std::io::Result<()> {
                 else {
                     continue;
                 };
-                if actions.send_blocking(TrayAction::LeftClick).is_err() {
+                let ticks = kwikpaste_os::clock::now_ticks();
+                super::paste_coordinator::observe_control(ticks);
+                if actions
+                    .send_blocking((TrayAction::LeftClick, ticks))
+                    .is_err()
+                {
                     break;
                 }
             }

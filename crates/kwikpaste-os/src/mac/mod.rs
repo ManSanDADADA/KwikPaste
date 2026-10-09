@@ -12,3 +12,4 @@ pub mod permissions;
 pub mod single_instance;
 pub mod system;
 pub mod trigger_pause;
+pub mod window;

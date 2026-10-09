@@ -152,9 +152,7 @@ pub fn start(
             log::error!("drag-out failed: {error:#}");
             return Task::ready(Err(error.into()));
         }
-        return cx.spawn(async move |cx| {
-            finish_mac_drag(target.handle, receiver, started, phase, cx).await
-        });
+        cx.spawn(async move |cx| finish_mac_drag(target.handle, receiver, started, phase, cx).await)
     }
     #[cfg(not(target_os = "macos"))]
     {

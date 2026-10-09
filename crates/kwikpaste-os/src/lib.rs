@@ -12,6 +12,7 @@ pub mod hook_keys;
 pub mod keystroke;
 pub mod locale;
 pub mod ocr;
+pub mod paste_target;
 pub mod services;
 pub mod single_instance;
 mod sound;
@@ -20,3 +21,7 @@ mod sound;
 pub mod mac;
 #[cfg(target_os = "windows")]
 pub mod win;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "win/paste_target.rs"]
+mod windows_paste_target_policy;

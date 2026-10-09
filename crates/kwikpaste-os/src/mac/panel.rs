@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::io;
 use std::ptr::NonNull;
+use std::rc::Rc;
 
 use block2::RcBlock;
 use dispatch2::DispatchQueue;
@@ -16,10 +17,15 @@ use objc2_app_kit::{
     NSEventMask, NSRunningApplication, NSScreen, NSView, NSWindow, NSWindowButton,
     NSWindowCollectionBehavior, NSWindowStyleMask, NSWorkspace,
 };
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSObjectProtocol, NSPoint, NSRect, NSSize};
 
 use crate::geometry::{Point, Rect, Size, follow_cursor};
+use crate::paste_target::PasteTarget;
 use kwikpaste_core::window_state::WindowGeometry;
+
+#[path = "paste_handoff.rs"]
+mod paste_handoff;
+use paste_handoff::{Foreground, HandoffSession};
 
 /// 材质（透明）面板的圆角，与 1.x 面板相同。
 const MATERIAL_CORNER_RADIUS: f64 = 16.;
@@ -43,7 +49,10 @@ pub fn set_dock_icon_visible(visible: bool) -> io::Result<()> {
 pub struct Panel {
     view: NonNull<c_void>,
     outside_monitor: RefCell<Option<Retained<AnyObject>>>,
+    inside_monitor: RefCell<Option<Retained<AnyObject>>>,
     previous_foreground: RefCell<Option<Retained<NSRunningApplication>>>,
+    paste_handoff: Rc<RefCell<HandoffSession<Retained<NSRunningApplication>>>>,
+    handoff_error: RefCell<Option<String>>,
 }
 
 impl Panel {
@@ -55,7 +64,10 @@ impl Panel {
         Self {
             view: ns_view,
             outside_monitor: RefCell::new(None),
+            inside_monitor: RefCell::new(None),
             previous_foreground: RefCell::new(None),
+            paste_handoff: Rc::new(RefCell::new(HandoffSession::default())),
+            handoff_error: RefCell::new(None),
         }
     }
 
@@ -289,11 +301,11 @@ impl Panel {
 
     /// 不激活应用，但让 NSPanel 成为 key window 以接收编辑键盘。
     pub fn show_without_activating(&self) {
+        self.cancel_paste_handoff();
         let Some(window) = self.window() else {
             return;
         };
-        *self.previous_foreground.borrow_mut() =
-            NSWorkspace::sharedWorkspace().frontmostApplication();
+        self.capture_external_foreground(window.isVisible());
         window.setCollectionBehavior(
             NSWindowCollectionBehavior::Stationary
                 | NSWindowCollectionBehavior::CanJoinAllSpaces
@@ -313,18 +325,166 @@ impl Panel {
                 | NSWindowCollectionBehavior::MoveToActiveSpace
                 | NSWindowCollectionBehavior::FullScreenAuxiliary,
         );
-        self.restore_previous_foreground();
-    }
-
-    pub fn restore_previous_foreground(&self) {
-        if let Some(previous) = self.previous_foreground.borrow_mut().take() {
-            #[allow(deprecated)]
-            let _ = previous
-                .activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps);
+        if let Err(err) = self.release_input_capture() {
+            log::warn!("macOS panel keyboard handoff: {err}");
         }
     }
 
-    pub fn start_global_mouse_monitor(&self, callback: impl Fn() + 'static) -> io::Result<()> {
+    /// 释放非激活面板的键盘所有权；粘贴会话身份在隐藏后仍然保留。
+    pub fn release_input_capture(&self) -> io::Result<()> {
+        main_thread()?;
+        let window = self
+            .window()
+            .ok_or_else(|| io::Error::other("the panel view has no window"))?;
+        if window.isKeyWindow() {
+            window.resignKeyWindow();
+        }
+        self.restore_previous_foreground()
+    }
+
+    /// 仅恢复批准的应用；用户已经选中另一个外部应用时不抢回焦点。
+    pub fn restore_previous_foreground(&self) -> io::Result<()> {
+        let marker = main_thread()?;
+        let pending = self.paste_handoff.borrow().pending().cloned();
+        // 迟到的面板隐藏不得把已经打开的设置/引导窗的焦点交还给外部应用。
+        if pending.is_none()
+            && NSApplication::sharedApplication(marker)
+                .keyWindow()
+                .is_some_and(|window| {
+                    !window
+                        .styleMask()
+                        .contains(NSWindowStyleMask::NonactivatingPanel)
+                })
+        {
+            return Ok(());
+        }
+        let previous = pending
+            .clone()
+            .or_else(|| self.previous_foreground.borrow().clone());
+        let Some(previous) = previous else {
+            return Ok(());
+        };
+        let result = (|| {
+            if !is_external_target(&previous) {
+                return Err(io::Error::other("paste target is no longer running"));
+            }
+            match foreground_for(&previous) {
+                Foreground::Target => return Ok(()),
+                Foreground::OtherExternal => {
+                    if pending.is_some() {
+                        return Err(io::Error::other(
+                            "paste target changed while handing off keyboard focus",
+                        ));
+                    }
+                    return Ok(());
+                }
+                Foreground::OwnOrMissing => {}
+            }
+            let application = NSApplication::sharedApplication(marker);
+            if application.respondsToSelector(objc2::sel!(yieldActivationToApplication:)) {
+                application.yieldActivationToApplication(&previous);
+            }
+            #[allow(deprecated)]
+            if !previous.activateWithOptions(NSApplicationActivationOptions::empty()) {
+                return Err(io::Error::other("paste target activation was refused"));
+            }
+            Ok(())
+        })();
+        if pending.is_some()
+            && let Err(err) = &result
+        {
+            *self.handoff_error.borrow_mut() = Some(err.to_string());
+        }
+        result
+    }
+
+    /// 在编辑结束或隐藏之前保留一个有效外部应用实例。
+    pub fn begin_paste_handoff(&self) -> io::Result<PasteTarget> {
+        main_thread()?;
+        self.cancel_paste_handoff();
+        let target = paste_handoff::select_target(
+            NSWorkspace::sharedWorkspace().frontmostApplication(),
+            self.previous_foreground.borrow().clone(),
+            |target| is_external_target(target),
+        )
+        .ok_or_else(|| io::Error::other("no live external paste target"))?;
+        let process_id = target.processIdentifier() as u32;
+        let generation = self.paste_handoff.borrow_mut().begin(target);
+        Ok(PasteTarget {
+            generation,
+            window: 0,
+            process_id,
+        })
+    }
+
+    /// 校验票据、保留的应用实例、真实前台与 NSPanel 键盘所有权。
+    pub fn paste_handoff_ready(&self, ticket: PasteTarget) -> io::Result<bool> {
+        main_thread()?;
+        let target = self
+            .paste_handoff
+            .borrow()
+            .target(ticket.generation)
+            .cloned()
+            .ok_or_else(|| io::Error::other("paste handoff was superseded by a window change"))?;
+        let result = (|| {
+            if ticket.window != 0 || target.processIdentifier() as u32 != ticket.process_id {
+                return Err(io::Error::other(
+                    "paste target identity does not match its ticket",
+                ));
+            }
+            if let Some(error) = self.handoff_error.borrow().as_ref() {
+                return Err(io::Error::other(error.clone()));
+            }
+            let window = self
+                .window()
+                .ok_or_else(|| io::Error::other("the panel view has no window"))?;
+            paste_handoff::ready(
+                is_external_target(&target),
+                target.isActive(),
+                foreground_for(&target),
+                window.isKeyWindow(),
+            )
+            .map_err(io::Error::other)
+        })();
+        if result.is_err() {
+            self.cancel_paste_handoff();
+        }
+        result
+    }
+
+    pub fn cancel_paste_handoff(&self) {
+        self.paste_handoff.borrow_mut().cancel();
+        self.handoff_error.borrow_mut().take();
+    }
+
+    /// A dropped earlier task must not clear a later task's retained application identity.
+    pub fn cancel_paste_handoff_if(&self, ticket: PasteTarget) {
+        let matches = self
+            .paste_handoff
+            .borrow()
+            .target(ticket.generation)
+            .is_some_and(|target| {
+                ticket.window == 0 && target.processIdentifier() as u32 == ticket.process_id
+            });
+        if matches {
+            self.cancel_paste_handoff();
+        }
+    }
+
+    fn capture_external_foreground(&self, preserve_previous: bool) {
+        let current = NSWorkspace::sharedWorkspace()
+            .frontmostApplication()
+            .filter(|target| is_external_target(target));
+        if current.is_some() || !preserve_previous {
+            *self.previous_foreground.borrow_mut() = current;
+        }
+    }
+
+    pub fn start_global_mouse_monitor(
+        &self,
+        callback: impl Fn() + 'static,
+        inside_callback: impl Fn() + 'static,
+    ) -> io::Result<()> {
         self.stop_global_mouse_monitor();
         let Some(window) = self.window() else {
             return Err(io::Error::other("the panel view has no window"));
@@ -332,6 +492,7 @@ impl Panel {
         // global monitor 本该只收到发给别的应用的按下，但按住面板顶部（系统标题栏区域）拖动时面板会被隐藏，
         // 说明这类按下也会进来；`locationInWindow` 对别的窗口的事件也不是屏幕坐标。
         // 所以按窗口号认出自己的窗口，位置改用屏幕坐标。
+        let number = window.windowNumber();
         let monitor = RcBlock::new(move |event: NonNull<NSEvent>| {
             if is_own_window(unsafe { event.as_ref() }.windowNumber()) {
                 return;
@@ -342,6 +503,19 @@ impl Panel {
         });
         let mask =
             NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::OtherMouseDown;
+        let handoff = self.paste_handoff.clone();
+        let inside = RcBlock::new(move |event: NonNull<NSEvent>| {
+            if unsafe { event.as_ref() }.windowNumber() == number {
+                handoff.borrow_mut().cancel();
+                inside_callback();
+            }
+            event.as_ptr()
+        });
+        // 返回原事件，不吞点击；本地点击会让非激活面板重新拿键盘，必须先废止旧粘贴票据。
+        let inside_token =
+            unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &inside) }
+                .ok_or_else(|| io::Error::other("local mouse monitor could not be installed"))?;
+        *self.inside_monitor.borrow_mut() = Some(inside_token);
         let token = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &monitor)
             .ok_or_else(|| io::Error::other("global mouse monitor could not be installed"))?;
         *self.outside_monitor.borrow_mut() = Some(token);
@@ -349,12 +523,17 @@ impl Panel {
     }
 
     pub fn stop_global_mouse_monitor(&self) {
+        if let Some(token) = self.inside_monitor.borrow_mut().take() {
+            unsafe { NSEvent::removeMonitor(&token) };
+        }
         if let Some(token) = self.outside_monitor.borrow_mut().take() {
             unsafe { NSEvent::removeMonitor(&token) };
         }
     }
 
     pub fn begin_editing(&self) {
+        self.cancel_paste_handoff();
+        self.capture_external_foreground(true);
         if let Some(window) = self.window() {
             window.makeKeyWindow();
         }
@@ -375,6 +554,21 @@ impl Panel {
         let previous = previous.as_ref()?.processIdentifier();
         let current = NSWorkspace::sharedWorkspace().frontmostApplication();
         Some(current.is_some_and(|application| application.processIdentifier() == previous))
+    }
+}
+
+fn is_external_target(application: &NSRunningApplication) -> bool {
+    application.processIdentifier() > 0
+        && application.processIdentifier() as u32 != std::process::id()
+        && !application.isTerminated()
+}
+
+fn foreground_for(target: &NSRunningApplication) -> Foreground {
+    let current = NSWorkspace::sharedWorkspace().frontmostApplication();
+    match current.as_deref() {
+        Some(application) if application == target => Foreground::Target,
+        Some(application) if is_external_target(application) => Foreground::OtherExternal,
+        _ => Foreground::OwnOrMissing,
     }
 }
 

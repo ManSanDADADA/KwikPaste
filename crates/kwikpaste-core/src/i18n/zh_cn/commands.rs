@@ -12,6 +12,14 @@ pub fn label(key: Key) -> &'static str {
         }
         Key::BackupPartialOverwrite => "这个备份只包含部分记录，请用合并导入",
 
+        Key::PasteBusy => "上一次粘贴或复制尚未结束，请稍后再试；本次未写入剪贴板",
+        Key::PasteHandoffFailed => {
+            "内容已复制到剪贴板；目标窗口或键盘交接未就绪，自动粘贴未完成，请手动粘贴"
+        }
+        Key::PastePermissionMissing => {
+            "未获得辅助功能权限，内容已复制到剪贴板，请手动粘贴；请在系统设置的辅助功能中允许快贴"
+        }
+
         Key::DragSourceFilesMissing => "拖拽源文件已不存在",
         Key::DragImageMissing => "图片文件已不存在",
         Key::DragTextEmpty => "文本内容为空",

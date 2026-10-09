@@ -6,6 +6,7 @@
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Instant;
 
 use anyhow::Context as _;
 use async_channel::{Receiver, Sender};
@@ -16,10 +17,13 @@ use gpui::{
     WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, div, point, px, size,
 };
 use kwikpaste_os::clock;
+use kwikpaste_os::paste_target::PasteTarget;
 
 use super::editing::EditTrigger;
 use super::material::WindowMaterial;
 use super::native::NativePanel;
+use super::paste::{self, InjectReport, PasteCapture, PasteHandoff};
+use super::paste_coordinator::{PasteCoordinator, PasteToken, shared_coordinator};
 use super::{probe, window_state};
 
 /// 面板的默认、最小内容区尺寸（逻辑像素），与 1.x 相同；Windows 上再乘系统「文本大小」。
@@ -82,6 +86,11 @@ impl Trigger {
 /// 送给面板循环的命令。
 #[derive(Debug, Clone)]
 pub enum PanelCommand {
+    /// Observation time is captured before user controls enter the asynchronous command queue.
+    Observed {
+        ticks: i64,
+        command: Box<PanelCommand>,
+    },
     Toggle(Trigger),
     Show(Trigger),
     Hide(Trigger),
@@ -97,18 +106,90 @@ pub enum PanelCommand {
     SetTextScale(f64),
     /// 应用当前窗口材质；macOS 需要由持有原生面板的命令循环更新 NSVisualEffectView。
     SetMaterial(WindowMaterial),
+    /// Capture and retain a ticket before any asynchronous clipboard preparation or modifier wait.
+    CapturePasteTarget {
+        token: PasteToken,
+        deadline: Instant,
+        done: Sender<anyhow::Result<PasteCapture>>,
+    },
     /// 粘贴前让出前台：编辑态先把前台还给进入前的窗口，`keep_visible` 为假时再隐藏面板。
-    /// 处理完后经 `done` 回报面板此前是否可见（见 [`super::paste`]）。
+    /// 处理完后经 `done` 回报原生目标票据和面板此前是否可见。
     YieldForPaste {
         keep_visible: bool,
-        done: Sender<bool>,
+        target: PasteTarget,
+        token: PasteToken,
+        deadline: Instant,
+        done: Sender<anyhow::Result<PasteHandoff>>,
     },
+    PasteReady {
+        target: PasteTarget,
+        token: PasteToken,
+        deadline: Instant,
+        done: Sender<anyhow::Result<bool>>,
+    },
+    InjectPaste {
+        handoff: PasteHandoff,
+        token: PasteToken,
+        deadline: Instant,
+        done: Sender<anyhow::Result<InjectReport>>,
+    },
+    /// Async cancellation already invalidated the coordinator; this resets its native ticket.
+    CancelPaste,
+    /// Dropping a capture clears only that ticket, including after no-item, errors or task cancellation.
+    CancelCapturedPaste(PasteTarget),
     /// 点击面板外部时是否隐藏（默认是）。UI 在固定面板、打开系统文件对话框期间关掉它。
     SetHideOnOutsideClick(bool),
     /// 非激活窗口上的鼠标按下重新捕获或释放导航键。
     SetInputCapture(bool),
     /// 原生层截获了面板拖动区/缩放边的按下，GPUI 没有机会让弹出菜单自行收起。
+    #[cfg_attr(
+        all(target_os = "macos", not(test)),
+        expect(dead_code, reason = "native drag interception is Windows-only")
+    )]
     DismissPopup,
+}
+
+impl PanelCommand {
+    /// User window actions supersede a paste; internal paste release/reset commands do not.
+    pub(super) fn cancels_paste(&self) -> bool {
+        match self {
+            Self::Observed { command, .. } => command.cancels_paste(),
+            Self::Toggle(_)
+            | Self::Show(_)
+            | Self::BeginEditing(_)
+            | Self::EndEditing
+            | Self::SetInputCapture(_)
+            | Self::DismissPopup
+            | Self::CancelPaste => true,
+            Self::Hide(trigger) => trigger.source != TriggerSource::Paste,
+            _ => false,
+        }
+    }
+
+    /// Producers without GPUI access also stamp controls before sending them to the loop.
+    pub(super) fn observed(self) -> Self {
+        self.observed_at(clock::now_ticks())
+    }
+
+    /// 保留事件生产时刻，入队前先取消同一进程中的旧粘贴。
+    pub(super) fn observed_at(self, ticks: i64) -> Self {
+        if matches!(self, Self::Observed { .. }) || !self.cancels_paste() {
+            return self;
+        }
+        self.observed_with(ticks, &shared_coordinator())
+    }
+
+    /// 同步失效旧租约再包装原生命令；测试可传入独立协调器。
+    pub(super) fn observed_with(self, ticks: i64, coordinator: &PasteCoordinator) -> Self {
+        if matches!(self, Self::Observed { .. }) || !self.cancels_paste() {
+            return self;
+        }
+        coordinator.cancel_before(ticks);
+        Self::Observed {
+            ticks,
+            command: Box::new(self),
+        }
+    }
 }
 
 /// 面板状态变化，从 [`Panel::events`] 发出。
@@ -167,7 +248,7 @@ impl Panel {
 
     /// 发一条命令，在下一轮主循环里执行。
     pub fn request(&self, command: PanelCommand) {
-        if let Err(err) = self.commands.try_send(command) {
+        if let Err(err) = self.commands.try_send(command.observed()) {
             log::warn!(
                 "panel command loop has stopped; dropped {:?}",
                 err.into_inner()
@@ -181,7 +262,6 @@ impl Panel {
     }
 
     /// 面板窗口，钩子按键派发用；窗口打开之前为 `None`。
-    #[cfg_attr(target_os = "macos", expect(dead_code, reason = "macOS 不用键盘钩子"))]
     pub fn window(&self) -> Option<AnyWindowHandle> {
         self.window
     }
@@ -314,8 +394,19 @@ async fn run(parts: Parts, commands: Receiver<PanelCommand>, cx: &mut AsyncApp) 
     let mut hide_on_outside_click = true;
 
     while let Ok(command) = commands.recv().await {
+        let command = if let PanelCommand::Observed { ticks, command } = command {
+            if cx.update(|cx| paste::control_is_stale(cx, ticks)) {
+                continue;
+            }
+            cx.update(|cx| paste::cancel_pending_before(cx, ticks));
+            parts.native.cancel_paste_handoff();
+            *command
+        } else {
+            command
+        };
         let visible = parts.native.is_visible();
         let (want_visible, trigger) = match command {
+            PanelCommand::Observed { .. } => continue,
             PanelCommand::Toggle(trigger) => {
                 let summon = matches!(
                     trigger.source,
@@ -366,16 +457,118 @@ async fn run(parts: Parts, commands: Receiver<PanelCommand>, cx: &mut AsyncApp) 
                 apply_material(&parts, material, cx);
                 continue;
             }
-            PanelCommand::YieldForPaste { keep_visible, done } => {
-                if visible {
-                    end_editing(&parts, cx);
-                    if !keep_visible {
-                        hide(&parts, Trigger::now(TriggerSource::Paste), cx);
-                    } else {
-                        parts.native.set_input_capture(false);
-                    }
+            PanelCommand::CapturePasteTarget {
+                token,
+                deadline,
+                done,
+            } => {
+                if done.is_closed() {
+                    continue;
                 }
-                let _ = done.try_send(visible);
+                let result = paste::capture_if_current(&token, deadline, || {
+                    let target = parts.native.begin_paste_handoff()?;
+                    let commands = cx.update(|cx| cx.global::<Panel>().commands());
+                    Ok(PasteCapture::new(target, commands))
+                });
+                let _ = done.try_send(result);
+                continue;
+            }
+            PanelCommand::YieldForPaste {
+                keep_visible,
+                target,
+                token,
+                deadline,
+                done,
+            } => {
+                if done.is_closed() {
+                    continue;
+                }
+                let result = (|| {
+                    if !token.is_current() || Instant::now() >= deadline {
+                        anyhow::bail!("paste request was cancelled before input yield");
+                    }
+                    paste::yield_captured(
+                        target,
+                        visible,
+                        |target| parts.native.validate_paste_handoff(target),
+                        || {
+                            if visible {
+                                end_editing(&parts, cx);
+                                if !keep_visible {
+                                    hide(&parts, Trigger::now(TriggerSource::Paste), cx);
+                                }
+                            }
+                            parts.native.set_input_capture(false);
+                        },
+                    )
+                })();
+                if result.is_err() {
+                    parts.native.cancel_paste_handoff();
+                }
+                let _ = done.try_send(result);
+                continue;
+            }
+            PanelCommand::PasteReady {
+                target,
+                token,
+                deadline,
+                done,
+            } => {
+                if done.is_closed() {
+                    continue;
+                }
+                let result = if token.is_current() && Instant::now() < deadline {
+                    parts
+                        .native
+                        .paste_handoff_ready(target)
+                        .map(|ready| ready && !kwikpaste_os::keystroke::modifiers_pressed())
+                } else {
+                    Err(anyhow::anyhow!("paste readiness request was superseded"))
+                };
+                if result.is_err() {
+                    parts.native.cancel_paste_handoff();
+                }
+                let _ = done.try_send(result);
+                continue;
+            }
+            PanelCommand::InjectPaste {
+                handoff,
+                token,
+                deadline,
+                done,
+            } => {
+                if done.is_closed() {
+                    continue;
+                }
+                let result = paste::inject_if_current(
+                    &token,
+                    || {
+                        parts
+                            .native
+                            .paste_handoff_ready(handoff.target)
+                            .map(|ready| ready && !kwikpaste_os::keystroke::modifiers_pressed())
+                    },
+                    || {
+                        if done.is_closed() || Instant::now() >= deadline {
+                            anyhow::bail!("paste injection acknowledgment expired");
+                        }
+                        kwikpaste_os::keystroke::simulate_paste_to(handoff.target)?;
+                        Ok(InjectReport {
+                            panel_was_visible: handoff.panel_was_visible,
+                            foreground: handoff.target.window,
+                        })
+                    },
+                );
+                parts.native.cancel_paste_handoff();
+                let _ = done.try_send(result);
+                continue;
+            }
+            PanelCommand::CancelPaste => {
+                parts.native.cancel_paste_handoff();
+                continue;
+            }
+            PanelCommand::CancelCapturedPaste(target) => {
+                parts.native.cancel_paste_handoff_if(target);
                 continue;
             }
         };
@@ -597,5 +790,114 @@ impl ShowReport {
                 &native_fields,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod paste_control_tests {
+    use super::*;
+
+    #[test]
+    fn producer_inside_click_invalidates_an_inject_already_at_the_queue_head() {
+        use std::cell::Cell;
+        use std::sync::Arc;
+        let coordinator = Arc::new(PasteCoordinator::default());
+        let lease = coordinator.try_begin(100).unwrap();
+        let (commands, receiver) = async_channel::bounded(2);
+        let (done, _reply) = async_channel::bounded(1);
+        let target = PasteTarget {
+            generation: 1,
+            window: 100,
+            process_id: 20,
+        };
+        commands
+            .try_send(PanelCommand::InjectPaste {
+                handoff: PasteHandoff {
+                    target,
+                    panel_was_visible: true,
+                },
+                token: lease.token(),
+                deadline: Instant::now() + std::time::Duration::from_secs(1),
+                done,
+            })
+            .unwrap();
+        // The producer observes a nonactivating inside click, but its control remains behind Inject.
+        commands
+            .try_send(PanelCommand::SetInputCapture(true).observed_with(150, &coordinator))
+            .unwrap();
+        let PanelCommand::InjectPaste { token, .. } = receiver.try_recv().unwrap() else {
+            panic!("Inject must still be first");
+        };
+        let injected = Cell::new(false);
+        let result = paste::inject_if_current(
+            &token,
+            || Ok(true),
+            || {
+                injected.set(true);
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert!(!injected.get());
+        assert_eq!(receiver.len(), 1);
+    }
+
+    #[test]
+    fn late_preferences_and_tray_bridge_events_keep_their_original_cancellation_cutoff() {
+        use super::super::paste_coordinator::PasteCoordinator;
+        use std::sync::Arc;
+        let state = Arc::new(PasteCoordinator::default());
+        let newer_paste = state.try_begin(200).unwrap();
+        let (sender, receiver) = async_channel::bounded(2);
+        let trigger = Trigger {
+            source: TriggerSource::Tray,
+            ticks: 150,
+        };
+        sender
+            .try_send(PanelCommand::Show(trigger).observed_with(150, &state))
+            .unwrap();
+        sender
+            .try_send(PanelCommand::CancelPaste.observed_with(175, &state))
+            .unwrap();
+        for original_ticks in [150, 175] {
+            let PanelCommand::Observed { ticks, .. } = receiver.try_recv().unwrap() else {
+                panic!("bridge control lost its observation time");
+            };
+            assert_eq!(ticks, original_ticks);
+            assert!(state.started_after(ticks));
+            state.cancel_before(ticks);
+            assert!(newer_paste.is_current());
+        }
+    }
+
+    #[test]
+    fn user_controls_are_stamped_once_and_internal_paste_hide_is_preserved() {
+        let trigger = Trigger::now(TriggerSource::Ui);
+        let controls = [
+            PanelCommand::Toggle(trigger),
+            PanelCommand::Show(trigger),
+            PanelCommand::Hide(trigger),
+            PanelCommand::BeginEditing(EditTrigger::Mouse),
+            PanelCommand::EndEditing,
+            PanelCommand::SetInputCapture(true),
+            PanelCommand::SetInputCapture(false),
+            PanelCommand::DismissPopup,
+            PanelCommand::CancelPaste,
+        ];
+        let coordinator = PasteCoordinator::default();
+        for control in controls {
+            assert!(control.cancels_paste());
+            let observed = control.observed_with(clock::now_ticks(), &coordinator);
+            let PanelCommand::Observed { ticks, .. } = &observed else {
+                panic!("user control must be observed by its producer");
+            };
+            let initial_ticks = *ticks;
+            assert!(
+                matches!(observed.observed(), PanelCommand::Observed { ticks, .. } if ticks == initial_ticks)
+            );
+        }
+        let internal_hide = PanelCommand::Hide(Trigger::now(TriggerSource::Paste));
+        assert!(!internal_hide.cancels_paste());
+        assert!(matches!(internal_hide.observed(), PanelCommand::Hide(_)));
     }
 }

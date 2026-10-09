@@ -30,6 +30,10 @@ pub enum CommandKey {
     ExportExcelLimit,
     BackupPartialOverwrite,
 
+    PasteBusy,
+    PasteHandoffFailed,
+    PastePermissionMissing,
+
     DragSourceFilesMissing,
     DragImageMissing,
     DragTextEmpty,

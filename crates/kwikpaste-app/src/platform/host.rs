@@ -78,6 +78,16 @@ pub fn set_handler(cx: &mut App, handler: impl Fn(&HostRequest, &mut App) + 'sta
 
 /// 分派一个请求：有处理函数就交给它，否则走回退。
 pub fn dispatch(cx: &mut App, request: HostRequest) {
+    dispatch_observed(cx, request, kwikpaste_os::clock::now_ticks());
+}
+
+/// Preserve observation time across bridge queues; late older preferences cannot supersede a newer paste.
+pub fn dispatch_observed(cx: &mut App, request: HostRequest, ticks: i64) {
+    if super::paste::control_is_stale(cx, ticks) {
+        log::debug!("dropped stale host request: {request:?}");
+        return;
+    }
+    super::request(cx, PanelCommand::CancelPaste.observed_at(ticks));
     log::info!("host request: {request:?}");
     let handler = cx
         .try_global::<Host>()
@@ -88,15 +98,18 @@ pub fn dispatch(cx: &mut App, request: HostRequest) {
     }
     match request {
         HostRequest::OpenPreferences { source } => {
-            let trigger = Trigger::now(match source {
-                RequestSource::TrayMenu | RequestSource::TrayClick => TriggerSource::Tray,
-                RequestSource::Hotkey => TriggerSource::Hotkey,
-                RequestSource::Panel | RequestSource::Dock => TriggerSource::Ui,
-                RequestSource::SecondLaunch | RequestSource::Launch => {
-                    TriggerSource::SecondInstance
-                }
-            });
-            super::request(cx, PanelCommand::Show(trigger));
+            let trigger = Trigger {
+                ticks,
+                source: match source {
+                    RequestSource::TrayMenu | RequestSource::TrayClick => TriggerSource::Tray,
+                    RequestSource::Hotkey => TriggerSource::Hotkey,
+                    RequestSource::Panel | RequestSource::Dock => TriggerSource::Ui,
+                    RequestSource::SecondLaunch | RequestSource::Launch => {
+                        TriggerSource::SecondInstance
+                    }
+                },
+            };
+            super::request(cx, PanelCommand::Show(trigger).observed_at(ticks));
         }
         HostRequest::ImportBackup { path, .. } => {
             log::warn!(
@@ -159,27 +172,31 @@ mod tests {
 
     #[test]
     fn second_launches_map_to_the_1x_actions() {
+        #[cfg(target_os = "windows")]
+        let (root, cwd, absolute) = (r"C:\", r"C:\work", r"D:\backup\history.KwikPasteBak");
+        #[cfg(target_os = "macos")]
+        let (root, cwd, absolute) = ("/", "/work", "/backup/history.KwikPasteBak");
         assert_eq!(
-            request_for_invocation(&args(&[]), r"C:\"),
+            request_for_invocation(&args(&[]), root),
             Some(HostRequest::OpenPreferences {
                 source: RequestSource::SecondLaunch
             })
         );
         assert_eq!(
-            request_for_invocation(&args(&["--auto-launch"]), r"C:\"),
+            request_for_invocation(&args(&["--auto-launch"]), root),
             None
         );
         assert_eq!(
-            request_for_invocation(&args(&[r"D:\backup\history.KwikPasteBak"]), r"C:\"),
+            request_for_invocation(&args(&[absolute]), root),
             Some(HostRequest::ImportBackup {
-                path: PathBuf::from(r"D:\backup\history.KwikPasteBak"),
+                path: PathBuf::from(absolute),
                 source: RequestSource::SecondLaunch
             })
         );
         // 备份文件优先于 --auto-launch。
         assert!(matches!(
-            request_for_invocation(&args(&["--auto-launch", "a.kwikpastebak"]), r"C:\work"),
-            Some(HostRequest::ImportBackup { path, .. }) if path == Path::new(r"C:\work\a.kwikpastebak")
+            request_for_invocation(&args(&["--auto-launch", "a.kwikpastebak"]), cwd),
+            Some(HostRequest::ImportBackup { path, .. }) if path == Path::new(cwd).join("a.kwikpastebak")
         ));
     }
 }

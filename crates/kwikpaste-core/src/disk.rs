@@ -96,7 +96,7 @@ fn available_space_at(path: &Path) -> Result<u64> {
         return Err(anyhow::anyhow!(std::io::Error::last_os_error()).into());
     }
     let stat = unsafe { stat.assume_init() };
-    Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+    Ok((stat.f_bavail as u64).saturating_mul(stat.f_frsize))
 }
 
 #[cfg(test)]

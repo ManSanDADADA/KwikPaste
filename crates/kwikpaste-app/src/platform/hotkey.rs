@@ -103,21 +103,29 @@ pub fn register(cx: &mut App, commands: Sender<PanelCommand>) -> anyhow::Result<
                     Some(Action::TogglePanel) => {
                         let trigger = Trigger::now(TriggerSource::Hotkey);
                         commands
-                            .send_blocking(PanelCommand::Toggle(trigger))
+                            .send_blocking(PanelCommand::Toggle(trigger).observed())
                             .is_ok()
                     }
                     Some(Action::QuickPaste(offset)) => {
                         if let Err(err) = kwikpaste_os::keystroke::mask_modifier_release() {
                             log::warn!("modifier release could not be masked: {err}");
                         }
-                        quick_sender.send_blocking(offset).is_ok()
+                        quick_sender
+                            .send_blocking((offset, kwikpaste_os::clock::now_ticks()))
+                            .is_ok()
                     }
-                    Some(Action::OpenPreference) => preference_sender.send_blocking(()).is_ok(),
+                    Some(Action::OpenPreference) => {
+                        let ticks = kwikpaste_os::clock::now_ticks();
+                        super::paste_coordinator::observe_control(ticks);
+                        preference_sender.send_blocking(ticks).is_ok()
+                    }
                     Some(Action::PastePlain) => {
                         if let Err(err) = kwikpaste_os::keystroke::mask_modifier_release() {
                             log::warn!("modifier release could not be masked: {err}");
                         }
-                        plain_sender.send_blocking(()).is_ok()
+                        plain_sender
+                            .send_blocking(kwikpaste_os::clock::now_ticks())
+                            .is_ok()
                     }
                     None => true,
                 };
@@ -128,27 +136,34 @@ pub fn register(cx: &mut App, commands: Sender<PanelCommand>) -> anyhow::Result<
         })?;
 
     cx.spawn(async move |cx: &mut AsyncApp| {
-        while let Ok(offset) = quick_receiver.recv().await {
+        while let Ok((offset, ticks)) = quick_receiver.recv().await {
+            if cx.update(|cx| paste::control_is_stale(cx, ticks)) {
+                continue;
+            }
             cx.update(|cx| paste::quick_paste(cx, offset)).detach();
         }
     })
     .detach();
 
     cx.spawn(async move |cx: &mut AsyncApp| {
-        while plain_receiver.recv().await.is_ok() {
+        while let Ok(ticks) = plain_receiver.recv().await {
+            if cx.update(|cx| paste::control_is_stale(cx, ticks)) {
+                continue;
+            }
             cx.update(paste::paste_plain).detach();
         }
     })
     .detach();
 
     cx.spawn(async move |cx: &mut AsyncApp| {
-        while preference_receiver.recv().await.is_ok() {
+        while let Ok(ticks) = preference_receiver.recv().await {
             cx.update(|cx| {
-                host::dispatch(
+                host::dispatch_observed(
                     cx,
                     HostRequest::OpenPreferences {
                         source: RequestSource::Hotkey,
                     },
+                    ticks,
                 );
             });
         }
