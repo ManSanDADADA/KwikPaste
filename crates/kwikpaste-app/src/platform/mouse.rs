@@ -23,7 +23,7 @@ pub fn serve(cx: &mut App, commands: Sender<PanelCommand>) {
 
     let win_v_commands = commands.clone();
     let installed = mouse::set_sink(move |event| match event {
-        MouseEvent::OutsideClick(_) => {
+        MouseEvent::OutsideClick(_) | MouseEvent::ForegroundChanged => {
             let trigger = Trigger::now(TriggerSource::OutsideClick);
             let _ = commands.try_send(PanelCommand::Hide(trigger));
         }

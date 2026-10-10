@@ -140,6 +140,11 @@ pub fn is_running() -> bool {
     thread_state().is_some()
 }
 
+/// 面板当前盖着的目标前台窗口（显示时的前台，或最近一次 [`capture`] 的目标）。
+pub fn target() -> isize {
+    TARGET_HWND.load(Ordering::SeqCst)
+}
+
 /// 当前是否仍捕获输入；读取时顺便检查前台，供热键切换在没有键盘事件时懒释放。
 pub fn is_captured() -> bool {
     if NAVIGATION.load(Ordering::SeqCst) {

@@ -13,6 +13,9 @@
 //!
 //! 钩子每 2 秒重装一次排到钩子链最前面：其它软件后装的钩子最多只能抢先这么久，钩子因回调超时被
 //! 系统悄悄摘掉时也能借此找回。两项都关掉时钩子线程退出。
+//!
+//! 同一线程还挂着 `EVENT_SYSTEM_FOREGROUND`：Alt+Tab、Win 键、任务栏等没有鼠标按下的切换路径
+//! 同样让面板不再盖着原来的应用，前台换到本进程和面板目标以外的窗口时与窗外点击一样通知宿主。
 
 use std::cell::Cell;
 use std::io;
@@ -22,19 +25,21 @@ use std::sync::{Mutex, OnceLock, mpsc};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
+use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_MOUSE, MOUSEEVENTF_MIDDLEDOWN, MOUSEINPUT, SendInput,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GA_ROOT, GWL_EXSTYLE, GetAncestor, GetForegroundWindow, GetMessageW,
-    GetSystemMetrics, GetWindowLongPtrW, GetWindowThreadProcessId, HHOOK, KillTimer, MSG,
-    MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SM_CXDRAG, SM_CYDRAG, SetTimer,
-    SetWindowsHookExW, UnhookWindowsHookEx, WH_MOUSE_LL, WM_LBUTTONDOWN, WM_MBUTTONDOWN,
-    WM_MBUTTONUP, WM_MOUSEMOVE, WM_QUIT, WM_RBUTTONDOWN, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP,
-    WS_EX_NOACTIVATE, WindowFromPoint,
+    CallNextHookEx, EVENT_SYSTEM_FOREGROUND, GA_ROOT, GWL_EXSTYLE, GetAncestor,
+    GetForegroundWindow, GetMessageW, GetSystemMetrics, GetWindowLongPtrW,
+    GetWindowThreadProcessId, HHOOK, KillTimer, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PeekMessageW,
+    PostThreadMessageW, SM_CXDRAG, SM_CYDRAG, SetTimer, SetWindowsHookExW, UnhookWindowsHookEx,
+    WH_MOUSE_LL, WINEVENT_OUTOFCONTEXT, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE,
+    WM_QUIT, WM_RBUTTONDOWN, WM_TIMER, WM_XBUTTONDOWN, WM_XBUTTONUP, WS_EX_NOACTIVATE,
+    WindowFromPoint,
 };
 
-use super::keyboard::OWN_INPUT_MARKER;
+use super::keyboard::{self, OWN_INPUT_MARKER};
 use crate::geometry::Point;
 
 /// 重装钩子的间隔。
@@ -49,6 +54,8 @@ pub enum MouseEvent {
     OutsideClick(Point),
     /// 在本进程的非激活窗口上按下鼠标；用于重新捕获面板导航键。
     InsideClick(Point),
+    /// 前台窗口换成了本进程和面板目标以外的窗口（Alt+Tab 等）；宿主按窗外点击处理。
+    ForegroundChanged,
     /// 唤起按键单击（松开）：开合面板。
     Trigger,
 }
@@ -170,6 +177,24 @@ fn run_hook_thread(ready: mpsc::SyncSender<io::Result<u32>>) {
 
     let mut msg = MSG::default();
     let _ = unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE) };
+    let foreground = unsafe {
+        SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            None,
+            Some(foreground_changed),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        )
+    };
+    if foreground.is_invalid() {
+        let _ = unsafe { UnhookWindowsHookEx(hook) };
+        let _ = ready.send(Err(io::Error::other(
+            "the foreground event hook could not be installed",
+        )));
+        return;
+    }
     let _ = ready.send(Ok(unsafe { GetCurrentThreadId() }));
     let timer = unsafe { SetTimer(None, 0, HOOK_REFRESH_MS, None) };
 
@@ -184,7 +209,31 @@ fn run_hook_thread(ready: mpsc::SyncSender<io::Result<u32>>) {
     }
 
     let _ = unsafe { KillTimer(None, timer) };
+    let _ = unsafe { UnhookWinEvent(foreground) };
     let _ = unsafe { UnhookWindowsHookEx(hook) };
+}
+
+/// 进程外 WinEvent 回调在装钩子的线程的消息循环里执行。以回调时的前台为准，不看事件带的窗口：
+/// 面板刚显示时，显示之前的前台切换事件可能才送到，那时前台已经就是面板的目标。
+unsafe extern "system" fn foreground_changed(
+    _: HWINEVENTHOOK,
+    _: u32,
+    _: HWND,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+) {
+    if !OUTSIDE_CLICK.load(Ordering::SeqCst) {
+        return;
+    }
+
+    let window = unsafe { GetForegroundWindow() };
+    if window.is_invalid() || window.0 as isize == keyboard::target() || own_root(window).is_some()
+    {
+        return;
+    }
+    emit(MouseEvent::ForegroundChanged);
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
