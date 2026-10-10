@@ -4935,7 +4935,7 @@ pub(crate) fn shortcut_from_keystroke(keystroke: &Keystroke) -> Option<String> {
         #[cfg(target_os = "macos")]
         modifiers.push("Command");
         #[cfg(not(target_os = "macos"))]
-        modifiers.push("Control");
+        modifiers.push("Super");
     }
     if keystroke.modifiers.control {
         modifiers.push("Control");
@@ -5130,6 +5130,23 @@ mod tests {
         assert_eq!(
             shortcut_from_keystroke(&keystroke).as_deref(),
             Some("Alt+Shift+X")
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn recorded_win_key_is_super_not_control() {
+        let keystroke = Keystroke {
+            modifiers: Modifiers {
+                platform: true,
+                ..Modifiers::default()
+            },
+            key: "c".to_owned(),
+            key_char: None,
+        };
+        assert_eq!(
+            shortcut_from_keystroke(&keystroke).as_deref(),
+            Some("Super+C")
         );
     }
 
