@@ -21,6 +21,7 @@ use gpui::{
 };
 use kwikpaste_ui::theme::TextSize;
 use kwikpaste_ui::{Button, KpStyled as _, theme};
+use kwikpaste_updater::extensions::{ExtensionManager, ExtensionStatus};
 use kwikpaste_updater::{
     AnnouncementOutcome, AnnouncementPrompt, CheckMode, DownloadProgress, HandoffHost, HostFuture,
     UpdateMetadata, UpdateStatus, Updater, UpdaterUi,
@@ -178,6 +179,19 @@ pub fn updater(cx: &App) -> Option<&Updater> {
     cx.try_global::<UpdaterHost>().map(|host| &host.0)
 }
 
+/// 扩展页沿用更新器宿主，不另建运行时或调度器。
+#[allow(dead_code, reason = "下一轮扩展 UI 接线接口")]
+pub fn extensions(cx: &App) -> Option<&ExtensionManager> {
+    updater(cx).map(Updater::extensions)
+}
+
+/// 后台回调经现有 UI 队列送入 GPUI；扩展页可观察此实体并读取最新快照。
+pub struct ExtensionState(pub Vec<ExtensionStatus>);
+
+pub struct ExtensionStateHost(pub Entity<ExtensionState>);
+
+impl Global for ExtensionStateHost {}
+
 /// 交接退出时要求的退出码（没有交接时为 0）。
 pub fn exit_code() -> i32 {
     EXIT_CODE.load(Ordering::SeqCst)
@@ -209,6 +223,8 @@ pub fn start(cx: &mut App) {
             return;
         }
     };
+    let extension_state = cx.new(|_| ExtensionState(created.extensions().status()));
+    cx.set_global(ExtensionStateHost(extension_state));
     created.start();
     cx.set_global(UpdaterHost(created));
     cx.on_app_quit(|cx| {
@@ -433,11 +449,22 @@ struct Ui {
 }
 
 enum UiRequest {
+    Extensions(Vec<ExtensionStatus>),
     Update(Box<UpdateStatus>),
     Progress(DownloadProgress),
 }
 
 impl UpdaterUi for Ui {
+    fn extensions_changed(&self, status: Vec<ExtensionStatus>) {
+        if self
+            .requests
+            .try_send(UiRequest::Extensions(status))
+            .is_err()
+        {
+            log::debug!("the extension UI host is no longer available");
+        }
+    }
+
     fn update_available(&self, status: UpdateStatus) {
         if self
             .requests
@@ -485,6 +512,17 @@ impl Global for UpdateWindowHost {}
 
 fn serve_ui(request: UiRequest, cx: &mut App) {
     match request {
+        UiRequest::Extensions(status) => {
+            if let Some(state) = cx
+                .try_global::<ExtensionStateHost>()
+                .map(|host| host.0.clone())
+            {
+                state.update(cx, |state, cx| {
+                    state.0 = status;
+                    cx.notify();
+                });
+            }
+        }
         UiRequest::Update(status) => open_update_window(*status, cx),
         UiRequest::Progress(progress) => {
             if let Some((view, _handle)) = cx

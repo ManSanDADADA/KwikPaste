@@ -1,0 +1,268 @@
+name: Extension Release
+
+# 扩展只传七牛并登记后台草稿，绝不创建 GitHub release。
+"on":
+  push:
+    tags: ["ext-*-v*"]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "扩展标签，例如 ext-ocr-v1.0.0"
+        required: true
+        default: ext-ocr-v1.0.0
+        type: string
+      dry_run:
+        description: "一次性密钥签名，不上传七牛、不登记后台"
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-release-${{ inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.extension.outputs.id }}
+      version: ${{ steps.extension.outputs.version }}
+      protocol: ${{ steps.extension.outputs.protocol }}
+      dry_run: ${{ steps.extension.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate extension tag and protocol
+        id: extension
+        env:
+          INPUT_TAG: ${{ inputs.tag_name }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, tomllib
+          push = os.environ["GITHUB_EVENT_NAME"] == "push"
+          tag = os.environ["GITHUB_REF_NAME"] if push else os.environ["INPUT_TAG"]
+          dry_run = not push and os.environ["INPUT_DRY_RUN"] == "true"
+          match = re.fullmatch(r"ext-([a-z][a-z0-9]*)-v(.+)", tag)
+          if not match:
+              raise SystemExit("Invalid extension tag")
+          id, version = match.groups()
+          # 版本必须与 Cargo.toml 一致，semver 合法性由 cargo 保证。
+          if not dry_run and os.environ["GITHUB_REF"] != f"refs/tags/{tag}":
+              raise SystemExit("Real publication must run on the matching tag ref")
+          package = tomllib.loads(pathlib.Path(f"crates/kwikpaste-ext-{id}/Cargo.toml").read_text(encoding="utf-8"))["package"]
+          if package["name"] != f"kwikpaste-ext-{id}" or package["version"] != version:
+              raise SystemExit("Tag and extension Cargo.toml do not match")
+          protocol_source = pathlib.Path("crates/kwikpaste-ext-protocol/src/lib.rs").read_text(encoding="utf-8")
+          protocols = re.findall(rf"^pub const {id.upper()}_PROTOCOL: u32 = ([0-9]+);$", protocol_source, re.M)
+          if len(protocols) != 1 or int(protocols[0]) < 1:
+              raise SystemExit("Missing or invalid extension protocol constant")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"id={id}\nversion={version}\nprotocol={protocols[0]}\ndry_run={str(dry_run).lower()}\n")
+          PY
+      - uses: pnpm/action-setup@v6
+        if: steps.extension.outputs.dry_run == 'true'
+      - uses: actions/setup-node@v6
+        if: steps.extension.outputs.dry_run == 'true'
+        with:
+          node-version: 24
+          cache: pnpm
+      # 与 native-release 相同，口令非空，四个目标共用一次性密钥。
+      - name: Generate throwaway signing key
+        if: steps.extension.outputs.dry_run == 'true'
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          mkdir -p dry-run-key
+          password="dry-run-$(openssl rand -hex 16)"
+          pnpm tauri signer generate --ci -p "${password}" -w dry-run-key/dry-run.key -f > /dev/null
+          printf '%s' "${password}" > dry-run-key/password.txt
+      - uses: actions/upload-artifact@v4
+        if: steps.extension.outputs.dry_run == 'true'
+        with:
+          name: ext-dry-run-key
+          path: dry-run-key
+          retention-days: 1
+
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            triple: aarch64-apple-darwin
+            target: darwin-aarch64
+          - os: macos-latest
+            triple: x86_64-apple-darwin
+            target: darwin-x86_64
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            target: windows-x86_64
+          - os: windows-latest
+            triple: aarch64-pc-windows-msvc
+            target: windows-aarch64
+    runs-on: ${{ matrix.os }}
+    env:
+      EXT_ID: ${{ needs.prepare.outputs.id }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      EXT_TARGET: ${{ matrix.target }}
+      TRIPLE: ${{ matrix.triple }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          targets: ${{ matrix.triple }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: extension-release-${{ matrix.triple }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install pinned Tauri CLI
+        shell: bash
+        run: pnpm install --frozen-lockfile
+      - name: Build extension
+        shell: bash
+        env:
+          CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+          CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
+        run: cargo build --locked --release -p "kwikpaste-ext-${EXT_ID}" --target "${TRIPLE}"
+      - name: Name and check binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          suffix=""
+          if [[ "${RUNNER_OS}" == Windows ]]; then suffix=".exe"; fi
+          mkdir -p dist
+          name="KwikPaste-ext-${EXT_ID}_${VERSION}_${EXT_TARGET}${suffix}"
+          cp "target/${TRIPLE}/release/kwikpaste-ext-${EXT_ID}${suffix}" "dist/${name}"
+          if [[ "${RUNNER_OS}" == macOS ]]; then codesign -v "dist/${name}"; fi
+          echo "EXT_BINARY=dist/${name}" >> "${GITHUB_ENV}"
+      - uses: actions/download-artifact@v4
+        if: needs.prepare.outputs.dry_run == 'true'
+        with:
+          name: ext-dry-run-key
+          path: ${{ runner.temp }}/dry-run-key
+      - name: Sign (dry run)
+        if: needs.prepare.outputs.dry_run == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TAURI_SIGNING_PRIVATE_KEY="$(cat "${RUNNER_TEMP}/dry-run-key/dry-run.key")"
+          export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat "${RUNNER_TEMP}/dry-run-key/password.txt")"
+          node --input-type=module - <<'JS'
+          import { spawnSync } from 'node:child_process';
+          import { tauriCli } from './scripts/release/package-native.mjs';
+          const result = spawnSync(process.execPath, [tauriCli(), 'signer', 'sign', process.env.EXT_BINARY], { stdio: 'inherit' });
+          if (result.error) throw result.error;
+          process.exit(result.status ?? 1);
+          JS
+      - name: Sign
+        if: needs.prepare.outputs.dry_run != 'true'
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          node --input-type=module - <<'JS'
+          import { existsSync, readFileSync } from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          import { tauriCli } from './scripts/release/package-native.mjs';
+          const key = process.env.TAURI_SIGNING_PRIVATE_KEY;
+          if (!key) throw new Error('Missing release signing key');
+          if (existsSync(key)) process.env.TAURI_SIGNING_PRIVATE_KEY = readFileSync(key, 'utf8').trim();
+          const result = spawnSync(process.execPath, [tauriCli(), 'signer', 'sign', process.env.EXT_BINARY], { stdio: 'inherit' });
+          if (result.error) throw result.error;
+          process.exit(result.status ?? 1);
+          JS
+      - name: Verify signed binary
+        shell: bash
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+        run: |
+          node --input-type=module - <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { parsePublicKey, verifySignature } from './scripts/ci/lib/minisign.mjs';
+          const keyPath = process.env.DRY_RUN === 'true'
+            ? join(process.env.RUNNER_TEMP, 'dry-run-key', 'dry-run.key.pub')
+            : 'crates/kwikpaste-updater/pubkey.txt';
+          const binary = process.env.EXT_BINARY;
+          verifySignature(readFileSync(binary), readFileSync(`${binary}.sig`, 'utf8'), parsePublicKey(readFileSync(keyPath, 'utf8')));
+          console.log('Extension signature verified');
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ext-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [prepare, build]
+    if: needs.prepare.outputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    env:
+      EXT_ID: ${{ needs.prepare.outputs.id }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PROTOCOL: ${{ needs.prepare.outputs.protocol }}
+      MIRROR_BUCKET: kwikpaste
+      MIRROR_S3_ENDPOINT: https://s3.cn-south-1.qiniucs.com
+      AWS_DEFAULT_REGION: cn-south-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ext-*
+          path: dist
+          merge-multiple: true
+      - name: Assemble registration
+        run: |
+          node --input-type=module - <<'JS'
+          import { readFileSync, statSync, writeFileSync, readdirSync } from 'node:fs';
+          const { EXT_ID: id, VERSION: version, PROTOCOL: protocol, GITHUB_SHA: commit } = process.env;
+          if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('Invalid commit SHA');
+          const targets = ['windows-x86_64', 'windows-aarch64', 'darwin-x86_64', 'darwin-aarch64'];
+          const files = {};
+          for (const target of targets) {
+            const name = `KwikPaste-ext-${id}_${version}_${target}${target.startsWith('windows-') ? '.exe' : ''}`;
+            const size = statSync(`dist/${name}`).size;
+            const signature = readFileSync(`dist/${name}.sig`, 'utf8').trim();
+            if (!size || size > 64 * 1024 * 1024 || !signature) throw new Error(`Invalid artifact ${name}`);
+            files[target] = { name, size, signature };
+          }
+          if (readdirSync('dist').length !== 8) throw new Error('Expected exactly four binaries and signatures');
+          writeFileSync('registration.json', JSON.stringify({ id, version, protocol: Number(protocol), commit, files }));
+          JS
+      - name: Upload binaries to Qiniu and verify mirror
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.QINIU_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.QINIU_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${AWS_ACCESS_KEY_ID}" && test -n "${AWS_SECRET_ACCESS_KEY}"
+          prefix="kwikpaste/ext/${EXT_ID}/${VERSION}"
+          aws s3 --endpoint-url "${MIRROR_S3_ENDPOINT}" --only-show-errors cp dist/ "s3://${MIRROR_BUCKET}/${prefix}/" --recursive
+          name="$(jq -r '.files["windows-x86_64"].name' registration.json)"
+          curl --fail --show-error --location --retry 3 --retry-delay 5 "https://dl.fastthree.com/${prefix}/${name}" -o mirrored.exe
+          cmp "dist/${name}" mirrored.exe
+      - name: Register backend draft
+        env:
+          KWIKPASTE_EXT_CI_TOKEN: ${{ secrets.KWIKPASTE_EXT_CI_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${KWIKPASTE_EXT_CI_TOKEN}"
+          curl --fail-with-body --show-error --silent \
+            -H "Authorization: Bearer ${KWIKPASTE_EXT_CI_TOKEN}" \
+            -H 'Content-Type: application/json' --data-binary @registration.json \
+            https://paste.fastthree.com/api/v1/admin/extension-builds

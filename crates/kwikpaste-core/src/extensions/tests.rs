@@ -111,6 +111,9 @@ fn install_replaces_version_preserves_state_and_consumes_stage() {
     store
         .install("ocr", "1.1.0", OCR_PROTOCOL, &source)
         .unwrap();
+    assert!(!store.list()["ocr"].enabled);
+    assert!(store.resolve("ocr").is_none());
+    store.set_enabled("ocr", true).unwrap();
     assert_eq!(fs::read(store.resolve("ocr").unwrap()).unwrap(), b"second");
     assert!(!old.exists());
     assert_eq!(fs::read(state).unwrap(), b"retained");
@@ -276,6 +279,9 @@ fn real_ocr_install_disable_reinstall_and_uninstall_take_effect_without_restart(
     block_on(core.install_extension("ocr", "1.1.0", OCR_PROTOCOL, &staged)).unwrap();
     assert!(child.lock().unwrap().try_wait().unwrap().is_some());
     drop(host);
+    assert!(!core.ocr_enabled());
+    assert!(!core.installed_extensions()["ocr"].enabled);
+    block_on(core.set_extension_enabled("ocr", true)).unwrap();
     assert!(core.ocr_enabled());
     assert!(block_on(core.image_text_preview(&item.id))
         .unwrap()

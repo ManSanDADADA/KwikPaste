@@ -4376,6 +4376,7 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "kwikpaste-core",
+ "kwikpaste-ext-protocol",
  "log",
  "minisign-verify",
  "rand 0.8.8",

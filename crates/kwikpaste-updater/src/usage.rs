@@ -83,6 +83,26 @@ struct Payload {
     days_since_last: Option<i64>,
     install_week: Option<String>,
     previous_version: Option<String>,
+    extensions: Vec<ExtensionUsage>,
+}
+
+#[derive(Serialize)]
+struct ExtensionUsage {
+    id: String,
+    version: String,
+    enabled: bool,
+}
+
+/// 只上报安装版本与启用状态，不携带路径、扩展自有状态或协议内部信息。
+fn installed_extensions(core: &Core) -> Vec<ExtensionUsage> {
+    core.installed_extensions()
+        .into_iter()
+        .map(|(id, installed)| ExtensionUsage {
+            id,
+            version: installed.version,
+            enabled: installed.enabled,
+        })
+        .collect()
 }
 
 /// 在 core runtime 后台发送，检查更新不等网络和磁盘；多次触发排队执行，状态读写不会交错。
@@ -131,6 +151,7 @@ async fn report(core: &Core, trigger: Trigger, endpoint: &str) -> Result<()> {
     }
 
     let payload = Payload {
+        extensions: installed_extensions(core),
         daily_id: state.daily_id.clone(),
         kind,
         version: version.clone(),
@@ -306,6 +327,7 @@ mod tests {
 
     fn payload(kind: Kind) -> Payload {
         Payload {
+            extensions: Vec::new(),
             daily_id: Uuid::new_v4().to_string(),
             kind,
             version: "2.0.0".to_owned(),
@@ -446,11 +468,11 @@ mod tests {
     }
 
     #[test]
-    fn payload_contains_exactly_the_nine_fields() {
+    fn payload_contains_exactly_the_ten_fields() {
         let json = serde_json::to_value(payload(Kind::First)).unwrap();
         let object = json.as_object().unwrap();
 
-        assert_eq!(object.len(), 9);
+        assert_eq!(object.len(), 10);
         for key in [
             "dailyId",
             "kind",
@@ -461,13 +483,38 @@ mod tests {
             "daysSinceLast",
             "installWeek",
             "previousVersion",
+            "extensions",
         ] {
             assert!(object.contains_key(key), "{key}");
         }
         assert_eq!(json["kind"], "first");
+        assert_eq!(json["extensions"], serde_json::json!([]));
         assert_eq!(json["language"], "en-US");
         assert_eq!(json["installWeek"], serde_json::Value::Null);
         assert_eq!(serde_json::to_value(Kind::Active).unwrap(), "active");
+    }
+
+    #[test]
+    fn payload_reports_installed_extensions_without_protocol_or_paths() {
+        let core = crate::testing::TestCore::start("2.0.0");
+        let file = core.root().join("extension.exe");
+        fs::write(&file, b"MZ fake extension").unwrap();
+        core.block_on(core.core.install_extension(
+            "ocr",
+            "1.0.0",
+            kwikpaste_ext_protocol::OCR_PROTOCOL,
+            &file,
+        ))
+        .unwrap();
+        core.block_on(core.core.set_extension_enabled("ocr", false))
+            .unwrap();
+        let mut payload = payload(Kind::Active);
+        payload.extensions = installed_extensions(&core.core);
+        let json = serde_json::to_value(payload).unwrap();
+        assert_eq!(
+            json["extensions"],
+            serde_json::json!([{"id":"ocr","version":"1.0.0","enabled":false}])
+        );
     }
 
     /// 开发构建和本机打的包默认不上报；只有发布流水线的正式构建发往线上（这里只比较地址，不发请求）。
@@ -506,7 +553,7 @@ mod tests {
             assert_eq!(requests.len(), 1);
             assert!(requests[0].line.starts_with("POST /api/v2/usage HTTP/1.1"));
             let body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
-            assert_eq!(body.as_object().unwrap().len(), 9);
+            assert_eq!(body.as_object().unwrap().len(), 10);
             assert_eq!(body["kind"], "active");
             assert_eq!(body["version"], "2.0.0");
             assert_eq!(body["daysSinceLast"], 3);

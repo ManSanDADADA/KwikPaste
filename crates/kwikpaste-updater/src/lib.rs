@@ -14,6 +14,7 @@
 mod announcement;
 mod channel;
 mod download;
+pub mod extensions;
 mod handoff;
 mod http;
 mod manifest;
@@ -55,6 +56,9 @@ const RELEASE_NOTES_URL: &str = "https://github.com/ManSanDADADA/KwikPaste/relea
 
 /// 更新器需要 UI（更新窗、公告对话框）做的事。
 pub trait UpdaterUi: Send + Sync + 'static {
+    /// 扩展状态变化；在后台线程回调，由宿主送进已有 UI 消息队列。
+    fn extensions_changed(&self, _status: Vec<extensions::ExtensionStatus>) {}
+
     /// 自动检查发现了可以装的新版本：显示更新窗（与 1.x 一样，自动检查找到更新就弹出更新窗）。
     fn update_available(&self, status: UpdateStatus);
 
@@ -104,6 +108,7 @@ pub struct UpdateMetadata {
 pub struct Updater(Arc<Inner>);
 
 struct Inner {
+    extensions: extensions::ExtensionManager,
     core: Core,
     ui: Arc<dyn UpdaterUi>,
     handoff: Arc<dyn HandoffHost>,
@@ -164,8 +169,15 @@ impl Updater {
             public_key,
         } = parts;
         let client = http::updater_client(&core.info().version)?;
+        let extensions = extensions::ExtensionManager::new(
+            core.clone(),
+            ui.clone(),
+            client.clone(),
+            public_key.clone(),
+        );
         log::info!("updater ready: {kind:?}");
         Ok(Self(Arc::new(Inner {
+            extensions,
             core,
             ui,
             handoff,
@@ -183,6 +195,11 @@ impl Updater {
 
     pub fn install_kind(&self) -> &InstallKind {
         &self.0.kind
+    }
+
+    /// 扩展页使用的管理器；与应用更新器共用运行时、HTTP 客户端及 UI 宿主。
+    pub fn extensions(&self) -> &extensions::ExtensionManager {
+        &self.0.extensions
     }
 
     /// 开始后台调度（重复调用无效）：清理上次更新留下的临时文件，8 秒后拉公告，
@@ -206,6 +223,7 @@ impl Updater {
             );
 
             loop {
+                updater.0.extensions.schedule_daily();
                 usage::schedule(&updater.0.core, &updater.0.usage, usage::Trigger::Daily);
                 let settings = updater.0.core.settings().update;
                 let delay = scheduler::next_auto_check_delay(&settings, Utc::now());

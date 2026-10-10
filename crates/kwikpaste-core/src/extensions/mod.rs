@@ -139,12 +139,13 @@ impl ExtensionStore {
         tmp.persist(&exe)?;
         fs::create_dir_all(self.dir.join(id).join("state"))?;
         let mut installed = self.list();
+        let enabled = installed.get(id).is_none_or(|entry| entry.enabled);
         let previous = installed.insert(
             id.to_owned(),
             InstalledExtension {
                 version: version.to_owned(),
                 protocol,
-                enabled: true,
+                enabled,
             },
         );
         self.save(installed)?;

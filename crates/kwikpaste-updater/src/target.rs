@@ -88,6 +88,17 @@ fn arch() -> &'static str {
     }
 }
 
+/// 扩展不区分安装形态，只使用操作系统与架构。
+#[cfg(any(not(debug_assertions), test))]
+pub(crate) fn extension_target() -> String {
+    let os = if cfg!(target_os = "macos") {
+        "darwin"
+    } else {
+        "windows"
+    };
+    format!("{os}-{}", arch())
+}
+
 /// `/Applications/KwikPaste.app/Contents/MacOS/KwikPaste` → `/Applications/KwikPaste.app`。
 fn app_bundle(exe: &Path) -> Option<PathBuf> {
     let macos = exe.parent()?;
