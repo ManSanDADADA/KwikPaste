@@ -713,10 +713,10 @@ impl DirectWriteState {
                 &mut grid_fit_mode,
             )?;
         }
-        let rendering_mode = match rendering_mode {
-            DWRITE_RENDERING_MODE1_OUTLINE => DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC,
-            m => m,
-        };
+        // [kwikpaste patch 0010] For small text (12-14 px CJK at 100% scale) DirectWrite recommends
+        // GDI_CLASSIC / NATURAL, which antialias horizontally only: diagonal strokes come out as
+        // hard vertical stair steps. Keep the recommended grid fit but antialias both ways.
+        let rendering_mode = DWRITE_RENDERING_MODE1_NATURAL_SYMMETRIC;
 
         let antialias_mode = if params.subpixel_rendering {
             DWRITE_TEXT_ANTIALIAS_MODE_CLEARTYPE

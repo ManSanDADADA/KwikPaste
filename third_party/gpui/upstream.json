@@ -11,7 +11,8 @@
         "0006-display-power-and-session-lock.diff",
         "0007-vsync-alive-before-spawn.diff",
         "0008-revoke-drop-target-on-destroy.diff",
-        "0009-flush-after-renderer-drop.diff"
+        "0009-flush-after-renderer-drop.diff",
+        "0010-symmetric-text-antialiasing.diff"
       ],
       "sha256": "f05592a6f9e3e6bb7a9f2a0d4779271cf747a948db1c07b02448de777ffff8f3",
       "version": "0.3.7",
