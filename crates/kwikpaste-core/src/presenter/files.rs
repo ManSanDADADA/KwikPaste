@@ -6,6 +6,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 
 use crate::clipboard::{get_icon_cache_key, icon_png, FileIconStore, DIR_CACHE_KEY};
+use crate::db::items::IMAGE_FILE_EXTENSIONS;
 use crate::db::models::Platform;
 use crate::error::{AppError, Result};
 
@@ -62,22 +63,7 @@ pub fn is_image_path(path: &str) -> bool {
         return false;
     };
 
-    matches!(
-        ext.to_ascii_lowercase().as_str(),
-        "jpg"
-            | "jpeg"
-            | "png"
-            | "webp"
-            | "avif"
-            | "gif"
-            | "svg"
-            | "bmp"
-            | "ico"
-            | "tif"
-            | "tiff"
-            | "heic"
-            | "apng"
-    )
+    IMAGE_FILE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
 }
 
 /// 解析文件 icon 路径：优先命中缓存，未命中时在路径存在的前提下抽取并落盘缓存。

@@ -416,6 +416,17 @@ fn image_file_name(kind: ClipboardKind, content: String) -> Option<String> {
 /// 批量删除单条 `DELETE` 最多绑定的 id 数，远低于 SQLite 的绑定变量上限。
 const DELETE_BATCH_SIZE: usize = 500;
 
+/// 没有被收藏或置顶的文件记录的 id 与路径串（换行分隔），供清理缓存时判断文件是否还在。
+pub async fn unprotected_file_items(pool: &SqlitePool) -> Result<Vec<(String, String)>> {
+    Ok(sqlx::query_as(
+        "SELECT id, content FROM clipboard_items \
+         WHERE kind = 'files' AND is_favorite = 0 AND is_pinned = 0",
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list file items")?)
+}
+
 /// 按 id 批量删除，返回删除行数与被删图片文件名（供调用方删图）；不存在的 id 忽略。
 /// 所有分批在同一事务里完成，中途失败时一条都不删。
 pub async fn delete_items(pool: &SqlitePool, ids: &[String]) -> Result<CleanupOutcome> {
@@ -687,6 +698,27 @@ async fn fetch_items_count(
     Ok(row.0)
 }
 
+/// 按扩展名（小写）认作图片的文件格式，列表的图片文件预览与「图片」分组共用。
+pub const IMAGE_FILE_EXTENSIONS: [&str; 13] = [
+    "jpg", "jpeg", "png", "webp", "avif", "gif", "svg", "bmp", "ico", "tif", "tiff", "heic", "apng",
+];
+
+/// 「图片」分组：图片记录，加上只复制了一个图片文件的文件记录（卡片按图片显示）。
+/// SQLite 的 `LIKE` 对 ASCII 不区分大小写，扩展名是常量，直接拼进 SQL。
+fn push_image_group_clause(qb: &mut QueryBuilder<Sqlite>) {
+    qb.push(
+        " AND (clipboard_items.kind = 'image' OR (clipboard_items.kind = 'files' \
+         AND instr(clipboard_items.content, char(10)) = 0 AND (",
+    );
+    for (index, ext) in IMAGE_FILE_EXTENSIONS.iter().enumerate() {
+        if index > 0 {
+            qb.push(" OR ");
+        }
+        qb.push(format!("clipboard_items.content LIKE '%.{ext}'"));
+    }
+    qb.push(")))");
+}
+
 /// 把当前查询的过滤条件追加到 `qb`（不含 ORDER BY / LIMIT / OFFSET），供列表查询与计数共用。
 fn push_filter_clauses(
     qb: &mut QueryBuilder<Sqlite>,
@@ -720,7 +752,10 @@ fn push_filter_clauses(
     let (effective_kind, effective_favorite) = match q.group {
         Some(ClipboardGroupFilter::All) => (None, None),
         Some(ClipboardGroupFilter::Text) => (Some(ClipboardKind::Text), None),
-        Some(ClipboardGroupFilter::Image) => (Some(ClipboardKind::Image), None),
+        Some(ClipboardGroupFilter::Image) => {
+            push_image_group_clause(qb);
+            (None, None)
+        }
         Some(ClipboardGroupFilter::Files) => (Some(ClipboardKind::Files), None),
         Some(ClipboardGroupFilter::Favorite) => (None, Some(true)),
         None => (q.kind, q.favorite),
@@ -1046,6 +1081,40 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(ids(&query_items(&pool, &q).await.unwrap()), ["image"]);
+    }
+
+    #[tokio::test]
+    async fn image_group_includes_single_image_files() {
+        let pool = memory_pool().await;
+        let mut image = sample_item("image");
+        image.kind = ClipboardKind::Image;
+        insert_item(&pool, &image).await.unwrap();
+        for (id, content) in [
+            ("photo", "C:\\pics\\a.PNG"),
+            ("many", "C:\\pics\\a.png\nC:\\pics\\b.png"),
+            ("doc", "C:\\docs\\a.txt"),
+        ] {
+            let mut files = sample_item(id);
+            files.kind = ClipboardKind::Files;
+            files.content = content.to_owned();
+            files.content_hash = content_hash(ClipboardKind::Files, content);
+            insert_item(&pool, &files).await.unwrap();
+        }
+
+        let q = |group| ClipboardItemQuery {
+            group: Some(group),
+            ..Default::default()
+        };
+        let images = query_items(&pool, &q(ClipboardGroupFilter::Image))
+            .await
+            .unwrap();
+        let mut image_ids = ids(&images);
+        image_ids.sort_unstable();
+        assert_eq!(image_ids, ["image", "photo"]);
+        let files = query_items(&pool, &q(ClipboardGroupFilter::Files))
+            .await
+            .unwrap();
+        assert_eq!(files.len(), 3);
     }
 
     #[tokio::test]

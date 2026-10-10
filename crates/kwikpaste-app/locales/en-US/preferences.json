@@ -756,10 +756,10 @@
       },
       "localData": {
         "cleanCache": {
-          "confirmContent": "Images, thumbnails and icons no longer referenced by history will be deleted, and the database file will be compacted. Resources in use are kept. This can take a few seconds with a large history.",
+          "confirmContent": "File records whose files no longer exist on disk will be deleted (favorites and pinned items are kept), along with images, thumbnails and icons no longer referenced by history, and the database file will be compacted. Resources in use are kept. This can take a few seconds with a large history.",
           "confirmTitle": "Clean Resource Cache",
           "controlLabel": "Clean Cache",
-          "description": "Remove images, thumbnails and icons no longer referenced by history, and compact the database file.",
+          "description": "Remove file records whose files were deleted, plus images, thumbnails and icons no longer referenced by history, and compact the database file.",
           "title": "Clean Cache"
         },
         "clearHistory": {

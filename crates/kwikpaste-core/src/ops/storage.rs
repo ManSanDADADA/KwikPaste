@@ -189,10 +189,10 @@ impl Core {
         .await
     }
 
-    /// 删除资源目录中不再被记录或资源索引引用的文件，再整库 VACUUM 压缩数据库。
+    /// 删除路径已全部不在磁盘上的文件记录（收藏与置顶保留），再删除资源目录中不再被记录或
+    /// 资源索引引用的文件，最后整库 VACUUM 压缩数据库。
     ///
-    /// 不删任何记录，所以历史设置回落、自动清理暂停时也照常执行；与自动清理互斥，
-    /// 正在清理时等它结束再开始。
+    /// 历史设置回落、自动清理暂停时也照常执行；与自动清理互斥，正在清理时等它结束再开始。
     pub async fn clean_resource_cache(&self) -> Result<CleanCacheResult> {
         let core = self.clone();
         self.hop(async move {
@@ -202,6 +202,7 @@ impl Core {
             {
                 let _exclusive = inner.cleanup.exclusive().await;
                 let pool = inner.db.pool().await;
+                remove_missing_file_items(inner, &pool).await?;
                 removed = sweep_resource_cache(inner, &pool, CacheSweep::Delete).await?;
 
                 let before = database_bytes(&inner.paths)?;
@@ -503,6 +504,29 @@ fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
         fs::copy(&src_path, &dst_path)
             .with_context(|| format!("failed to copy {src_path:?} to {dst_path:?}"))?;
     }
+    Ok(())
+}
+
+/// 删除路径已全部不在磁盘上的文件记录并通知列表刷新；还有一个路径在就保留。
+async fn remove_missing_file_items(core: &CoreInner, pool: &SqlitePool) -> Result<()> {
+    let candidates = crate::db::items::unprotected_file_items(pool).await?;
+    let missing = tokio::task::spawn_blocking(move || {
+        candidates
+            .into_iter()
+            .filter(|(_, content)| {
+                content
+                    .split('\n')
+                    .filter(|path| !path.is_empty())
+                    .all(|path| matches!(Path::new(path).try_exists(), Ok(false)))
+            })
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>()
+    })
+    .await
+    .context("failed to check file paths")?;
+
+    let outcome = crate::db::items::delete_items(pool, &missing).await?;
+    clipboard::cleanup::apply_outcome(core, &outcome, "missing files");
     Ok(())
 }
 

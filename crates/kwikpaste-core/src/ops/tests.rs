@@ -666,6 +666,41 @@ fn single_image_file_records_preview_like_image_records() {
     block_on(core.shutdown()).unwrap();
 }
 
+/// 清理缓存连带删除路径已全部不在磁盘上的文件记录；还有文件在的、收藏的保留。
+#[test]
+fn clean_resource_cache_removes_file_records_whose_paths_are_gone() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    let dir = fixture.root().join("docs");
+    std::fs::create_dir_all(&dir).unwrap();
+    let alive = dir.join("alive.txt");
+    std::fs::write(&alive, b"x").unwrap();
+    let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    let copy_files = |paths: Vec<String>| {
+        copy_in(
+            &core,
+            MemoryState {
+                files: Some(paths),
+                ..MemoryState::default()
+            },
+        )
+        .unwrap()
+    };
+
+    let all_gone = copy_files(vec![path("a.txt")]);
+    let partly_gone = copy_files(vec![path("b.txt"), path("alive.txt")]);
+    let favorite = copy_files(vec![path("c.txt")]);
+    block_on(core.toggle_favorite(&favorite)).unwrap();
+
+    block_on(core.clean_resource_cache()).unwrap();
+
+    let exists = |id: &str| block_on(core.find_item(id)).unwrap().is_some();
+    assert!(!exists(&all_gone));
+    assert!(exists(&partly_gone));
+    assert!(exists(&favorite));
+    block_on(core.shutdown()).unwrap();
+}
+
 /// 图片扩展名的文件读不出图片头（没有读取权限、内容不是支持的格式）：按普通文件行显示，不画坏图。
 #[test]
 fn unreadable_image_file_records_preview_as_a_file_row() {

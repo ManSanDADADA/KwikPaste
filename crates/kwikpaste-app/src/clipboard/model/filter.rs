@@ -57,6 +57,8 @@ impl ListFilter {
         match (self.category, kind) {
             (None, _) => true,
             (Some(_), None) => false,
+            // 单个图片文件的记录属于「图片」分组，这里只知道类型，宁可多刷新一次。
+            (Some(ItemKind::Image), Some(ItemKind::Files)) => true,
             (Some(category), Some(kind)) => category == kind,
         }
     }
@@ -184,6 +186,13 @@ mod tests {
         assert!(text.may_include(Some(ItemKind::Text)));
         assert!(!text.may_include(Some(ItemKind::Files)));
         assert!(!text.may_include(None));
+
+        let image = ListFilter {
+            category: Some(ItemKind::Image),
+            ..ListFilter::default()
+        };
+        assert!(image.may_include(Some(ItemKind::Files)), "image files");
+        assert!(!image.may_include(Some(ItemKind::Text)));
 
         let favorites = ListFilter {
             range: Range::Favorite,
