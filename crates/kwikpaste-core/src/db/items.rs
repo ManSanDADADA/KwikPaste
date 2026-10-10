@@ -2248,10 +2248,11 @@ mod tests {
                 },
                 "idx_clipboard_items_pinned_created_manual",
             ),
+            // 图片分组还收单个图片文件，跨两种 kind，排序必须走临时 B 树；用文本分组检查 kind 索引。
             (
-                "image tab",
+                "text tab",
                 ClipboardItemQuery {
-                    group: Some(ClipboardGroupFilter::Image),
+                    group: Some(ClipboardGroupFilter::Text),
                     ..ClipboardItemQuery::default()
                 },
                 "idx_clipboard_items_kind_pinned_updated_manual",
