@@ -74,16 +74,11 @@ pub fn item_query(query: &ListQuery) -> ClipboardItemQuery {
         }),
         group_id: group_id.as_deref().map(str::to_owned),
         favorite: query.filter.favorites().then_some(true),
-        group: Some(if query.filter.favorites() {
-            kwikpaste_core::db::models::ClipboardGroupFilter::Favorite
-        } else if let Some(category) = query.filter.category {
-            match category {
-                ItemKind::Text => kwikpaste_core::db::models::ClipboardGroupFilter::Text,
-                ItemKind::Image => kwikpaste_core::db::models::ClipboardGroupFilter::Image,
-                ItemKind::Files => kwikpaste_core::db::models::ClipboardGroupFilter::Files,
-            }
-        } else {
-            kwikpaste_core::db::models::ClipboardGroupFilter::All
+        group: Some(match category {
+            Some(ItemKind::Text) => kwikpaste_core::db::models::ClipboardGroupFilter::Text,
+            Some(ItemKind::Image) => kwikpaste_core::db::models::ClipboardGroupFilter::Image,
+            Some(ItemKind::Files) => kwikpaste_core::db::models::ClipboardGroupFilter::Files,
+            None => kwikpaste_core::db::models::ClipboardGroupFilter::All,
         }),
         keyword: (!keyword.is_empty()).then(|| keyword.to_string()),
         sort: query.sort,

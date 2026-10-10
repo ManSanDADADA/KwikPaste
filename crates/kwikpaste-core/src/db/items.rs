@@ -477,8 +477,7 @@ pub async fn list_item_refs(
     push_order_clause(
         &mut qb,
         q.sort,
-        q.group == Some(ClipboardGroupFilter::Favorite)
-            || (q.group.is_none() && q.favorite == Some(true)),
+        q.group == Some(ClipboardGroupFilter::Favorite) || q.favorite == Some(true),
     );
 
     let refs = qb
@@ -653,8 +652,7 @@ fn push_list_query(qb: &mut QueryBuilder<Sqlite>, q: &ClipboardItemQuery, keywor
     push_order_clause(
         qb,
         q.sort,
-        q.group == Some(ClipboardGroupFilter::Favorite)
-            || (q.group.is_none() && q.favorite == Some(true)),
+        q.group == Some(ClipboardGroupFilter::Favorite) || q.favorite == Some(true),
     );
 
     qb.push(" LIMIT ").push_bind(q.limit);
@@ -748,15 +746,16 @@ fn push_filter_clauses(
         }
         qb.push(")");
     }
-    // group（UI Tab）覆盖显式 kind / favorite；为 None 时回退到显式字段（单测使用）。
+    // group（UI Tab）覆盖显式 kind；为 None 时回退到显式 kind（单测使用）。
+    // 收藏可与分类叠加，所以显式 favorite 在各 Tab 下都生效。
     let (effective_kind, effective_favorite) = match q.group {
-        Some(ClipboardGroupFilter::All) => (None, None),
-        Some(ClipboardGroupFilter::Text) => (Some(ClipboardKind::Text), None),
+        Some(ClipboardGroupFilter::All) => (None, q.favorite),
+        Some(ClipboardGroupFilter::Text) => (Some(ClipboardKind::Text), q.favorite),
         Some(ClipboardGroupFilter::Image) => {
             push_image_group_clause(qb);
-            (None, None)
+            (None, q.favorite)
         }
-        Some(ClipboardGroupFilter::Files) => (Some(ClipboardKind::Files), None),
+        Some(ClipboardGroupFilter::Files) => (Some(ClipboardKind::Files), q.favorite),
         Some(ClipboardGroupFilter::Favorite) => (None, Some(true)),
         None => (q.kind, q.favorite),
     };
@@ -1115,6 +1114,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(files.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn favorite_combines_with_category_tab() {
+        let pool = memory_pool().await;
+        let mut text_fav = sample_item("text-fav");
+        text_fav.is_favorite = true;
+        let mut image_fav = sample_item("image-fav");
+        image_fav.kind = ClipboardKind::Image;
+        image_fav.is_favorite = true;
+        let mut image_plain = sample_item("image-plain");
+        image_plain.kind = ClipboardKind::Image;
+        for item in [&text_fav, &image_fav, &image_plain] {
+            insert_item(&pool, item).await.unwrap();
+        }
+
+        let favorite_images = query_items(
+            &pool,
+            &ClipboardItemQuery {
+                group: Some(ClipboardGroupFilter::Image),
+                favorite: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(ids(&favorite_images), ["image-fav"]);
     }
 
     #[tokio::test]
