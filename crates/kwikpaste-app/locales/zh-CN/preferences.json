@@ -694,6 +694,7 @@
       },
       "copy": {
         "hideWindow": {
+          "description": "只对复制生效。粘贴后窗口总会隐藏，想保留窗口请先固定窗口。",
           "title": "复制后隐藏窗口"
         },
         "plainDefault": {

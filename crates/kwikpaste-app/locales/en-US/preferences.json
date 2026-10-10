@@ -704,6 +704,7 @@
       },
       "copy": {
         "hideWindow": {
+          "description": "Applies to copying only. The window always hides after pasting; pin the window to keep it open.",
           "title": "Hide Window After Copy"
         },
         "plainDefault": {
