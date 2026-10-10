@@ -230,6 +230,7 @@ struct Preferences {
     lan_code_hidden: bool,
     /// 图片文字识别的计数（采集页状态行），打开窗口和收到 `OcrChanged` 时刷新。
     ocr_status: Option<kwikpaste_core::OcrStatus>,
+    ocr_refresh: u64,
     /// 系统的识别能力；只在开着识别时探测。
     ocr_support: Option<kwikpaste_core::OcrSupport>,
     lan_name: TextInput,
@@ -570,14 +571,13 @@ impl Preferences {
                         this.lan_state = Some(core.lan_sync_state());
                         cx.notify();
                     }
-                    // 识别进度和开关变化：采集页的状态行跟着刷新。
+                    // 扩展生命周期变化会使缓存的能力状态失效，并刷新采集状态。
+                    if matches!(event, CoreEvent::ExtensionsChanged) {
+                        this.ocr_support = None;
+                        this.ocr_refresh = this.ocr_refresh.wrapping_add(1);
+                    }
                     if this.tab == TabId::Capture
-                        && (matches!(event, CoreEvent::OcrChanged)
-                            || matches!(
-                                event,
-                                CoreEvent::SettingsUpdated { delta, .. }
-                                    if delta.touches("clipboard.ocr")
-                            ))
+                        && matches!(event, CoreEvent::OcrChanged | CoreEvent::ExtensionsChanged)
                     {
                         this.refresh_image_text(cx);
                     }
@@ -636,6 +636,7 @@ impl Preferences {
             lan_state,
             lan_code_hidden: false,
             ocr_status: None,
+            ocr_refresh: 0,
             ocr_support: None,
             lan_name,
             lan_max_image,

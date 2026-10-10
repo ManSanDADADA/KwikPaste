@@ -28,8 +28,8 @@ const CUSTOM_STORAGE_CONTAINER_DIR: &str = "KwikPasteData";
 const CLIPBOARD_IMAGES_DIR: &str = "clipboard-images";
 const APP_ICONS_DIR: &str = "app-icons";
 const FILE_ICONS_DIR: &str = "file-icons";
-/// 数据迁出默认位置时启动锚点里要留下的条目：manifest 与本机同步身份目录。
-const BOOTSTRAP_KEEP: [&str; 2] = ["storage.json", "sync"];
+/// 数据迁移时启动锚点需保留的清单、本机同步身份目录和扩展目录。
+const BOOTSTRAP_KEEP: [&str; 3] = ["storage.json", "sync", crate::paths::EXTENSIONS_DIR];
 
 /// 偏好页侧栏展示的本地存储占用概览。
 #[derive(Debug, Clone, Serialize)]
@@ -434,8 +434,8 @@ fn remove_custom_storage_root(old: &Path) -> Result<()> {
     }
 }
 
-/// 默认数据根同时是启动锚点：只删数据，保留 `storage.json` 和不随数据搬走的 `sync/`
-/// （本机同步身份与已配对设备，见 [`CorePaths::sync_dir`]）。
+/// 默认数据根同时是启动锚点：只删数据，保留 `storage.json` 和不随数据搬走的 `sync/`、`extensions/`
+/// （本机同步身份与已配对设备见 [`CorePaths::sync_dir`]，扩展见 [`CorePaths::extensions_dir`]）。
 fn remove_bootstrap_storage_payload(dir: &Path) -> Result<()> {
     if !dir.exists() {
         return Ok(());
@@ -811,7 +811,7 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_storage_cleanup_keeps_only_manifest_and_sync_identity() {
+    fn bootstrap_storage_cleanup_keeps_manifest_sync_identity_and_extensions() {
         let temp = TempDir::new();
         fs::write(temp.path().join("storage.json"), "{}").unwrap();
         fs::write(temp.path().join(".kwikpaste-storage.json"), "{}").unwrap();
@@ -822,7 +822,12 @@ mod tests {
         fs::create_dir_all(temp.path().join("sync")).unwrap();
         fs::write(temp.path().join("sync").join("identity.json"), b"{}").unwrap();
 
+        fs::create_dir_all(temp.path().join("extensions/ocr/state")).unwrap();
+        fs::write(temp.path().join("extensions/installed.json"), b"{}").unwrap();
+        fs::write(temp.path().join("extensions/ocr/state/data"), b"state").unwrap();
         remove_bootstrap_storage_payload(temp.path()).unwrap();
+        assert!(temp.path().join("extensions/installed.json").exists());
+        assert!(temp.path().join("extensions/ocr/state/data").exists());
 
         assert!(temp.path().join("storage.json").exists());
         assert!(temp.path().join("sync").join("identity.json").exists());

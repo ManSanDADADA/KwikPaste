@@ -1,10 +1,7 @@
 //! WinRT OCR 的解码、选语言与分条识别都留在 helper 内。
 use std::path::Path;
 
-use kwikpaste_core::ocr::{
-    OcrSupport,
-    protocol::{MAX_TEXT_CHARS, Outcome},
-};
+use kwikpaste_ext_protocol::{MAX_TEXT_CHARS, OcrSupport, Outcome};
 use windows::{
     Globalization::{ApplicationLanguages, Language},
     Graphics::Imaging::{
@@ -246,10 +243,9 @@ mod tests {
     use super::*;
     #[test]
     fn tall_page_preserves_repeated_lines_across_blank_strip_boundaries() {
-        let text =
-            image::load_from_memory(include_bytes!("../../fixtures/ocr/chinese-english.png"))
-                .unwrap()
-                .to_rgba8();
+        let text = image::load_from_memory(include_bytes!("../fixtures/ocr/chinese-english.png"))
+            .unwrap()
+            .to_rgba8();
         let mut page = image::RgbaImage::from_pixel(1080, 8000, image::Rgba([255, 255, 255, 255]));
         for y in (32..7500).step_by(1000) {
             image::imageops::overlay(&mut page, &text, 32, y);

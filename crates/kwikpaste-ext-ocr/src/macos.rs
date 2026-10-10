@@ -1,8 +1,5 @@
 //! Vision 仅在 helper 中使用；保持 macOS 10.15 可用的 selector 集合。
-use kwikpaste_core::ocr::{
-    OcrSupport,
-    protocol::{MAX_TEXT_CHARS, Outcome},
-};
+use kwikpaste_ext_protocol::{MAX_TEXT_CHARS, OcrSupport, Outcome};
 use objc2::{AnyThread, rc::autoreleasepool, runtime::AnyClass};
 use objc2_core_foundation::CFURL;
 use objc2_core_graphics::CGImage;

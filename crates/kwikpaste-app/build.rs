@@ -20,7 +20,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={ICON}");
 
-    // objc2-vision 的类通过运行时查找：去掉未引用的框架 load command，helper 再 dlopen。
+    // 裁掉没有引用的框架对应的 load command。
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rustc-link-arg=-Wl,-dead_strip_dylibs");
     }

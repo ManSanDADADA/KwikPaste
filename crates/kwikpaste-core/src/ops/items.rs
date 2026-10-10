@@ -248,8 +248,7 @@ async fn load_fragment_text(
     let item = find_required(pool, id).await?;
     let text = match fragment {
         ClipboardFragment::ImageWords { indices }
-            if item.kind == ClipboardKind::Image
-                && core.settings.snapshot().clipboard.ocr.enabled =>
+            if item.kind == ClipboardKind::Image && core.extensions.resolve("ocr").is_some() =>
         {
             let recognized: Option<String> = sqlx::query_scalar(
                 "SELECT text FROM image_texts WHERE item_id = ? AND status = 'done'",
@@ -300,7 +299,7 @@ impl Core {
         let id = id.to_owned();
         self.hop(async move {
             let settings = core.settings().clipboard;
-            if !settings.ocr.enabled {
+            if !core.ocr_enabled() {
                 return Err(AppError::Clipboard(
                     "image text recognition is disabled".into(),
                 ));
@@ -724,7 +723,7 @@ impl Core {
         let core = self.clone();
         self.hop(async move {
             let mut query = query;
-            query.ocr_enabled = core.settings().clipboard.ocr.enabled;
+            query.ocr_enabled = core.ocr_enabled();
             list_item_refs(&core.0.db.pool().await, &query).await
         })
         .await

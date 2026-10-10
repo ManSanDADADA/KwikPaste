@@ -34,6 +34,7 @@ const CONFIG_DIR: &str = "config";
 const STATE_DIR: &str = "state";
 /// 局域网同步身份目录名，挂在 [`CorePaths::bootstrap_dir`] 下。
 const SYNC_DIR: &str = "sync";
+pub(crate) const EXTENSIONS_DIR: &str = "extensions";
 /// 安装版的日志目录名，挂在 `<app_local_data>` 下（Windows）。
 #[cfg(not(target_os = "macos"))]
 const LOGS_DIR: &str = "logs";
@@ -428,6 +429,11 @@ impl CorePaths {
     /// 这些是这台电脑自己的身份，导入到别的电脑就成了冒充。
     pub fn sync_dir(&self) -> PathBuf {
         self.bootstrap_dir().join(SYNC_DIR)
+    }
+
+    /// `<bootstrap>/extensions`：扩展可执行文件和自有状态，不随自定义数据迁移，也不进入备份。
+    pub fn extensions_dir(&self) -> PathBuf {
+        self.bootstrap_dir().join(EXTENSIONS_DIR)
     }
 
     fn storage_manifest(&self, data_dir: PathBuf) -> StorageManifest {

@@ -1,4 +1,4 @@
-//! 采集页「图片文字识别」开关下面的状态行：识别进度、完成情况、缺少语言包、系统不支持，
+//! 采集页的图片文字识别状态：识别进度、完成情况、缺少语言包、系统不支持，
 //! 以及关闭识别后还留在本机的识别文字。
 //!
 //! 数字来自 core 的 `ocr_status`（一条聚合查询）。系统能力只在开着识别时探测：探测会短暂
@@ -46,12 +46,17 @@ impl Preferences {
         let Some(core) = core_host::core(cx).cloned() else {
             return;
         };
-        // 设置事件可能比 `OcrChanged` 晚到，开关以 core 的设置为准。
-        let probe = core.settings().clipboard.ocr.enabled && self.ocr_support.is_none();
+        // 以扩展实时状态作为门控，并丢弃较早生命周期事件的状态与探测结果。
+        self.ocr_refresh = self.ocr_refresh.wrapping_add(1);
+        let refresh = self.ocr_refresh;
+        let probe = core.ocr_enabled() && self.ocr_support.is_none();
 
         cx.spawn(async move |this, cx| {
             let status = core.ocr_status().await;
             let _ = this.update(cx, |this, cx| {
+                if this.ocr_refresh != refresh {
+                    return;
+                }
                 match status {
                     Ok(status) => this.ocr_status = Some(status),
                     Err(error) => log::warn!("image text status failed: {error:#}"),
@@ -63,6 +68,9 @@ impl Preferences {
             }
             let support = core.ocr_support().await;
             let _ = this.update(cx, |this, cx| {
+                if this.ocr_refresh != refresh {
+                    return;
+                }
                 match support {
                     Ok(support) => this.ocr_support = Some(support),
                     Err(error) => log::warn!("image text support probe failed: {error:#}"),
@@ -75,12 +83,20 @@ impl Preferences {
 
     /// 关着识别又没有留下文字时整行不显示。
     pub(super) fn image_text_row_visible(&self) -> bool {
-        self.image_text_row() != Row::Empty || self.settings.clipboard.ocr.enabled
+        self.image_text_row() != Row::Empty
+            || self
+                .ocr_status
+                .as_ref()
+                .is_some_and(|status| status.enabled)
     }
 
     fn image_text_row(&self) -> Row {
         let status = self.ocr_status.as_ref();
-        if !self.settings.clipboard.ocr.enabled {
+        if !self
+            .ocr_status
+            .as_ref()
+            .is_some_and(|status| status.enabled)
+        {
             return match status {
                 Some(status) if status.with_text > 0 => Row::Saved {
                     count: status.with_text,
@@ -90,7 +106,9 @@ impl Preferences {
         }
         match self.ocr_support {
             Some(OcrSupport::MissingLanguage) => return Row::MissingLanguage,
-            Some(OcrSupport::Unsupported) => return Row::Unsupported,
+            Some(OcrSupport::Unsupported | OcrSupport::NotInstalled | OcrSupport::Disabled) => {
+                return Row::Unsupported;
+            }
             Some(OcrSupport::Available { .. }) => {}
             None => return Row::Checking,
         }

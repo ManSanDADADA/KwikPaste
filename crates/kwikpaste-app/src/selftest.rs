@@ -260,6 +260,9 @@ impl log::Log for StderrLogger {
 
 /// 按开关安排自测流程。在 `platform::start` 之后调用。
 pub fn schedule(cx: &mut App) {
+    if enabled(OCR_DEMO) && std::env::var("KP_OCR_DEMO_VERIFY").as_deref() == Ok("1") {
+        ocr_demo_verify(cx);
+    }
     #[cfg(target_os = "macos")]
     if enabled(DRAGOUT) {
         let mut payload_seen = false;
@@ -636,6 +639,46 @@ fn smoke(cx: &mut App) {
             std::process::exit(1);
         }
         cx.update(|cx| cx.quit());
+    })
+    .detach();
+}
+
+/// 通过演示环境安装的旁置扩展执行真实识别，然后退出且不触碰生产数据。
+fn ocr_demo_verify(cx: &mut App) {
+    let Some(core) = crate::core_host::core(cx).cloned() else {
+        log::error!("OCR demo has no core");
+        std::process::exit(1);
+    };
+    cx.spawn(async move |cx| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        loop {
+            let status = match core.ocr_status().await {
+                Ok(status) => status,
+                Err(err) => {
+                    log::error!("OCR demo status failed: {err}");
+                    std::process::exit(1);
+                }
+            };
+            if !status.running && status.pending == 0 {
+                if !status.enabled
+                    || status.total_images == 0
+                    || status.with_text != status.total_images
+                {
+                    log::error!("OCR demo acceptance failed: {status:?}");
+                    std::process::exit(1);
+                }
+                log::info!("OCR demo acceptance passed: {status:?}");
+                cx.update(|cx| cx.quit());
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                log::error!("OCR demo queue did not drain: {status:?}");
+                std::process::exit(1);
+            }
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+        }
     })
     .detach();
 }

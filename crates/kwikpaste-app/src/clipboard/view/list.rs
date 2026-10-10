@@ -411,6 +411,14 @@ impl ClipboardList {
                     ListUpdate::Cleaned { removed: *removed }
                 }
                 CoreEvent::ClipboardReloaded => ListUpdate::Reloaded,
+                CoreEvent::ExtensionsChanged => {
+                    // 扩展移除后，缓存的文本预览和操作必须立即消失。
+                    list.close_preview(cx);
+                    if let Some(request) = list.model.reload_current_range() {
+                        list.fetch(request, cx);
+                    }
+                    return;
+                }
                 CoreEvent::OcrChanged => ListUpdate::ImageTextChanged,
                 _ => return,
             };

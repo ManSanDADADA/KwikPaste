@@ -677,9 +677,6 @@ fn capture_sections() -> Vec<Section> {
         Section {
             id: "imageText",
             settings: vec![
-                Setting::new("ocr.enabled", Control::Switch)
-                    .path("clipboard.ocr.enabled")
-                    .keywords(&["ocr", "image", "picture", "text", "recognize", "search"]),
                 Setting::new("ocr.status", Control::ImageTextStatus).keywords(&[
                     "ocr",
                     "image",
@@ -1141,5 +1138,16 @@ mod tests {
                 sound.settings[1].keywords
             ));
         }
+    }
+    #[test]
+    fn capture_retains_image_text_status_but_not_the_removed_ocr_switch() {
+        let capture = capture_sections();
+        let rows: Vec<_> = capture
+            .iter()
+            .flat_map(|section| &section.settings)
+            .collect();
+        assert!(rows.iter().all(|setting| setting.id != "ocr.enabled"));
+        assert!(rows.iter().any(|setting| setting.id == "ocr.status"
+            && matches!(setting.control, Control::ImageTextStatus)));
     }
 }

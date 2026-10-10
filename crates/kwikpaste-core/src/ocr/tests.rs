@@ -32,7 +32,15 @@ fn seed(fixture: &Fixture, core: &Core, id: &str, time: i64) -> crate::db::model
 }
 
 fn enable(core: &Core) {
-    block_on(core.update_settings(serde_json::json!({"clipboard":{"ocr":{"enabled":true}}})))
+    // 本文件用固定结果填充数据库；调度器的真实生命周期由 extensions::tests 覆盖。
+    core.0.ocr.state().stopped = true;
+    let staged = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        staged.path(),
+        b"fixture executable; engine is not run in seeded DB tests",
+    )
+    .unwrap();
+    block_on(core.install_extension("ocr", "1.0.0", protocol::OCR_PROTOCOL, staged.path()))
         .unwrap();
 }
 
@@ -353,8 +361,7 @@ fn image_words_reject_invalid_indices_non_images_and_unavailable_text() {
         check(&image.id, vec![0]);
     }
     save_outcome(&fixture, &core, &image, &done("hello world"));
-    block_on(core.update_settings(serde_json::json!({"clipboard":{"ocr":{"enabled":false}}})))
-        .unwrap();
+    block_on(core.set_extension_enabled("ocr", false)).unwrap();
     check(&image.id, vec![0]);
     assert_eq!(
         block_on(core.find_item(&image.id))
@@ -499,8 +506,7 @@ fn ocr_search_matches_rows_totals_select_all_and_flags_with_same_predicate() {
             .unwrap()
             .has_image_text
     );
-    block_on(core.update_settings(serde_json::json!({"clipboard":{"ocr":{"enabled":false}}})))
-        .unwrap();
+    block_on(core.set_extension_enabled("ocr", false)).unwrap();
     assert_eq!(
         block_on(core.list_items(query("English"))).unwrap().total,
         0
@@ -565,6 +571,7 @@ fn late_results_are_rejected_after_delete_clear_import_and_storage_switch() {
     let item = seed(&fixture, &core, "late", 1_800_000_001);
     enable(&core);
     let try_late = |generation| {
+        assert_ne!(core.0.ocr.state().generation, generation);
         fixture.runtime.handle().block_on(async {
             let mut connection = connect(&core.0).await.unwrap();
             assert!(!write_if_current(
@@ -615,15 +622,21 @@ fn late_results_are_rejected_after_delete_clear_import_and_storage_switch() {
 }
 
 #[test]
-fn old_settings_default_to_disabled_and_new_setting_roundtrips() {
-    let settings: crate::settings::Settings = serde_json::from_str(r#"{"clipboard":{}}"#).unwrap();
-    assert!(!settings.clipboard.ocr.enabled);
+fn old_test_build_ocr_setting_is_ignored_without_installing_an_extension() {
     let fixture = Fixture::new();
-    fixture.write_settings(r#"{"clipboard":{"ocr":{"enabled":true}}}"#);
+    fixture.write_settings(include_str!(
+        "../../tests/fixtures/settings/legacy-ocr.json"
+    ));
     let core = fixture.start();
-    assert!(core.settings().clipboard.ocr.enabled);
+    assert!(!core.ocr_enabled());
+    assert_eq!(core.settings_load_report(), Default::default());
+    assert_eq!(
+        block_on(core.ocr_support()).unwrap(),
+        OcrSupport::NotInstalled
+    );
     let value = serde_json::to_value(core.settings()).unwrap();
-    assert_eq!(value["clipboard"]["ocr"]["enabled"], true);
+    assert!(value["clipboard"].get("ocr").is_none());
+    assert!(core.settings().clipboard.capture.image);
     block_on(core.shutdown()).unwrap();
 }
 

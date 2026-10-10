@@ -58,9 +58,6 @@ dispatch2 = "0.3"
 global-hotkey = "0.8"
 kwikpaste-os = { path = "crates/kwikpaste-os" }
 objc2 = "0.6"
-objc2-vision = { version = "0.3", default-features = false, features = ["std", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNObservation", "VNTypes", "objc2-core-graphics", "objc2-image-io"] }
-objc2-image-io = { version = "0.3", default-features = false, features = ["std", "CGImageSource", "objc2-core-graphics"] }
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFURL", "CFString", "CFDictionary", "CFNumber"] }
 objc2-app-kit = { version = "0.3", default-features = false }
 objc2-foundation = { version = "0.3", default-features = false }
 objc2-metal = { version = "0.3", default-features = false }

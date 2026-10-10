@@ -22,15 +22,7 @@ windows-registry.workspace = true
 workspace = true
 features = [
     "UI_ViewManagement",
-    "Media_Ocr",
-    "Graphics_Imaging",
-    "Storage",
-    "Storage_Streams",
-    "Globalization",
     "Foundation",
-    "Foundation_Collections",
-    "Win32_System_WinRT",
-    "Win32_System_ProcessStatus",
     "Win32_Foundation",
     "Win32_Globalization",
     "Win32_Graphics_Dwm",
@@ -64,10 +56,6 @@ objc2.workspace = true
 block2.workspace = true
 dispatch2.workspace = true
 plist.workspace = true
-libc.workspace = true
-objc2-vision.workspace = true
-objc2-image-io.workspace = true
-objc2-core-foundation.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies.objc2-app-kit]
 workspace = true
@@ -105,7 +93,7 @@ features = [
 
 [target.'cfg(target_os = "macos")'.dependencies.objc2-core-graphics]
 workspace = true
-features = ["std", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation", "CGImage"]
+features = ["std", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"]
 
 [target.'cfg(target_os = "macos")'.dependencies.objc2-foundation]
 workspace = true
@@ -134,7 +122,6 @@ workspace = true
 features = ["std", "MTLDevice", "block2"]
 
 [dev-dependencies]
-image.workspace = true
 tempfile.workspace = true
 
 [lints]

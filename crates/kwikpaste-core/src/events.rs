@@ -33,6 +33,7 @@ impl EventSink for NoopSink {
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum CoreEvent {
+    ExtensionsChanged,
     /// 图片文字识别状态变化，运行中进度最多每秒两次。
     OcrChanged,
     /// 一条记录入库或命中已有内容（1.x `clipboard://updated` 的 `{ id, kind, deduplicated }`）。
@@ -42,7 +43,9 @@ pub enum CoreEvent {
         deduplicated: bool,
     },
     /// 自动或手动清理删掉了记录（1.x `clipboard://updated` 的 `{ cleanup }`），列表需要整体刷新。
-    ClipboardCleaned { removed: u64 },
+    ClipboardCleaned {
+        removed: u64,
+    },
     /// 设置已落盘（1.x `settings://updated`）。`delta` 说明这次改了哪些部分，宿主据此重注册快捷键、
     /// 重建托盘、切换材质、同步自启等。
     SettingsUpdated {
@@ -60,5 +63,7 @@ pub enum CoreEvent {
     /// 偏好页需要时用 [`crate::Core::lan_sync_state`] 重新取。
     LanSyncChanged,
     /// 别的设备用本机配对码配对成功（1.x `sync://lan-paired`）。
-    LanDevicePaired { name: String },
+    LanDevicePaired {
+        name: String,
+    },
 }

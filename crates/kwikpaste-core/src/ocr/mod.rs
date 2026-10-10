@@ -1,26 +1,18 @@
 //! 事件驱动的 OCR 调度：闲置时不保留线程、连接、管道、图片或文本缓冲。
 mod client;
 mod db;
-pub mod protocol;
+pub use kwikpaste_ext_protocol as protocol;
+pub use protocol::OcrSupport;
 #[cfg(test)]
 mod tests;
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteConnectOptions, ConnectOptions, Connection, SqliteConnection};
 
 use crate::{root::CoreInner, Core, CoreEvent, Result};
 use protocol::{Outcome, Request, Response};
-
-static HELPER_EXE: OnceLock<PathBuf> = OnceLock::new();
-
-/// 宿主必须指向自己的程序；core 绝不回退为进程内识别。
-pub fn set_helper_exe(path: PathBuf) {
-    let _ = HELPER_EXE.set(path);
-}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OcrStatus {
@@ -94,13 +86,6 @@ pub(crate) fn snippet(text: &str, keyword: &str) -> Option<TextSnippet> {
     Some(TextSnippet { text: out, matched })
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum OcrSupport {
-    Available { languages: Vec<String> },
-    MissingLanguage,
-    Unsupported,
-}
-
 #[derive(Default)]
 struct State {
     generation: u64,
@@ -116,14 +101,23 @@ pub(crate) struct Scheduler {
     core: OnceLock<Weak<CoreInner>>,
     state: Mutex<State>,
     finished: tokio::sync::Notify,
-    support: OnceLock<OcrSupport>,
-    probe_lock: tokio::sync::Mutex<()>,
+    support: Mutex<Option<OcrSupport>>,
+    pub(crate) probe_lock: tokio::sync::Mutex<()>,
     startup: Mutex<Option<tokio::task::JoinHandle<()>>>,
     #[cfg(target_os = "windows")]
     helper_peak: std::sync::atomic::AtomicU64,
 }
 
 impl Scheduler {
+    #[cfg(test)]
+    pub(crate) fn track_child_for_test(&self, child: client::ChildHandle) {
+        self.state().child = Some(child);
+    }
+
+    pub(crate) fn clear_support(&self) {
+        *self.support.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
     pub(crate) fn bind(&self, core: Weak<CoreInner>) {
         let _ = self.core.set(core);
     }
@@ -144,7 +138,7 @@ impl Scheduler {
         let Some(core) = self.core() else {
             return;
         };
-        if !core.settings.snapshot().clipboard.ocr.enabled || HELPER_EXE.get().is_none() {
+        if core.extensions.resolve("ocr").is_none() {
             return;
         }
         let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT EXISTS(");
@@ -176,7 +170,7 @@ impl Scheduler {
         let Some(core) = self.core() else {
             return;
         };
-        if !core.settings.snapshot().clipboard.ocr.enabled || HELPER_EXE.get().is_none() {
+        if core.extensions.resolve("ocr").is_none() {
             return;
         }
         let mut state = self.state();
@@ -247,10 +241,14 @@ impl Scheduler {
 
     /// 换库/删行前暂停并等待专用连接真正关闭，RAII 在成功和失败路径都恢复调度。
     pub(crate) async fn suspend(&self) -> Suspension {
-        if !self.state().running
-            && !self
+        let inactive = {
+            let state = self.state();
+            !state.running && state.child.is_none()
+        };
+        if inactive
+            && self
                 .core()
-                .is_some_and(|core| core.settings.snapshot().clipboard.ocr.enabled)
+                .is_none_or(|core| core.extensions.resolve("ocr").is_none())
         {
             return Suspension(Weak::new());
         }
@@ -319,7 +317,7 @@ fn run_jobs(
     let mut failures = 0u32;
     let mut last_event = Instant::now();
     loop {
-        if !core.ocr.valid(generation) || !core.settings.snapshot().clipboard.ocr.enabled {
+        if !core.ocr.valid(generation) || core.extensions.resolve("ocr").is_none() {
             break;
         }
         let job: Option<(String, String, String)> = core
@@ -356,10 +354,10 @@ fn run_jobs(
             }
         }
         if helper.is_none() {
-            let Some(exe) = HELPER_EXE.get() else {
+            let Some(exe) = core.extensions.resolve("ocr") else {
                 break;
             };
-            match client::Client::start(exe) {
+            match client::Client::start(&exe) {
                 Ok(client) => {
                     let mut state = core.ocr.state();
                     if state.generation != generation || state.suspended != 0 || state.stopped {
@@ -436,7 +434,7 @@ async fn write_if_current(
     outcome: &Outcome,
 ) -> anyhow::Result<bool> {
     let _serial = core.upsert_lock.lock().await;
-    if !core.ocr.valid(generation) || !core.settings.snapshot().clipboard.ocr.enabled {
+    if !core.ocr.valid(generation) || core.extensions.resolve("ocr").is_none() {
         return Ok(false);
     }
     db::save(connection, id, hash, outcome).await?;
@@ -459,7 +457,7 @@ impl Core {
         self.hop(async move {
             let row: (i64, i64, i64, i64, i64) = sqlx::query_as("SELECT COUNT(*), COALESCE(SUM(t.status = 'done'),0), COALESCE(SUM(t.status = 'done' AND t.text <> ''),0), COALESCE(SUM(t.status = 'skipped' OR (t.status = 'failed' AND t.attempts >= 3)),0), COALESCE(SUM(t.item_id IS NULL OR (t.status = 'failed' AND t.attempts < 3)),0) FROM clipboard_items i LEFT JOIN image_texts t ON t.item_id = i.id WHERE i.kind = 'image'")
                 .fetch_one(&core.0.db.pool().await).await.map_err(anyhow::Error::from)?;
-            Ok(OcrStatus { enabled: core.settings().clipboard.ocr.enabled, total_images: row.0 as u64, recognized: row.1 as u64, with_text: row.2 as u64, failed: row.3 as u64, pending: row.4 as u64, running: core.0.ocr.state().running })
+            Ok(OcrStatus { enabled: core.ocr_enabled(), total_images: row.0 as u64, recognized: row.1 as u64, with_text: row.2 as u64, failed: row.3 as u64, pending: row.4 as u64, running: core.0.ocr.state().running })
         }).await
     }
 
@@ -468,13 +466,23 @@ impl Core {
         let core = self.clone();
         self.hop(async move {
             let _serial = core.0.ocr.probe_lock.lock().await;
-            if let Some(support) = core.0.ocr.support.get() {
+            let Some(exe) = core.resolve_extension("ocr") else {
+                return Ok(match core.installed_extensions().get("ocr") {
+                    None => OcrSupport::NotInstalled,
+                    Some(entry) if !entry.enabled => OcrSupport::Disabled,
+                    Some(_) => OcrSupport::Unsupported,
+                });
+            };
+            if let Some(support) = core
+                .0
+                .ocr
+                .support
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone()
+            {
                 return Ok(support.clone());
             }
-            let exe = HELPER_EXE
-                .get()
-                .ok_or_else(|| anyhow::anyhow!("OCR helper executable not configured"))?
-                .clone();
             let (sender, receiver) = tokio::sync::oneshot::channel();
             std::thread::Builder::new()
                 .name("ocr-probe".into())
@@ -493,7 +501,7 @@ impl Core {
                 .await
                 .map_err(|err| anyhow::anyhow!(err))?
                 .map_err(anyhow::Error::from)?;
-            let _ = core.0.ocr.support.set(support.clone());
+            *core.0.ocr.support.lock().unwrap_or_else(|p| p.into_inner()) = Some(support.clone());
             Ok(support)
         })
         .await

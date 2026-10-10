@@ -1,9 +1,18 @@
 //! OCR helper 的有界二进制帧；正文只含路径或文本，绝不携带图片字节。
 use std::io::{self, Read, Write};
 
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use super::OcrSupport;
+pub const OCR_PROTOCOL: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum OcrSupport {
+    Available { languages: Vec<String> },
+    MissingLanguage,
+    Unsupported,
+    NotInstalled,
+    Disabled,
+}
 
 pub const MAX_FRAME_BYTES: usize = 512 * 1024;
 pub const MAX_TEXT_CHARS: usize = 64 * 1024;
@@ -109,9 +118,11 @@ mod tests {
             read_frame::<Request>(&mut reader, &mut buffer).unwrap(),
             Some(value)
         );
-        assert!(read_frame::<Request>(&mut reader, &mut buffer)
-            .unwrap()
-            .is_none());
+        assert!(
+            read_frame::<Request>(&mut reader, &mut buffer)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

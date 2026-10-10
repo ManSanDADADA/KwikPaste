@@ -104,9 +104,27 @@ pub fn run_if_requested() -> anyhow::Result<bool> {
         runtime.handle().block_on(core.store_item(item, None))?;
     }
     // 两种模式都走相同设置写入和 status 查询，避免把测量驱动的页缓存当成 OCR 的增量。
-    runtime
-        .handle()
-        .block_on(core.update_settings(serde_json::json!({"clipboard":{"ocr":{"enabled":on}}})))?;
+    #[cfg(debug_assertions)]
+    if on {
+        runtime.handle().block_on(core.install_extension_from_dev(
+            "ocr",
+            "1.0.0",
+            kwikpaste_core::extensions::OCR_PROTOCOL,
+        ))?;
+    }
+    #[cfg(not(debug_assertions))]
+    if on {
+        let sibling = std::env::current_exe()?
+            .with_file_name(kwikpaste_core::extensions::executable_name("ocr")?);
+        let staged = tempfile::NamedTempFile::new()?;
+        std::fs::copy(sibling, staged.path())?;
+        runtime.handle().block_on(core.install_extension(
+            "ocr",
+            "1.0.0",
+            kwikpaste_core::extensions::OCR_PROTOCOL,
+            staged.path(),
+        ))?;
+    }
     if on {
         let support = runtime.handle().block_on(core.ocr_support())?;
         if !matches!(support, kwikpaste_core::OcrSupport::Available { .. }) {
@@ -133,7 +151,7 @@ pub fn run_if_requested() -> anyhow::Result<bool> {
         }
     }
     std::thread::sleep(Duration::from_secs(20));
-    let (working_set, private_usage) = kwikpaste_os::ocr::process_memory()?;
+    let (working_set, private_usage) = process_memory()?;
     println!(
         "{}",
         serde_json::json!({"mode":if on {"on-after-drain"} else {"off"},"images":30,"settle_seconds":20,"PrivateWorkingSetSize":working_set,"PrivateUsage":private_usage,"HelperPeakPrivateUsage":core.ocr_helper_peak_private_usage(),"data_dir":temp.path()})
@@ -156,7 +174,7 @@ fn dimensions(index: usize) -> (u32, u32) {
 /// 图像字节只在隔离生成进程中存在；两种测量模式使用同一确定性图集。
 fn generate(root: &std::path::Path) -> anyhow::Result<()> {
     let text = image::load_from_memory(include_bytes!(
-        "../../kwikpaste-os/fixtures/ocr/chinese-english.png"
+        "../../kwikpaste-ext-ocr/fixtures/ocr/chinese-english.png"
     ))?
     .to_rgba8();
     for index in 0..30 {
@@ -176,4 +194,27 @@ fn generate(root: &std::path::Path) -> anyhow::Result<()> {
         image.save(path)?;
     }
     Ok(())
+}
+
+/// 仅读取当前自测进程的内存计数，不加载 OCR 库。
+fn process_memory() -> anyhow::Result<(usize, usize)> {
+    use windows_sys::Win32::System::{
+        ProcessStatus::{
+            GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2,
+        },
+        Threading::GetCurrentProcess,
+    };
+    let mut memory: PROCESS_MEMORY_COUNTERS_EX2 = unsafe { std::mem::zeroed() };
+    memory.cb = size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
+    if unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            (&raw mut memory).cast::<PROCESS_MEMORY_COUNTERS>(),
+            memory.cb,
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok((memory.PrivateWorkingSetSize, memory.PrivateUsage))
 }

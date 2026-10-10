@@ -16,13 +16,6 @@ mod selftest;
 use gpui::{App, Application};
 
 fn main() -> anyhow::Result<()> {
-    if std::env::args().nth(1).as_deref() == Some("--ocr-helper") {
-        return kwikpaste_os::ocr::run_helper(std::io::stdin(), std::io::stdout().lock());
-    }
-    match std::env::current_exe() {
-        Ok(path) => kwikpaste_core::ocr::set_helper_exe(path),
-        Err(err) => eprintln!("OCR helper executable path is unavailable: {err}"),
-    }
     #[cfg(target_os = "windows")]
     if ocr_memory::run_if_requested()? {
         return Ok(());

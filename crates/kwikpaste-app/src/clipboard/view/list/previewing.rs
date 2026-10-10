@@ -332,7 +332,8 @@ impl ClipboardList {
             self.previewing.image_text = None;
         }
         // 识别出文字的图片给「图片 / 文字」切换；看文字时取识别文字的文本预览，取不到就退回图片。
-        let has_text = self.model.find(&id).is_some_and(|item| item.has_image_text);
+        let has_text = self.model.find(&id).is_some_and(|item| item.has_image_text)
+            && crate::core_host::core(cx).is_none_or(|core| core.ocr_enabled());
         let mut image_text = has_text.then(|| {
             if self.previewing.image_text.is_some() {
                 ImageTextView::Text

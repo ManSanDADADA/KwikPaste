@@ -1,4 +1,4 @@
-//! OCR 框架入口，仅由独立的 `--ocr-helper` 子进程调用。
+//! OCR 框架入口，仅由独立的 OCR extension 子进程调用。
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
@@ -8,10 +8,7 @@ use std::io::{Read, Write};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use kwikpaste_core::ocr::{
-    OcrSupport,
-    protocol::{self, Outcome, Request, Response},
-};
+use kwikpaste_ext_protocol::{self as protocol, OcrSupport, Outcome, Request, Response};
 
 #[cfg(target_os = "macos")]
 use macos::Engine;
@@ -19,7 +16,7 @@ use macos::Engine;
 use windows::Engine;
 
 /// EOF、10 秒空闲或父进程消失后退出；整个 helper 串行识别，不把框架带到主进程。
-pub fn run_helper<R: Read + Send + 'static, W: Write>(
+fn run_helper<R: Read + Send + 'static, W: Write>(
     mut reader: R,
     mut writer: W,
 ) -> anyhow::Result<()> {
@@ -109,11 +106,6 @@ fn watch_parent() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// 真实引擎测试与测量入口；生产主进程不得调用。
-pub fn recognize_for_test(path: &std::path::Path) -> anyhow::Result<Outcome> {
-    Engine::new()?.recognize(path)
-}
-
 /// 去掉两个 CJK 字符之间的空白，保留拉丁单词的分隔和换行。
 #[cfg(any(target_os = "windows", test))]
 fn normalize_line(line: &str) -> String {
@@ -138,27 +130,8 @@ fn normalize_line(line: &str) -> String {
     result.trim().to_owned()
 }
 
-/// 自测读取当前进程的 EX2 私有工作集与提交量；不激活任何 OCR 框架。
-#[cfg(target_os = "windows")]
-pub fn process_memory() -> anyhow::Result<(usize, usize)> {
-    use ::windows::Win32::System::{
-        ProcessStatus::{
-            GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2,
-        },
-        Threading::GetCurrentProcess,
-    };
-    let mut memory = PROCESS_MEMORY_COUNTERS_EX2 {
-        cb: size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32,
-        ..Default::default()
-    };
-    unsafe {
-        GetProcessMemoryInfo(
-            GetCurrentProcess(),
-            (&raw mut memory).cast::<PROCESS_MEMORY_COUNTERS>(),
-            memory.cb,
-        )?;
-    }
-    Ok((memory.PrivateWorkingSetSize, memory.PrivateUsage))
+fn main() -> anyhow::Result<()> {
+    run_helper(std::io::stdin(), std::io::stdout().lock())
 }
 
 #[cfg(test)]

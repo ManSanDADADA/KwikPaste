@@ -82,7 +82,7 @@ pub fn start() -> anyhow::Result<StartedCore> {
     if crate::selftest::enabled(crate::selftest::OCR_DEMO)
         && let Err(err) = seed_ocr_demo(&core)
     {
-        log::error!("the OCR demo images could not be stored: {err:#}");
+        return Err(err.context("the OCR demo images could not be stored"));
     }
     let lan_network = if crate::selftest::active() {
         LanSyncNetwork::loopback()
@@ -141,9 +141,17 @@ fn seed_ocr_demo(core: &Core) -> anyhow::Result<()> {
         futures::executor::block_on(core.clear_ocr_data())?;
     }
     let enabled = mode != "off";
-    futures::executor::block_on(
-        core.update_settings(serde_json::json!({ "clipboard": { "ocr": { "enabled": enabled } } })),
-    )?;
+    #[cfg(debug_assertions)]
+    if enabled {
+        futures::executor::block_on(core.install_extension_from_dev(
+            "ocr",
+            "1.0.0",
+            kwikpaste_core::extensions::OCR_PROTOCOL,
+        ))?;
+    }
+    if core.installed_extensions().contains_key("ocr") {
+        futures::executor::block_on(core.set_extension_enabled("ocr", enabled))?;
+    }
     Ok(())
 }
 

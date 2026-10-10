@@ -58,6 +58,16 @@ fn change_and_reset_storage_location_move_data_and_rebase_every_store() {
     let sync_identity = fixture.paths.sync_dir().join("identity.json");
     fs::create_dir_all(sync_identity.parent().unwrap()).unwrap();
     fs::write(&sync_identity, b"{}").unwrap();
+    let staged = fixture.root().join("staged-ocr");
+    fs::write(&staged, b"disabled fixture extension").unwrap();
+    block_on(core.install_extension("ocr", "1.0.0", crate::extensions::OCR_PROTOCOL, &staged))
+        .unwrap();
+    block_on(core.set_extension_enabled("ocr", false)).unwrap();
+    let ext_dir = fixture.paths.extensions_dir();
+    let ext_exe = ext_dir
+        .join("ocr/1.0.0")
+        .join(crate::extensions::executable_name("ocr").unwrap());
+    fs::write(ext_dir.join("ocr/state/data"), b"machine-local").unwrap();
 
     block_on(core.update_settings(json!({"appearance": {"theme": "dark"}}))).unwrap();
     let text_id = store(&core, text("moved with the data dir"));
@@ -74,13 +84,20 @@ fn change_and_reset_storage_location_move_data_and_rebase_every_store() {
     assert!(result.storage_usage.database_bytes > 0);
     assert!(custom.join("db").join("clipboard.db").is_file());
     assert!(custom.join(".kwikpaste-storage.json").is_file());
-    // 启动锚点只留下 manifest 和本机同步身份。
+    // 启动锚点会保留本机扩展二进制文件、自有状态和同步身份。
     let mut left: Vec<_> = fs::read_dir(&default_dir)
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
-    assert_eq!(left, ["storage.json", "sync"]);
+    assert_eq!(left, ["extensions", "storage.json", "sync"]);
+    assert!(ext_exe.is_file());
+    assert_eq!(
+        fs::read(ext_dir.join("ocr/state/data")).unwrap(),
+        b"machine-local"
+    );
+    assert!(!custom.join("extensions").exists());
+    assert!(!core.installed_extensions()["ocr"].enabled);
     assert!(sync_identity.is_file());
 
     let listed = block_on(core.list_items(ClipboardItemQuery::default())).unwrap();
@@ -116,6 +133,11 @@ fn change_and_reset_storage_location_move_data_and_rebase_every_store() {
     let reset = block_on(core.reset_storage_location()).unwrap();
     assert!(!reset.location.is_custom);
     assert!(!custom.exists());
+    assert!(ext_exe.is_file());
+    assert_eq!(
+        fs::read(ext_dir.join("ocr/state/data")).unwrap(),
+        b"machine-local"
+    );
     assert!(!parent.join("KwikPasteData").exists());
     for id in [&text_id, &image_id, &after] {
         assert!(block_on(core.find_item(id)).unwrap().is_some());

@@ -484,7 +484,9 @@ mod tests {
             crate::db::models::ClipboardItemSort::UpdatedAt
         );
         assert!(!parsed.clipboard.content.copy_then_hide_window);
-        assert!(!parsed.clipboard.ocr.enabled);
+        assert!(serde_json::to_value(&parsed).unwrap()["clipboard"]
+            .get("ocr")
+            .is_none());
         assert!(
             parsed
                 .clipboard
