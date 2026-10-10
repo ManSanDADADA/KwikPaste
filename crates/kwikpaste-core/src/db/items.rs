@@ -353,6 +353,34 @@ pub async fn update_item_note(pool: &SqlitePool, id: &str, note: Option<&str>) -
     Ok(())
 }
 
+/// 只改写文本内容及采集派生字段，不刷新复用时间、同步序号或排序元数据。
+pub async fn update_item_text_content(pool: &SqlitePool, item: &ClipboardItem) -> Result<()> {
+    let result = sqlx::query(
+        "UPDATE clipboard_items SET content = ?, content_hash = ?, search_text = ?, \
+         summary = ?, size = ?, sub_kind = ?, file_types = ?, width = ?, height = ? \
+         WHERE id = ? AND kind = 'text'",
+    )
+    .bind(&item.content)
+    .bind(&item.content_hash)
+    .bind(&item.search_text)
+    .bind(&item.summary)
+    .bind(item.size)
+    .bind(item.sub_kind)
+    .bind(&item.file_types)
+    .bind(item.width)
+    .bind(item.height)
+    .bind(&item.id)
+    .execute(pool)
+    .await
+    .context("failed to update clipboard item content")?;
+    if result.rows_affected() == 0 {
+        return Err(crate::error::AppError::Clipboard(
+            "Text record no longer exists".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 /// 更新条目所属分组；不刷新 `updated_at`，避免污染最近使用排序。
 pub async fn update_item_group(pool: &SqlitePool, id: &str, group_id: Option<&str>) -> Result<()> {
     sqlx::query("UPDATE clipboard_items SET group_id = ? WHERE id = ?")

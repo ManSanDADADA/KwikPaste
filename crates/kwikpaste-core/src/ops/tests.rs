@@ -725,3 +725,220 @@ fn unreadable_image_file_records_preview_as_a_file_row() {
     assert_eq!(view.image_display_size, None);
     block_on(core.shutdown()).unwrap();
 }
+
+/// 数据模型外的本地排序、最后使用时间和同步序号也必须原样保留。
+fn edit_metadata(core: &Core, id: &str) -> (String, Option<i64>, Option<i64>, Option<i64>) {
+    block_on(core.hop({
+        let core = core.clone();
+        let id = id.to_owned();
+        async move {
+            Ok(sqlx::query_as("SELECT last_used_at, sync_seq, pin_order, favorite_order FROM clipboard_items WHERE id = ?")
+                .bind(id).fetch_one(&core.0.db.pool().await).await.unwrap())
+        }
+    })).unwrap()
+}
+
+#[test]
+fn text_edit_rebuilds_content_and_search_without_changing_metadata() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    let id = copy_in(&core, text("oldneedle old record")).unwrap();
+    let group = block_on(core.create_group(ClipboardGroupInput {
+        name: "Edits".into(),
+        icon: "folder".into(),
+        is_hidden: false,
+    }))
+    .unwrap();
+    block_on(core.set_item_group(&id, &group.id)).unwrap();
+    block_on(core.update_note(&id, Some("kept note".into()))).unwrap();
+    block_on(core.toggle_favorite(&id)).unwrap();
+    block_on(core.toggle_pinned(&id)).unwrap();
+    block_on(core.hop({
+        let core = core.clone();
+        let id = id.clone();
+        async move {
+            sqlx::query("UPDATE clipboard_items SET is_sensitive = 1 WHERE id = ?")
+                .bind(id)
+                .execute(&core.0.db.pool().await)
+                .await
+                .unwrap();
+            Ok(())
+        }
+    }))
+    .unwrap();
+    let before = block_on(core.find_item(&id)).unwrap().unwrap();
+    let metadata = edit_metadata(&core, &id);
+    let sync = sync_numbers(&core, &id);
+    fixture.take_events();
+    // 编辑不是采集：禁用文本采集不能阻止修改现有记录。
+    block_on(core.update_settings(json!({"clipboard": {"capture": {"text": false}}}))).unwrap();
+    let content = "  https://example.com/newneedle\n";
+    block_on(core.update_text_content(&id, content.to_owned())).unwrap();
+    let after = block_on(core.find_item(&id)).unwrap().unwrap();
+    assert_eq!(after.content, content);
+    assert_eq!(
+        after.content_hash,
+        crate::db::items::content_hash(ClipboardKind::Text, content)
+    );
+    assert_eq!(after.search_text.as_deref(), Some(content));
+    assert_eq!(after.summary.as_deref(), Some(content.trim()));
+    assert_eq!(
+        after.sub_kind,
+        Some(crate::db::models::ClipboardSubKind::Url)
+    );
+    assert_eq!(after.size, Some(content.len() as i64));
+    assert_eq!(
+        (after.file_types.as_ref(), after.width, after.height),
+        (None, None, None)
+    );
+    let mut expected = before;
+    crate::clipboard::rewrite_text_content(&mut expected, content);
+    assert_eq!(
+        serde_json::to_value(&after).unwrap(),
+        serde_json::to_value(expected).unwrap()
+    );
+    assert_eq!(edit_metadata(&core, &id), metadata);
+    assert_eq!(sync_numbers(&core, &id), sync);
+    for (keyword, total) in [("oldneedle", 0), ("newneedle", 1)] {
+        assert_eq!(
+            block_on(core.list_items(ClipboardItemQuery {
+                keyword: Some(keyword.into()),
+                ..Default::default()
+            }))
+            .unwrap()
+            .total,
+            total
+        );
+    }
+    assert!(!fixture
+        .take_events()
+        .iter()
+        .any(|event| matches!(event, CoreEvent::ClipboardUpserted { .. })));
+}
+
+#[test]
+fn rich_text_edit_drops_formats_and_unchanged_save_is_a_noop() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    for state in [
+        MemoryState {
+            text: Some("HTML original".into()),
+            html: Some("<b>HTML original</b>".into()),
+            ..Default::default()
+        },
+        MemoryState {
+            text: Some("RTF original".into()),
+            rtf: Some(r"{\rtf1 RTF original}".into()),
+            ..Default::default()
+        },
+    ] {
+        let id = copy_in(&core, state).unwrap();
+        let before = block_on(core.find_item(&id)).unwrap().unwrap();
+        assert!(matches!(
+            before.sub_kind,
+            Some(
+                crate::db::models::ClipboardSubKind::Html
+                    | crate::db::models::ClipboardSubKind::Rtf
+            )
+        ));
+        block_on(core.update_text_content(&id, before.search_text.clone().unwrap())).unwrap();
+        assert_eq!(
+            serde_json::to_value(block_on(core.find_item(&id)).unwrap()).unwrap(),
+            serde_json::to_value(Some(before)).unwrap()
+        );
+        block_on(core.update_text_content(&id, "  edited plain text  ".into())).unwrap();
+        let after = block_on(core.find_item(&id)).unwrap().unwrap();
+        assert_eq!(after.sub_kind, None);
+        assert_eq!(after.content, "  edited plain text  ");
+        block_on(core.copy_item(&id, false)).unwrap();
+        assert_eq!(fixture.clipboard.snapshot(), text("  edited plain text  "));
+        block_on(core.copy_item(&id, true)).unwrap();
+        assert_eq!(fixture.clipboard.snapshot(), text("  edited plain text  "));
+        block_on(core.prepare_paste(&id, false)).unwrap();
+        assert_eq!(fixture.clipboard.snapshot(), text("  edited plain text  "));
+    }
+}
+
+#[test]
+fn text_edit_rejects_empty_and_non_text_records() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    let id = copy_in(&core, text("keep me")).unwrap();
+    for empty in ["", " \n\t", "\u{3000}"] {
+        let error = block_on(core.update_text_content(&id, empty.into())).unwrap_err();
+        assert!(matches!(error, crate::error::AppError::Clipboard(_)));
+        assert_eq!(error.to_string(), "Content cannot be empty");
+    }
+    assert_eq!(
+        block_on(core.find_item(&id)).unwrap().unwrap().content,
+        "keep me"
+    );
+    block_on(core.update_text_content(&id, "keep me".into())).unwrap();
+    for state in [
+        MemoryState {
+            png: Some(sample_png(2, 2)),
+            ..Default::default()
+        },
+        MemoryState {
+            files: Some(vec!["C:/fixture.txt".into()]),
+            ..Default::default()
+        },
+    ] {
+        let id = copy_in(&core, state).unwrap();
+        let before = block_on(core.find_item(&id)).unwrap().unwrap();
+        assert_eq!(
+            block_on(core.update_text_content(&id, "text".into()))
+                .unwrap_err()
+                .to_string(),
+            "Only text records can be edited"
+        );
+        assert_eq!(
+            serde_json::to_value(block_on(core.find_item(&id)).unwrap()).unwrap(),
+            serde_json::to_value(Some(before)).unwrap()
+        );
+    }
+}
+
+#[test]
+fn text_edit_allows_duplicate_hashes_and_capture_reuses_newest_created() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    let first = copy_in(&core, text("first unique")).unwrap();
+    let second = copy_in(&core, text("shared content")).unwrap();
+    // 明确创建时间以避免同一时钟精度下的并列。
+    block_on(core.hop({
+        let core = core.clone();
+        let first = first.clone();
+        async move {
+            sqlx::query(
+                "UPDATE clipboard_items SET created_at = '2000-01-01T00:00:00Z' WHERE id = ?",
+            )
+            .bind(first)
+            .execute(&core.0.db.pool().await)
+            .await
+            .unwrap();
+            Ok(())
+        }
+    }))
+    .unwrap();
+    block_on(core.update_text_content(&first, "shared content".into())).unwrap();
+    assert_eq!(
+        block_on(core.find_item(&first))
+            .unwrap()
+            .unwrap()
+            .content_hash,
+        block_on(core.find_item(&second))
+            .unwrap()
+            .unwrap()
+            .content_hash
+    );
+    assert_eq!(copy_in(&core, text("shared content")).unwrap(), second);
+    assert_eq!(use_count(&core, &first), 1);
+    assert_eq!(use_count(&core, &second), 2);
+    assert_eq!(
+        block_on(core.list_items(ClipboardItemQuery::default()))
+            .unwrap()
+            .total,
+        2
+    );
+}

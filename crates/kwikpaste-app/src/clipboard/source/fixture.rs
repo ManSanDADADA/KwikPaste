@@ -578,6 +578,21 @@ impl ClipboardSource for FixtureSource {
         })
     }
 
+    fn text_content(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<String>> {
+        self.with_store(move |store| {
+            let item = store.find(&id).ok_or_else(|| missing(&id))?;
+            Ok(item.summary.as_deref().unwrap_or(&item.content).to_owned())
+        })
+    }
+
+    fn update_text_content(
+        &self,
+        _id: Arc<str>,
+        _content: String,
+    ) -> BoxFuture<'static, anyhow::Result<ListItem>> {
+        Box::pin(async { anyhow::bail!("Content editing requires the core data source") })
+    }
+
     fn delete(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<()>> {
         self.with_store(move |store| {
             store.remove(&id).ok_or_else(|| missing(&id))?;

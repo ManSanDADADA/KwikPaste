@@ -22,6 +22,7 @@ pub enum MenuAction {
     TogglePinned,
     MoveToGroup,
     EditNote,
+    EditContent,
     Select,
     Delete,
 }
@@ -48,6 +49,7 @@ const GROUPS: [&[MenuAction]; 4] = [
         MenuAction::TogglePinned,
         MenuAction::MoveToGroup,
         MenuAction::EditNote,
+        MenuAction::EditContent,
     ],
     &[MenuAction::Select, MenuAction::Delete],
 ];
@@ -72,7 +74,7 @@ impl MenuAction {
             Self::EditNote => ItemAction::EditNote,
             Self::Select => ItemAction::Select,
             Self::Delete => ItemAction::Delete,
-            Self::MoveToGroup => return None,
+            Self::MoveToGroup | Self::EditContent => return None,
         })
     }
 
@@ -90,7 +92,11 @@ impl MenuAction {
             Self::TogglePinned => Some("CmdOrCtrl+T"),
             Self::EditNote => Some("CmdOrCtrl+M"),
             Self::Delete => Some(super::shortcut::DELETE_SELECTED),
-            Self::SaveImage | Self::CopyImageText | Self::MoveToGroup | Self::Select => None,
+            Self::SaveImage
+            | Self::CopyImageText
+            | Self::MoveToGroup
+            | Self::Select
+            | Self::EditContent => None,
         }
     }
 
@@ -115,6 +121,7 @@ impl MenuAction {
             Self::MoveToGroup => "clipboard:menu.moveToGroup",
             Self::EditNote if item.note.is_some() => "clipboard:menu.editNote",
             Self::EditNote => "clipboard:menu.addNote",
+            Self::EditContent => "clipboard:menu.editContent",
             Self::Select => "clipboard:menu.select",
             Self::Delete => "clipboard:menu.delete",
         }
@@ -123,10 +130,13 @@ impl MenuAction {
 
 /// 这条记录的右键菜单，按组给出（空组不出现）。没有任何动作时为空，这时不弹菜单（1.x 同）。
 pub fn menu_groups(item: &ListItem, can_delete: bool, has_groups: bool) -> Vec<Vec<MenuAction>> {
-    let available = |action: MenuAction| match action.item_action() {
-        Some(ItemAction::Delete) if !can_delete => false,
-        Some(wanted) => item.available_actions.contains(&wanted),
-        None => has_groups,
+    let available = |action: MenuAction| match action {
+        MenuAction::EditContent => item.kind == super::item::ItemKind::Text,
+        _ => match action.item_action() {
+            Some(ItemAction::Delete) if !can_delete => false,
+            Some(wanted) => item.available_actions.contains(&wanted),
+            None => has_groups,
+        },
     };
     let any_core_action = GROUPS
         .iter()
@@ -179,7 +189,7 @@ mod tests {
             vec![
                 vec![MenuAction::Paste, MenuAction::Copy],
                 vec![MenuAction::OpenLink],
-                vec![MenuAction::ToggleFavorite],
+                vec![MenuAction::ToggleFavorite, MenuAction::EditContent],
                 vec![MenuAction::Select, MenuAction::Delete],
             ]
         );
@@ -193,9 +203,33 @@ mod tests {
             menu_groups(&item, false, true),
             vec![
                 vec![MenuAction::Paste],
-                vec![MenuAction::MoveToGroup, MenuAction::EditNote],
+                vec![
+                    MenuAction::MoveToGroup,
+                    MenuAction::EditNote,
+                    MenuAction::EditContent
+                ],
             ]
         );
+    }
+
+    #[test]
+    fn content_editor_is_text_only_and_has_no_shortcut() {
+        let mut item = with_actions(&[ItemAction::EditNote]);
+        assert_eq!(
+            menu_groups(&item, true, false),
+            vec![vec![MenuAction::EditNote, MenuAction::EditContent]]
+        );
+        assert_eq!(MenuAction::EditContent.accelerator(), None);
+        for kind in [
+            super::super::item::ItemKind::Image,
+            super::super::item::ItemKind::Files,
+        ] {
+            item.kind = kind;
+            assert_eq!(
+                menu_groups(&item, true, false),
+                vec![vec![MenuAction::EditNote]]
+            );
+        }
     }
 
     #[test]

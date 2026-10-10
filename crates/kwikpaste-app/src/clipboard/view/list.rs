@@ -125,6 +125,13 @@ enum Pointer {
 /// 指针离开显示时的位置超过这个距离才算动过。
 const POINTER_SLOP: f32 = 2.;
 
+/// 正在编辑的完整文本；原文用于判定未改动的保存。
+struct ContentEdit {
+    id: Arc<str>,
+    input: TextAreaInput,
+    original: String,
+}
+
 /// 正在编辑的备注。
 struct NoteEdit {
     id: Arc<str>,
@@ -274,6 +281,8 @@ pub struct ClipboardList {
     /// 批量删除后第一页落地时再补拉视图范围。
     refetch_view_after_first_page: bool,
     note: Option<NoteEdit>,
+    content_edit: Option<ContentEdit>,
+    content_loading: Option<Task<()>>,
     /// 粘贴、复制交给谁做（平台层的粘贴链路，或夹具的替身）。
     host: Rc<dyn ItemHost>,
     freshness: Freshness,
@@ -361,6 +370,8 @@ impl ClipboardList {
             copied_reset: None,
             refetch_view_after_first_page: false,
             note: None,
+            content_edit: None,
+            content_loading: None,
             host,
             freshness: Freshness::default(),
             pending_activation: None,
@@ -477,7 +488,7 @@ impl ClipboardList {
                 cx.notify();
             }
             PanelEvent::EditingEnded => {
-                if self.note.is_none() {
+                if self.note.is_none() && self.content_edit.is_none() {
                     window.focus(&self.focus, cx);
                 }
             }
@@ -487,6 +498,11 @@ impl ClipboardList {
                     && let Some(note) = &self.note
                 {
                     note.input.focus(window, cx);
+                }
+                if editing::target(cx) == Some(EditTarget::Content)
+                    && let Some(edit) = &self.content_edit
+                {
+                    edit.input.focus(window, cx);
                 }
             }
             PanelEvent::PopupDismissed => {
@@ -505,6 +521,11 @@ impl ClipboardList {
                 self.close_preview(cx);
                 // 隐藏时退出多选（1.x `exitClipboardSelection`），收起备注框（当作取消）。
                 self.selection.exit();
+                self.content_loading = None;
+                if self.content_edit.is_some() {
+                    close_dialog(window, cx);
+                    self.finish_content(false, window, cx);
+                }
                 if self.note.is_some() {
                     close_dialog(window, cx);
                     self.finish_note(false, window, cx);

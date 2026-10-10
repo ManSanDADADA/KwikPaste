@@ -40,6 +40,7 @@ pub use icon::set_helper_exe;
 pub use icon::{get_icon_cache_key, icon_png, DIR_CACHE_KEY};
 #[cfg(test)]
 pub use ingest::build_item;
+pub(crate) use ingest::rewrite_text_content;
 pub use ingest::{build_item_with_settings, SUMMARY_MAX_CHARS};
 pub use payload::{ClipboardPayload, ImagePayload, TextPayload};
 pub use read::{png_dimensions, ClipboardReader};

@@ -3,6 +3,10 @@
     "groupBar": "剪贴板分组",
     "list": "剪贴板历史"
   },
+  "content": {
+    "empty": "内容不能为空",
+    "richWarning": "保存后将变为纯文本，原有的 HTML/RTF 格式会被去掉。"
+  },
   "empty": {
     "categories": {
       "files": "文件",
@@ -64,6 +68,7 @@
     "copy": "复制",
     "copyImageText": "复制图中文字",
     "delete": "删除",
+    "editContent": "编辑内容",
     "editNote": "编辑备注",
     "favorite": "收藏",
     "moveToGroup": "移动到分组",

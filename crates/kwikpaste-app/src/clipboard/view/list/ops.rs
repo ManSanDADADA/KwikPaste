@@ -6,17 +6,18 @@
 
 use std::{path::Path, sync::Arc, time::Duration};
 
-use gpui::{App, Context, IntoElement as _, Task, Window};
+use gpui::prelude::FluentBuilder as _;
+use gpui::{App, Context, IntoElement as _, ParentElement as _, Styled as _, Task, Window, div};
 use kwikpaste_core::{
     clipboard::ClipboardFragment,
     settings::{AutoPaste, Settings},
 };
 use kwikpaste_ui::{
-    ConfirmSpec, DialogSpec, TextArea, TextAreaInput, confirm, form_dialog,
+    ConfirmSpec, DialogSpec, TextArea, TextAreaInput, confirm, form_dialog, theme,
     toast::{self, Toast},
 };
 
-use super::{ClipboardList, ListIntent, NoteEdit};
+use super::{ClipboardList, ContentEdit, ListIntent, NoteEdit};
 use crate::{
     clipboard::{
         model::{
@@ -435,7 +436,7 @@ impl ClipboardList {
             return;
         };
         self.close_preview_of(&id, cx);
-        if self.note.is_some() {
+        if self.note.is_some() || self.content_edit.is_some() || self.content_loading.is_some() {
             return;
         }
 
@@ -507,6 +508,121 @@ impl ClipboardList {
                     );
                 }
                 Err(err) => Self::toast_error("commands:labels.saveNote", &err, window, cx),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 异步读取完整正文，再按备注框的前台编辑流程打开内容编辑器。
+    pub fn edit_content(&mut self, id: Arc<str>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(item) = self.model.find(&id).cloned() else {
+            return;
+        };
+        if item.kind != crate::clipboard::model::item::ItemKind::Text
+            || self.note.is_some()
+            || self.content_edit.is_some()
+            || self.content_loading.is_some()
+        {
+            return;
+        }
+        self.close_preview_of(&id, cx);
+        let future = self.source.text_content(id.clone());
+        self.content_loading = Some(cx.spawn_in(window, async move |list, cx| {
+            let result = future.await;
+            list.update_in(cx, |list, window, cx| {
+                list.content_loading = None;
+                match result {
+                    Ok(original) => {
+                        let input = TextAreaInput::new("", 6, 16, window, cx);
+                        input.set_value(original.clone(), window, cx);
+                        let content = input.clone();
+                        let rich = matches!(item.sub_kind, Some(SubKind::Html | SubKind::Rtf));
+                        let answer = form_dialog(
+                            DialogSpec::new(t("clipboard:menu.editContent"))
+                                .ok_text(t("common:actions.save"))
+                                .cancel_text(t("common:actions.cancel")),
+                            move |_, cx| {
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .child(TextArea::new(&content))
+                                    .when(rich, |el| {
+                                        el.child(
+                                            div()
+                                                .text_sm()
+                                                .text_color(theme::semantic(cx).text.secondary)
+                                                .child(t("clipboard:content.richWarning")),
+                                        )
+                                    })
+                                    .into_any_element()
+                            },
+                            window,
+                            cx,
+                        );
+                        list.content_edit = Some(ContentEdit {
+                            id,
+                            input,
+                            original,
+                        });
+                        editing::begin(EditTarget::Content, EditTrigger::Keyboard, cx);
+                        cx.spawn_in(window, async move |list, cx| {
+                            let save = answer.await.unwrap_or(false);
+                            list.update_in(cx, |list, window, cx| {
+                                list.finish_content(save, window, cx)
+                            })
+                            .ok();
+                        })
+                        .detach();
+                    }
+                    Err(err) => Self::toast_error("clipboard:menu.editContent", &err, window, cx),
+                }
+            })
+            .ok();
+        }));
+    }
+
+    /// 内容框关闭后退出编辑态；空白报错，原样保存，成功后就地替换列表载荷。
+    pub(in crate::clipboard::view) fn finish_content(
+        &mut self,
+        save: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(edit) = self.content_edit.take() else {
+            return;
+        };
+        if editing::target(cx) == Some(EditTarget::Content) {
+            editing::end(cx);
+        }
+        window.focus(&self.focus, cx);
+        if !save {
+            return;
+        }
+        let value = edit.input.value(cx).to_string();
+        if value.trim().is_empty() {
+            Self::toast_error(
+                "clipboard:menu.editContent",
+                &anyhow::anyhow!(t("clipboard:content.empty")),
+                window,
+                cx,
+            );
+            return;
+        }
+        if value == edit.original {
+            return;
+        }
+        let id = edit.id;
+        let future = self.source.update_text_content(id.clone(), value);
+        cx.spawn_in(window, async move |list, cx| {
+            let result = future.await;
+            list.update_in(cx, |list, window, cx| match result {
+                Ok(saved) => {
+                    list.patch_item(&id, |item| *item = saved, cx);
+                    Self::toast_success("commands:messages.noteSaved", window, cx);
+                }
+                Err(err) => Self::toast_error("clipboard:menu.editContent", &err, window, cx),
             })
             .ok();
         })

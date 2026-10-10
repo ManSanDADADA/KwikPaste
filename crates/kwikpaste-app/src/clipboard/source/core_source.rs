@@ -208,6 +208,48 @@ impl ClipboardSource for CoreSource {
         .boxed()
     }
 
+    fn text_content(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<String>> {
+        let core = self.core.clone();
+        async move {
+            let item = core
+                .find_item(&id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Text record no longer exists"))?;
+            anyhow::ensure!(
+                item.kind == ClipboardKind::Text,
+                "Only text records can be edited"
+            );
+            Ok(
+                if matches!(
+                    item.sub_kind,
+                    Some(ClipboardSubKind::Html | ClipboardSubKind::Rtf)
+                ) {
+                    item.search_text.unwrap_or(item.content)
+                } else {
+                    item.content
+                },
+            )
+        }
+        .boxed()
+    }
+
+    fn update_text_content(
+        &self,
+        id: Arc<str>,
+        content: String,
+    ) -> BoxFuture<'static, anyhow::Result<ListItem>> {
+        let core = self.core.clone();
+        async move {
+            core.update_text_content(&id, content).await?;
+            let view = core
+                .list_item(&id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Text record no longer exists"))?;
+            Ok(ListItem::from(view))
+        }
+        .boxed()
+    }
+
     fn delete(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<()>> {
         let core = self.core.clone();
 

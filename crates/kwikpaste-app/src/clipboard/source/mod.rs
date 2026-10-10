@@ -125,6 +125,16 @@ pub trait ClipboardSource: Send + Sync + 'static {
         note: Option<String>,
     ) -> BoxFuture<'static, anyhow::Result<NoteSaved>>;
 
+    /// 读取完整文本表示供内容编辑；富文本使用采集时的纯文本表示。
+    fn text_content(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<String>>;
+
+    /// 保存内容并返回重新计算后的列表载荷。
+    fn update_text_content(
+        &self,
+        id: Arc<str>,
+        content: String,
+    ) -> BoxFuture<'static, anyhow::Result<super::model::item::ListItem>>;
+
     fn delete(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<()>>;
 
     /// 批量删除，返回实际删除条数。

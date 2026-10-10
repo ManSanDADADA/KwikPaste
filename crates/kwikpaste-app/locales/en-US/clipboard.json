@@ -3,6 +3,10 @@
     "groupBar": "Clipboard groups",
     "list": "Clipboard history"
   },
+  "content": {
+    "empty": "Content cannot be empty",
+    "richWarning": "Saving turns it into plain text and drops its HTML/RTF formatting."
+  },
   "empty": {
     "categories": {
       "files": "file",
@@ -64,6 +68,7 @@
     "copy": "Copy",
     "copyImageText": "Copy Text in Image",
     "delete": "Delete",
+    "editContent": "Edit Content",
     "editNote": "Edit Note",
     "favorite": "Favorite",
     "moveToGroup": "Move to Group",

@@ -17,6 +17,7 @@ use crate::platform::{self, EditTrigger, PanelCommand};
 pub enum EditTarget {
     Search,
     Note,
+    Content,
     /// 对话框里的单行输入框（分组名称），由主窗口在编辑态开始后聚焦。
     Dialog,
 }

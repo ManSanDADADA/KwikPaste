@@ -328,6 +328,20 @@ pub fn build_item_with_settings(
     }))
 }
 
+/// 用采集的纯文本草稿重建内容字段；编辑保留用户输入及所有记录元数据。
+pub(crate) fn rewrite_text_content(item: &mut ClipboardItem, content: &str) {
+    let draft = draft_plain_text(content, Some(content.to_owned()), make_summary(content));
+    item.content_hash = content_hash(draft.kind, &draft.content);
+    item.content = draft.content;
+    item.sub_kind = draft.sub_kind;
+    item.search_text = draft.search_text;
+    item.summary = draft.summary;
+    item.size = draft.size;
+    item.file_types = draft.file_types;
+    item.width = draft.width;
+    item.height = draft.height;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
