@@ -1,0 +1,33 @@
+diff --git a/src/directx_renderer.rs b/src/directx_renderer.rs
+index d3a7245..2577832 100644
+--- a/src/directx_renderer.rs
++++ b/src/directx_renderer.rs
+@@ -1526,7 +1526,15 @@ fn create_blend_state(device: &ID3D11Device) -> Result<ID3D11BlendState> {
+     desc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+     desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+     desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+-    desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
++    // [kwikpaste patch 0011] Accumulating alpha instead of interpolating it (ONE, not
++    // INV_SRC_ALPHA) makes every pixel where several translucent quads overlap report a higher
++    // coverage than it really has: the back buffer's rgb is accumulated with the premultiplied
++    // `over` formula, so its colour keeps the partial coverage, while the alpha saturates at 1.
++    // On an opaque window that is never visible, but a translucent window (mica/acrylic) hands
++    // that alpha to DWM, which then composites a too-opaque, too-dark pixel over the desktop -
++    // the antialiased arc of a 1px rounded border comes out as a string of dark beads, and the
++    // straight runs, which land fully inside a pixel column, stay clean.
++    desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+     desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL.0 as u8;
+     unsafe {
+         let mut state = None;
+@@ -1587,7 +1595,10 @@ fn create_blend_state_for_path_sprite(device: &ID3D11Device) -> Result<ID3D11Ble
+     desc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+     desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+     desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+-    desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
++    // [kwikpaste patch 0011] Same alpha fix as `create_blend_state`: a path sprite blits the
++    // rasterized path texture onto the frame, so its partially covered edge pixels inherit the
++    // premultiplied colour but must not inherit an accumulated alpha.
++    desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+     desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL.0 as u8;
+     unsafe {
+         let mut state = None;
