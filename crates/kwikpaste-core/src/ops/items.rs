@@ -136,9 +136,13 @@ pub(crate) fn should_write_plain_for_paste(
 }
 
 /// 决定一次全局纯文本粘贴要写入的文本；空文本和图片返回 `None`。
+/// 文本去掉结尾空白：Excel 等应用复制的表格文本以换行结尾，直接粘贴会多出一行。
 pub fn plain_paste_decision(payload: &ClipboardPayload) -> Option<String> {
     match payload {
-        ClipboardPayload::Text(text) if !text.text.is_empty() => Some(text.text.clone()),
+        ClipboardPayload::Text(text) => {
+            let text = text.text.trim_end();
+            (!text.is_empty()).then(|| text.to_owned())
+        }
         ClipboardPayload::Files(files) => {
             let content = files
                 .iter()
@@ -148,7 +152,7 @@ pub fn plain_paste_decision(payload: &ClipboardPayload) -> Option<String> {
                 .join("\n");
             (!content.is_empty()).then_some(content)
         }
-        ClipboardPayload::Text(_) | ClipboardPayload::Image(_) => None,
+        ClipboardPayload::Image(_) => None,
     }
 }
 
@@ -218,6 +222,28 @@ async fn find_required(pool: &SqlitePool, id: &str) -> Result<ClipboardItem> {
 fn write_item(core: &CoreInner, item: &ClipboardItem, plain: bool) -> Result<()> {
     let backend = core.clipboard()?;
     clipboard::write_to_clipboard(&*backend, &core.images, &core.guard, item, plain)
+}
+
+/// 粘贴时的纯文本写回：去掉结尾空格与换行（Excel 表格文本以换行结尾，粘贴后会多一行）。
+/// 复制与原始记录不动，只有粘贴纯文本走这里。
+fn write_item_for_paste(core: &CoreInner, item: &ClipboardItem, plain: bool) -> Result<()> {
+    if !plain || item.kind != ClipboardKind::Text {
+        return write_item(core, item, plain);
+    }
+
+    let trimmed = item
+        .search_text
+        .as_deref()
+        .unwrap_or(&item.content)
+        .trim_end();
+    if trimmed.is_empty() {
+        return write_item(core, item, plain);
+    }
+
+    let mut item = item.clone();
+    item.content = trimmed.to_owned();
+    item.search_text = Some(trimmed.to_owned());
+    write_item(core, &item, plain)
 }
 
 /// 打开剪贴板写回一段纯文本并登记回环抑制。
@@ -426,7 +452,7 @@ impl Core {
                 content.paste_files_as_path,
             );
 
-            write_item(&core.0, &item, write_plain)?;
+            write_item_for_paste(&core.0, &item, write_plain)?;
             mark_item_reused_if_enabled(&core.0, &pool, &id, item.kind).await
         })
         .await
@@ -563,7 +589,7 @@ impl Core {
                 content.paste_files_as_path,
             );
 
-            write_item(&core.0, &item, write_plain)?;
+            write_item_for_paste(&core.0, &item, write_plain)?;
             mark_item_reused_if_enabled(&core.0, &pool, &id, item.kind).await?;
             Ok(Some(guard.into_ticket(&item)))
         })
@@ -1006,6 +1032,25 @@ mod tests {
             rtf: None,
         });
         assert_eq!(plain_paste_decision(&plain), Some("hello".to_owned()));
+
+        // Excel 复制的表格文本以换行结尾，纯文本粘贴不应带出这个空行。
+        let excel = ClipboardPayload::Text(TextPayload {
+            text: "a\tb\r\nc\td\r\n".to_owned(),
+            html: Some("<table><tr><td>a</td><td>b</td></tr></table>".to_owned()),
+            rtf: None,
+        });
+        assert_eq!(
+            plain_paste_decision(&excel),
+            Some("a\tb\r\nc\td".to_owned())
+        );
+        assert_eq!(
+            plain_paste_decision(&ClipboardPayload::Text(TextPayload {
+                text: " \r\n\t ".to_owned(),
+                html: None,
+                rtf: None,
+            })),
+            None
+        );
 
         for rich in [Some("<b>hello</b>".to_owned()), None] {
             let payload = ClipboardPayload::Text(TextPayload {

@@ -337,6 +337,43 @@ fn copy_and_paste_follow_plain_text_settings_and_reuse() {
 }
 
 #[test]
+fn plain_paste_drops_trailing_newline_from_excel_text() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    // 编辑后的记录按原文保存；粘贴为纯文本时要去掉 Excel 表格文本结尾的换行。
+    let id = copy_in(&core, text("placeholder")).unwrap();
+    block_on(core.update_text_content(&id, "a\tb\r\nc\td\r\n".to_owned())).unwrap();
+
+    block_on(core.prepare_paste(&id, true)).unwrap();
+    assert_eq!(
+        fixture.clipboard.snapshot(),
+        MemoryState {
+            text: Some("a\tb\r\nc\td".to_owned()),
+            ..MemoryState::default()
+        }
+    );
+}
+
+#[test]
+fn global_plain_paste_drops_trailing_newline_from_current_clipboard() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    ClipboardBackend::set_text(&fixture.clipboard, "a\tb\r\nc\td\r\n".to_owned()).unwrap();
+
+    let ticket = block_on(core.prepare_plain_paste_from_clipboard())
+        .unwrap()
+        .unwrap();
+    assert_eq!(ticket.kind, ClipboardKind::Text);
+    assert_eq!(
+        fixture.clipboard.snapshot(),
+        MemoryState {
+            text: Some("a\tb\r\nc\td".to_owned()),
+            ..MemoryState::default()
+        }
+    );
+}
+
+#[test]
 fn text_selection_joins_in_list_order_using_full_plain_text() {
     let fixture = Fixture::new();
     let core = fixture.start();
