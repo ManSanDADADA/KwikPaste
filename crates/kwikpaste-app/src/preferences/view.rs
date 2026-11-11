@@ -176,9 +176,10 @@ pub(super) fn open(cx: &mut App) -> anyhow::Result<()> {
         view: view.downgrade(),
     });
     let window_id = handle.window_id();
+    let owner = view.entity_id();
     cx.on_window_closed(move |cx, closed_id| {
         if closed_id == window_id {
-            hotkey::resume(cx);
+            hotkey::resume(owner, cx);
             let _ = cx.remove_global::<PreferencesWindow>();
         }
     })
@@ -922,14 +923,14 @@ impl Preferences {
         }
         self.shortcut_conflict = None;
         self.recording = Some(id);
-        hotkey::suspend(cx);
+        hotkey::suspend(cx.entity_id(), cx);
         window.focus(&self.focus, cx);
         cx.notify();
     }
 
     fn finish_recording(&mut self, cx: &mut Context<Self>) {
         self.recording = None;
-        hotkey::resume(cx);
+        hotkey::resume(cx.entity_id(), cx);
         cx.notify();
     }
 
@@ -990,7 +991,7 @@ impl Preferences {
                 let result = core.update_settings(patch).await;
                 let _ = this.update(cx, |this, cx| {
                     this.recording = None;
-                    hotkey::resume(cx);
+                    hotkey::resume(cx.entity_id(), cx);
                     match result {
                         Ok(settings) => this.settings = settings,
                         Err(error) => log::error!("shortcut update failed: {error}"),

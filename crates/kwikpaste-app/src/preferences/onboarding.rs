@@ -67,10 +67,11 @@ pub fn open(cx: &mut App) -> anyhow::Result<()> {
         });
         view
     })?;
+    let owner = view.entity_id();
     cx.set_global(OnboardingWindow { handle, view });
     cx.on_window_closed(move |cx, closed_id| {
         if closed_id == handle.window_id() {
-            hotkey::resume(cx);
+            hotkey::resume(owner, cx);
             let _ = cx.remove_global::<OnboardingWindow>();
         }
     })
@@ -309,14 +310,14 @@ impl Onboarding {
 
     fn begin_recording(&mut self, id: &'static str, window: &mut Window, cx: &mut Context<Self>) {
         self.recording = Some(id);
-        hotkey::suspend(cx);
+        hotkey::suspend(cx.entity_id(), cx);
         window.focus(&self.focus, cx);
         cx.notify();
     }
 
     fn finish_recording(&mut self, cx: &mut Context<Self>) {
         self.recording = None;
-        hotkey::resume(cx);
+        hotkey::resume(cx.entity_id(), cx);
         cx.notify();
     }
 

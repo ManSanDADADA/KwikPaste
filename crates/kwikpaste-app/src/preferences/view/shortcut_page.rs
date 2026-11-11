@@ -1130,14 +1130,14 @@ impl Preferences {
         }
         self.recording_panel = Some(action);
         self.shortcut_conflict = None;
-        hotkey::suspend(cx);
+        hotkey::suspend(cx.entity_id(), cx);
         window.focus(&self.focus, cx);
         cx.notify();
     }
 
     pub(super) fn finish_panel_recording(&mut self, cx: &mut Context<Self>) {
         if self.recording_panel.take().is_some() {
-            hotkey::resume(cx);
+            hotkey::resume(cx.entity_id(), cx);
         }
         cx.notify();
     }

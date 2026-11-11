@@ -12,13 +12,13 @@
 //! 事件经「专用线程阻塞 `recv()` → `async_channel` → 主线程」送回，不轮询。线程里只转发、不碰 GPUI，
 //! 唯一的例外是唤起面板或粘贴时立刻屏蔽 Alt / Win 的单独松开：这一步必须趁修饰键还按着做。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_channel::Sender;
 use global_hotkey::hotkey::HotKey;
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
-use gpui::{App, AsyncApp, Global};
+use gpui::{App, AsyncApp, EntityId, Global};
 use kwikpaste_core::settings::Shortcuts;
 
 use super::host::{self, HostRequest, RequestSource};
@@ -92,6 +92,12 @@ pub struct RegistrationStatus {
 impl Global for RegistrationStatus {}
 
 impl Global for Hotkeys {}
+
+/// 正在录制按键的视图（偏好窗、引导窗）；只要还有一个在录，热键与双击修饰键就保持暂停。
+#[derive(Default)]
+struct Recorders(HashSet<EntityId>);
+
+impl Global for Recorders {}
 
 /// 创建管理器、启动事件桥，按当前设置注册热键。
 pub fn register(cx: &mut App, commands: Sender<PanelCommand>) -> anyhow::Result<()> {
@@ -281,8 +287,9 @@ pub fn unregister_all(cx: &mut App) {
     clear_registered(cx);
 }
 
-/// 暂停全局热键，给偏好设置里的物理按键录制让出输入。
-pub fn suspend(cx: &mut App) {
+/// 暂停全局热键，给 `owner` 视图里的物理按键录制让出输入。
+pub fn suspend(owner: EntityId, cx: &mut App) {
+    cx.default_global::<Recorders>().0.insert(owner);
     super::mouse::suspend_double_tap(true);
     if !cx.has_global::<Hotkeys>() {
         return;
@@ -291,8 +298,13 @@ pub fn suspend(cx: &mut App) {
     clear_registered(cx);
 }
 
-/// 恢复全局热键，并按最新设置重新注册。
-pub fn resume(cx: &mut App) {
+/// 结束 `owner` 的录制；没有别的视图在录时恢复全局热键，并按最新设置重新注册。
+/// `owner` 没在录制时什么也不做，关窗回调可以无条件调用。
+pub fn resume(owner: EntityId, cx: &mut App) {
+    let recorders = cx.default_global::<Recorders>();
+    if !recorders.0.remove(&owner) || !recorders.0.is_empty() {
+        return;
+    }
     super::mouse::suspend_double_tap(false);
     if !cx.has_global::<Hotkeys>() {
         return;
