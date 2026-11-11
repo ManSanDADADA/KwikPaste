@@ -30,7 +30,7 @@ use super::protocol::{
 };
 use super::transport::{handshake, Handshaken, SecureReader, SecureWriter, HANDSHAKE_TIMEOUT};
 use super::{current_platform, default_device_name, effective_device_name};
-use crate::db::models::Platform;
+use crate::db::models::{ClipboardKind, Platform};
 use crate::error::{AppError, Result};
 use crate::events::CoreEvent;
 use crate::i18n::commands::Key;
@@ -43,9 +43,11 @@ const DIAL_INTERVAL: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const PING_INTERVAL: Duration = Duration::from_secs(20);
 const OUTGOING_QUEUE: usize = 64;
-/// 补齐收集失败（原图被占用、数据库忙）后隔多久重试；第几次尝试起跳过读不出来的原图。
+/// 补齐读库或读原图失败（数据库忙、原图被占用）后隔多久重试；一张原图第几次读不出来就跳过。
 const CATCH_UP_RETRY: Duration = Duration::from_secs(30);
 const CATCH_UP_SKIP_ATTEMPT: u32 = 3;
+/// 补齐读下一张原图前，多久看一次发送队列有没有排空。
+const QUEUE_POLL: Duration = Duration::from_millis(20);
 const MAX_PENDING_HANDSHAKES: usize = 16;
 const BACKOFF_BASE_SECS: u64 = 5;
 const BACKOFF_MAX_SECS: u64 = 120;
@@ -1573,8 +1575,8 @@ async fn read_loop(
 ) {
     let peer_id = session.peer_id;
     let mut shutdown = shared.shutdown.clone();
-    // 每次补齐要把一整页（最多几十张图）读进内存：同一条连接同时只答一个请求，
-    // 对方连发的请求不会把内存堆上去。正常的对端收到一页才要下一页。
+    // 同一条连接同时只答一个补齐请求，对方连发的请求不会让原图读取叠起来。
+    // 正常的对端收到一页才要下一页。
     let catching_up = Arc::new(AtomicBool::new(false));
     loop {
         let received = tokio::select! {
@@ -1668,38 +1670,60 @@ struct CatchUpRequest {
     attachment_limit: u64,
 }
 
-/// 答一次补齐请求。收集失败时隔一会儿在这条连接上重试：对方收到这一页才会要下一页，
+/// 答一次补齐请求。读库或读原图失败时隔一会儿在这条连接上重试：对方收到这一页才会要下一页，
 /// 放弃就会让补齐和检查点一直停着；断线重连又会立刻重拨，不能代替重试的间隔。
+/// 一张原图几次都读不出来就像原图不存在一样跳过，不让它卡住后面的记录。
 async fn send_catch_up(
     core: Arc<CoreInner>,
     request: CatchUpRequest,
     after: u64,
     epoch: Option<String>,
 ) {
-    let mut attempt = 1;
     let page = loop {
-        let skip_unreadable = attempt >= CATCH_UP_SKIP_ATTEMPT;
-        match engine::collect_catch_up(
-            &core,
-            after,
-            epoch.as_deref(),
-            request.attachment_limit,
-            skip_unreadable,
-        )
-        .await
+        match engine::collect_catch_up(&core, after, epoch.as_deref(), request.attachment_limit)
+            .await
         {
             Ok(page) => break page,
-            Err(err) => log::warn!("lan sync catch-up attempt {attempt} failed: {err:#}"),
+            Err(err) => log::warn!("lan sync catch-up failed: {err:#}"),
         }
-        attempt += 1;
-        tokio::select! {
-            _ = tokio::time::sleep(CATCH_UP_RETRY) => {}
-            _ = request.tx.closed() => return,
+        if !pause(&request.tx, CATCH_UP_RETRY).await {
+            return;
         }
     };
 
-    for (item, attachment) in page.items {
-        let push = Message::Push { item, live: false };
+    for item in &page.items {
+        // 一页最多 50 张原图：等队列里排着的都交给了写任务再读下一张，内存里只留一两张。
+        if item.kind == ClipboardKind::Image && !queue_drained(&request.tx).await {
+            return;
+        }
+        let mut attempt = 1;
+        let wire = loop {
+            match engine::wire_from_item(&core, item, page.attachment_limit).await {
+                Ok(wire) => break wire,
+                Err(err) if attempt >= CATCH_UP_SKIP_ATTEMPT => {
+                    log::warn!(
+                        "lan sync catch-up skips unreadable item {}: {err:#}",
+                        item.id
+                    );
+                    break None;
+                }
+                Err(err) => log::warn!(
+                    "lan sync catch-up attempt {attempt} for item {} failed: {err:#}",
+                    item.id
+                ),
+            }
+            attempt += 1;
+            if !pause(&request.tx, CATCH_UP_RETRY).await {
+                return;
+            }
+        };
+        let Some((wire, attachment)) = wire else {
+            continue;
+        };
+        let push = Message::Push {
+            item: wire,
+            live: false,
+        };
         if request.tx.send((push, Arc::new(attachment))).await.is_err() {
             return;
         }
@@ -1720,6 +1744,25 @@ async fn send_catch_up(
             page.until,
         );
     }
+}
+
+/// 等 `delay`；连接先断开时返回 `false`。
+async fn pause(tx: &mpsc::Sender<Outgoing>, delay: Duration) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => true,
+        _ = tx.closed() => false,
+    }
+}
+
+/// 等发送队列排空（排着的消息都交给了写任务）；连接先断开时返回 `false`。
+/// 只看剩余容量、不占名额，实时推送照常入队。
+async fn queue_drained(tx: &mpsc::Sender<Outgoing>) -> bool {
+    while tx.capacity() < tx.max_capacity() {
+        if !pause(tx, QUEUE_POLL).await {
+            return false;
+        }
+    }
+    true
 }
 
 async fn write_loop(

@@ -171,7 +171,10 @@ pub async fn wire_from_item(
 
 /// 一页补齐。
 pub struct CatchUpPage {
-    pub items: Vec<(WireItem, Vec<u8>)>,
+    /// 参与同步的记录。图片的原图发送时才逐张读：一页最多 50 张，不能一起读进内存。
+    pub items: Vec<ClipboardItem>,
+    /// 附件上限：本机设置与对方申报的上限中较小的那个。
+    pub attachment_limit: u64,
     /// 这一页覆盖到的本机序号：对方收齐这页后把水位线推进到这里。
     pub until: u64,
     pub more: bool,
@@ -182,13 +185,11 @@ pub struct CatchUpPage {
 /// 对方请求本机序号大于 `after` 的记录：最近 7 天、最新的 500 条以内，按序号从小到大分页。
 /// 对方的水位线属于另一代序号（本机数据库重建过）或还没有水位线时从头发。
 /// 最后一页的 `until` 是本机当前的计数器，不参与同步的记录（敏感、文件）也一并跳过。
-/// 原图读不出来时整页报错留待重试；`skip_unreadable` 时像原图不存在一样跳过这条。
 pub async fn collect_catch_up(
     core: &CoreInner,
     after: u64,
     epoch: Option<&str>,
     attachment_limit: u64,
-    skip_unreadable: bool,
 ) -> anyhow::Result<CatchUpPage> {
     let lan = core.settings.snapshot().sync.lan;
     let pool = core.db.pool().await;
@@ -213,22 +214,14 @@ pub async fn collect_catch_up(
         let Some(item) = crate::db::items::find_item_by_id(&pool, &id).await? else {
             continue;
         };
-        if !is_syncable(&item, &lan) {
-            continue;
-        }
-        let limit = attachment_limit.min(lan.max_image_bytes());
-        match wire_from_item(core, &item, limit).await {
-            Ok(Some(wire)) => items.push(wire),
-            Ok(None) => {}
-            Err(err) if skip_unreadable => {
-                log::warn!("lan sync catch-up skips unreadable item {id}: {err:#}");
-            }
-            Err(err) => return Err(err),
+        if is_syncable(&item, &lan) {
+            items.push(item);
         }
     }
 
     Ok(CatchUpPage {
         items,
+        attachment_limit: attachment_limit.min(lan.max_image_bytes()),
         until,
         more,
         epoch: own_epoch,
@@ -510,30 +503,18 @@ mod tests {
                     .await
                     .unwrap()
                     .is_none());
-                let page = collect_catch_up(&core.0, 0, None, u64::MAX, false)
-                    .await
-                    .unwrap();
-                assert!(page.items.is_empty());
+                let page = collect_catch_up(&core.0, 0, None, u64::MAX).await.unwrap();
+                assert_eq!(page.items.len(), 1);
                 assert_eq!(page.until, 1);
 
                 std::fs::create_dir(&path).unwrap();
                 assert!(wire_from_item(&core.0, &item, u64::MAX).await.is_err());
-                assert!(collect_catch_up(&core.0, 0, None, u64::MAX, false)
-                    .await
-                    .is_err());
-                // 重试几次仍读不出来就跳过，水位线照样越过它。
-                let page = collect_catch_up(&core.0, 0, None, u64::MAX, true)
-                    .await
-                    .unwrap();
-                assert!(page.items.is_empty());
-                assert_eq!(page.until, 1);
                 std::fs::remove_dir(&path).unwrap();
                 std::fs::write(path, bytes).unwrap();
-                let page = collect_catch_up(&core.0, 0, None, u64::MAX, false)
+                assert!(wire_from_item(&core.0, &item, u64::MAX)
                     .await
-                    .unwrap();
-                assert_eq!(page.items.len(), 1);
-                assert_eq!(page.until, 1);
+                    .unwrap()
+                    .is_some());
                 Ok(())
             }
         }))
@@ -610,8 +591,7 @@ mod tests {
             let core = core.clone();
             async move {
                 assert!(wire_from_item(&core.0, &item, 0).await.unwrap().is_none());
-                let page = collect_catch_up(&core.0, 0, None, 0, false).await.unwrap();
-                assert!(page.items.is_empty());
+                let page = collect_catch_up(&core.0, 0, None, 0).await.unwrap();
                 assert_eq!(page.until, 1);
 
                 let mut plain = item;
