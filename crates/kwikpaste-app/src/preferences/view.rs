@@ -4688,6 +4688,8 @@ fn segment(
 struct SourceAppsDialog {
     apps: Vec<kwikpaste_core::ops::ClipboardAppView>,
     selected: Vec<String>,
+    /// 应用 id 与显示在它下面的提示（自动分组：已被别的规则收走）。
+    claimed: Vec<(String, gpui::SharedString)>,
     icons: gpui::Entity<KpImageCache>,
 }
 
@@ -4952,6 +4954,11 @@ impl Render for SourceAppsDialog {
                 app.name.clone()
             };
             let path = (!app.name.is_empty()).then(|| id.clone());
+            let claimed = self
+                .claimed
+                .iter()
+                .find(|(claimed, _)| app_ids::same_app(claimed, &id))
+                .map(|(_, hint)| hint.clone());
             let entity = cx.entity().downgrade();
             div()
                 .flex()
@@ -5015,6 +5022,13 @@ impl Render for SourceAppsDialog {
                         .text_color(tokens.text.muted)
                         .truncate()
                         .child(path)
+                }))
+                .children(claimed.map(|hint| {
+                    div()
+                        .pl(space(13.))
+                        .kp_text(TextSize::Xs)
+                        .text_color(tokens.status.warning.solid)
+                        .child(hint)
                 }))
         });
         div()
@@ -5089,6 +5103,7 @@ fn open_source_apps_dialog(
         SourceAppsDialog {
             apps,
             selected: excluded,
+            claimed: Vec::new(),
             icons,
         }
     });

@@ -65,6 +65,7 @@ impl Preferences {
             .iter()
             .map(|group| (group.id.clone(), group.name.clone()))
             .collect();
+        let claimed = self.claimed_apps(&base.id);
         let entity = cx.entity().downgrade();
         window
             .spawn(cx, async move |cx| {
@@ -76,10 +77,33 @@ impl Preferences {
                     }
                 };
                 let _ = cx.update(|window, cx| {
-                    open_rule_editor(base, editing, groups, apps, core, entity, window, cx);
+                    open_rule_editor(
+                        base, editing, groups, apps, claimed, core, entity, window, cx,
+                    );
                 });
             })
             .detach();
+    }
+
+    /// 别的启用规则已收走的应用及提示：同一应用只按第一条启用且匹配的规则归组。
+    fn claimed_apps(&self, editing_id: &str) -> Vec<(String, gpui::SharedString)> {
+        self.settings
+            .clipboard
+            .auto_group_rules
+            .iter()
+            .filter(|rule| rule.enabled && rule.id != editing_id)
+            .flat_map(|rule| {
+                let group = self
+                    .groups
+                    .iter()
+                    .find(|group| group.id == rule.group_id)
+                    .map_or_else(|| words("missingGroup"), |group| group.name.clone().into());
+                let hint = i18n::t_args("preferences:autoGroup.claimed", &[("group", &group)]);
+                rule.app_ids
+                    .iter()
+                    .map(move |id| (id.clone(), hint.clone()))
+            })
+            .collect()
     }
 
     pub(super) fn render_auto_group_rules(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -220,6 +244,7 @@ fn open_rule_editor(
     editing: bool,
     groups: Vec<(String, String)>,
     apps: Vec<ClipboardAppView>,
+    claimed: Vec<(String, gpui::SharedString)>,
     core: kwikpaste_core::Core,
     parent: WeakEntity<Preferences>,
     window: &mut Window,
@@ -231,6 +256,7 @@ fn open_rule_editor(
         SourceAppsDialog {
             apps,
             selected: base.app_ids.clone(),
+            claimed,
             icons,
         }
     });

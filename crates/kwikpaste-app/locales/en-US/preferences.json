@@ -6,6 +6,7 @@
   "autoGroup": {
     "add": "Add rule",
     "apps": "Source apps",
+    "claimed": "Also in the “{{group}}” rule; the first enabled rule wins",
     "delete": "Delete",
     "edit": "Edit rule",
     "empty": "No auto grouping rules yet",
