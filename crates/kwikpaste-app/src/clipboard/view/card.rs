@@ -958,7 +958,8 @@ fn snippets(
                     .enumerate()
                     .map(|(index, snippet)| {
                         let long = snippet.text.chars().count() >= SNIPPET_TOOLTIP_MIN_CHARS;
-                        let open = links && snippet_open_url(snippet.kind, &snippet.text).is_some();
+                        let openable = snippet_open_url(snippet.kind, &snippet.text).is_some();
+                        let open = links && openable;
                         let chip = div()
                             .id(ElementId::NamedInteger("snippet".into(), index as u64))
                             .flex()
@@ -1016,7 +1017,7 @@ fn snippets(
                                 on_hover(event, window, cx);
                             })
                             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .when(snippet_open_url(kind, &text).is_some(), |chip| {
+                            .when(openable, |chip| {
                                 chip.on_mouse_down(MouseButton::Middle, move |_, window, cx| {
                                     cx.stop_propagation();
                                     on_open(
@@ -1045,10 +1046,13 @@ fn snippets(
 /// 快捷信息「打开」的去处：链接（`www.` 开头补 `https://`）用浏览器、邮箱用 `mailto:`；
 /// 其它类型（以及 `ftp://` 这类不交给浏览器的链接）没有。
 pub fn snippet_open_url(kind: SnippetKind, text: &str) -> Option<String> {
-    let lower = text.to_ascii_lowercase();
+    let starts_with = |prefix: &str| {
+        text.get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+    };
     match kind {
-        SnippetKind::Link if lower.starts_with("www.") => Some(format!("https://{text}")),
-        SnippetKind::Link if lower.starts_with("http://") || lower.starts_with("https://") => {
+        SnippetKind::Link if starts_with("www.") => Some(format!("https://{text}")),
+        SnippetKind::Link if starts_with("http://") || starts_with("https://") => {
             Some(text.to_owned())
         }
         SnippetKind::Email => Some(format!("mailto:{text}")),

@@ -647,7 +647,8 @@ impl PreviewPanel {
                     snippets.iter().enumerate().map(|(index, snippet)| {
                         let text: Arc<str> = Arc::from(snippet.text.as_str());
                         let kind = snippet.kind;
-                        let open = self.links && card::snippet_open_url(kind, &text).is_some();
+                        let openable = card::snippet_open_url(kind, &text).is_some();
+                        let open = self.links && openable;
                         let open_text = text.clone();
                         let menu_text = text.clone();
                         let panel = cx.entity().downgrade();
@@ -686,7 +687,7 @@ impl PreviewPanel {
                                     })
                                     .child(SharedString::from(snippet.text.clone())),
                             )
-                            .when(card::snippet_open_url(kind, &text).is_some(), |chip| {
+                            .when(openable, |chip| {
                                 chip.on_mouse_down(
                                     MouseButton::Middle,
                                     cx.listener(move |_, _, _, cx| {
