@@ -551,7 +551,7 @@ async fn remove_missing_file_items(core: &CoreInner, pool: &SqlitePool) -> Resul
     .context("failed to check file paths")?;
 
     let outcome = crate::db::items::delete_items(pool, &missing, false, false).await?;
-    clipboard::cleanup::apply_outcome(core, &outcome, "missing files");
+    clipboard::cleanup::apply_outcome(core, &outcome, "missing files").await;
     Ok(())
 }
 

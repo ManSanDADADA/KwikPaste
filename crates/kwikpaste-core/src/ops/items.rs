@@ -226,10 +226,16 @@ async fn find_required(pool: &SqlitePool, id: &str) -> Result<ClipboardItem> {
         .ok_or_else(|| AppError::Clipboard(format!("clipboard item not found: {id}")))
 }
 
-/// 打开剪贴板写回一条记录并登记回环抑制。同步完成，后端不会跨 await 持有。
-fn write_item(core: &CoreInner, item: &ClipboardItem, plain: bool) -> Result<()> {
-    let backend = core.clipboard()?;
-    clipboard::write_to_clipboard(&*backend, &core.images, &core.guard, item, plain)
+/// 打开剪贴板写回一条记录并登记回环抑制。写回（含 Windows 图片转 DIB）是阻塞 I/O，放到阻塞线程池；
+/// 后端在闭包内打开、用完即弃，不依赖特定线程。
+async fn write_item(core: &Arc<CoreInner>, item: ClipboardItem, plain: bool) -> Result<()> {
+    let core = Arc::clone(core);
+    tokio::task::spawn_blocking(move || {
+        let backend = core.clipboard()?;
+        clipboard::write_to_clipboard(&*backend, &core.images, &core.guard, &item, plain)
+    })
+    .await
+    .map_err(|err| AppError::Other(anyhow::anyhow!("clipboard write task failed: {err}")))?
 }
 
 /// 打开剪贴板写回一段纯文本并登记回环抑制。
@@ -284,21 +290,30 @@ async fn merge_selection(
                 .join("\n"),
         )
     } else if texts == 0 {
-        let paths: Vec<String> = items
+        // 逐个路径探测磁盘是同步 I/O，放到阻塞线程池。
+        let sources: Vec<(ClipboardKind, String)> = items
             .iter()
-            .flat_map(|item| match item.kind {
-                ClipboardKind::Image => original_image_path(core, item)
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .into_iter()
-                    .collect::<Vec<_>>(),
-                _ => item
-                    .content
-                    .split('\n')
-                    .filter(|path| !path.is_empty() && Path::new(path).exists())
-                    .map(str::to_owned)
-                    .collect(),
-            })
+            .map(|item| (item.kind, item.content.clone()))
             .collect();
+        let images = core.images.clone();
+        let paths = tokio::task::spawn_blocking(move || {
+            sources
+                .into_iter()
+                .flat_map(|(kind, content)| match kind {
+                    ClipboardKind::Image => image_origin_path(&images, &content)
+                        .map(|path| path.to_string_lossy().into_owned())
+                        .into_iter()
+                        .collect::<Vec<_>>(),
+                    _ => content
+                        .split('\n')
+                        .filter(|path| !path.is_empty() && Path::new(path).exists())
+                        .map(str::to_owned)
+                        .collect(),
+                })
+                .collect::<Vec<String>>()
+        })
+        .await
+        .map_err(|err| AppError::Other(anyhow::anyhow!("file check task failed: {err}")))?;
         if paths.is_empty() {
             return Err(AppError::Clipboard(
                 label(core.language(), Key::SelectionFilesMissing).to_owned(),
@@ -326,9 +341,14 @@ fn original_image_path(core: &CoreInner, item: &ClipboardItem) -> Result<PathBuf
             "selected item is not an image".to_owned(),
         ));
     }
-    validate_image_file_name(&item.content)?;
+    image_origin_path(&core.images, &item.content)
+}
 
-    let source = core.images.origin_path(&item.content);
+/// 校验图片文件名并解析原图路径，原图不存在时报错。
+fn image_origin_path(images: &clipboard::ImageStore, file_name: &str) -> Result<PathBuf> {
+    validate_image_file_name(file_name)?;
+
+    let source = images.origin_path(file_name);
     if !source.is_file() {
         return Err(AppError::Clipboard("image file does not exist".to_owned()));
     }
@@ -480,7 +500,7 @@ impl Core {
             let content = core.0.settings.snapshot().clipboard.content;
             let write_plain = should_write_plain_for_copy(plain, item.kind, content.copy_plain);
 
-            write_item(&core.0, &item, write_plain)?;
+            write_item(&core.0, item.clone(), write_plain).await?;
             mark_item_reused_if_enabled(&core.0, &pool, &id, item.kind).await?;
             Ok(CopyOutcome {
                 hide_window: content.copy_then_hide_window,
@@ -534,7 +554,7 @@ impl Core {
                 content.paste_files_as_path,
             );
 
-            write_item(&core.0, &item, write_plain)?;
+            write_item(&core.0, item.clone(), write_plain).await?;
             mark_item_reused_if_enabled(&core.0, &pool, &id, item.kind).await
         })
         .await
@@ -666,7 +686,7 @@ impl Core {
                 content.paste_files_as_path,
             );
 
-            write_item(&core.0, &item, write_plain)?;
+            write_item(&core.0, item.clone(), write_plain).await?;
             mark_item_reused_if_enabled(&core.0, &pool, &id, item.kind).await?;
             Ok(Some(guard.into_ticket(&item)))
         })
@@ -948,7 +968,7 @@ impl Core {
             let _exclusive = core.0.cleanup.exclusive().await;
             let pool = core.0.db.pool().await;
             let outcome = clear_scope(&pool, &scope).await?;
-            clipboard::cleanup::apply_outcome(&core.0, &outcome, "scoped");
+            clipboard::cleanup::apply_outcome(&core.0, &outcome, "scoped").await;
             Ok(outcome.removed)
         })
         .await

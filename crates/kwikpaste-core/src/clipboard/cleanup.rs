@@ -278,7 +278,11 @@ pub(crate) async fn preview(core: &CoreInner, history: &History) -> Result<Clean
 pub(crate) async fn storage_bytes_in_use(core: &CoreInner, pool: &SqlitePool) -> Result<u64> {
     let db_path = crate::db::db_path(&core.paths)?;
     let sidecars = ["-wal", "-shm"].map(|suffix| sidecar(&db_path, suffix));
-    let total = dir_size_excluding(&core.paths.app_data_dir()?, &sidecars)?;
+    let app_data_dir = core.paths.app_data_dir()?;
+    // 遍历整个数据目录是同步 I/O，放到阻塞线程池，不占 core runtime 的工作线程。
+    let total = tokio::task::spawn_blocking(move || dir_size_excluding(&app_data_dir, &sidecars))
+        .await
+        .map_err(|err| anyhow::anyhow!("storage size task failed: {err}"))??;
 
     Ok(total.saturating_sub(reusable_page_bytes(pool).await?))
 }
@@ -288,12 +292,12 @@ fn sidecar(db_path: &Path, suffix: &str) -> PathBuf {
 }
 
 /// 按范围删除记录后删掉对应图片文件并通知宿主刷新列表；没删到记录时什么都不做。
-pub(crate) fn apply_outcome(core: &CoreInner, outcome: &CleanupOutcome, reason: &str) {
+pub(crate) async fn apply_outcome(core: &CoreInner, outcome: &CleanupOutcome, reason: &str) {
     if outcome.removed == 0 {
         return;
     }
 
-    remove_files(core, outcome);
+    remove_files(core, outcome).await;
     log::info!("{reason} cleanup removed {} item(s)", outcome.removed);
     emit_cleanup(core, outcome.removed);
 }
@@ -438,7 +442,7 @@ async fn execute(
     };
     let mut outcome = expired;
     outcome.merge(over_count);
-    report.freed_bytes += remove_files(core, &outcome);
+    report.freed_bytes += remove_files(core, &outcome).await;
     shrink_database(&pool, &outcome).await;
 
     let storage = if scope.storage {
@@ -507,7 +511,7 @@ async fn enforce_storage_limit(
             cleanup_blocked = true;
         } else {
             // 图片文件要在重新统计前删掉，统计结果才准。
-            freed = remove_files(core, &over);
+            freed = remove_files(core, &over).await;
             shrink_database(pool, &over).await;
             used = storage_bytes_in_use(core, pool).await?;
         }
@@ -569,16 +573,27 @@ fn stored_image_bytes(core: &CoreInner, file_name: &str) -> u64 {
 
 /// 删除被清理图片记录的落盘文件（原图 + 缩略图），返回本批记录释放的空间估算。
 /// 单个文件删除失败只记日志、不阻断——清理本身已成功，残留文件最坏只是占用磁盘。
-fn remove_files(core: &CoreInner, outcome: &CleanupOutcome) -> u64 {
-    let mut freed = outcome.content_bytes;
+/// 逐个文件的 metadata 与删除是同步 I/O，放到阻塞线程池执行。
+async fn remove_files(core: &CoreInner, outcome: &CleanupOutcome) -> u64 {
+    let images = core.images.clone();
+    let files = outcome.image_files.clone();
+    let content_bytes = outcome.content_bytes;
 
-    for file_name in &outcome.image_files {
-        freed += core.images.stored_bytes(file_name);
-        if let Err(err) = core.images.remove(file_name) {
-            log::warn!("remove cleaned image {file_name} failed: {err}");
+    let removed = tokio::task::spawn_blocking(move || {
+        let mut freed = content_bytes;
+        for file_name in &files {
+            freed += images.stored_bytes(file_name);
+            if let Err(err) = images.remove(file_name) {
+                log::warn!("remove cleaned image {file_name} failed: {err}");
+            }
         }
-    }
-    freed
+        freed
+    })
+    .await;
+    removed.unwrap_or_else(|err| {
+        log::warn!("remove cleaned images task failed: {err}");
+        content_bytes
+    })
 }
 
 /// 通知宿主列表按清理结果刷新。
