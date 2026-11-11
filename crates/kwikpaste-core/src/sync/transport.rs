@@ -24,6 +24,9 @@ const NOISE_TAG: usize = 16;
 const CHUNK_PLAINTEXT: usize = NOISE_MAX_MESSAGE - NOISE_TAG;
 const KEY_LEN: usize = 32;
 pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// 认证后收发多久没有任何一块进展就算连接卡死。按块计时：慢链路上的大图只要还在传就不会超时；
+/// 对方每 20 秒发一次 ping，空闲的连接也不会被误判。
+const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 /// 预分配上限：总长字段来自对端，先按小块分配，收到多少再长多少。
 const INITIAL_RECV_CAPACITY: usize = 1024 * 1024;
 /// 发出的单条消息的硬上限：JSON 头上限加设置里能选的最大附件。真正的附件上限按对方申报的来。
@@ -146,9 +149,9 @@ impl SecureWriter {
         for chunk in plaintext.chunks(CHUNK_PLAINTEXT) {
             self.write_chunk(chunk).await?;
         }
-        self.inner
-            .flush()
+        tokio::time::timeout(IDLE_TIMEOUT, self.inner.flush())
             .await
+            .map_err(|_| anyhow!("sync write timed out"))?
             .context("failed to flush sync message")?;
         Ok(())
     }
@@ -159,7 +162,12 @@ impl SecureWriter {
             .write_message(self.nonce, chunk, &mut self.buffer)
             .map_err(noise_err)?;
         self.nonce += 1;
-        write_frame(&mut self.inner, &self.buffer[..len]).await
+        tokio::time::timeout(
+            IDLE_TIMEOUT,
+            write_frame(&mut self.inner, &self.buffer[..len]),
+        )
+        .await
+        .map_err(|_| anyhow!("sync write timed out"))?
     }
 }
 
@@ -206,7 +214,9 @@ impl SecureReader {
     }
 
     async fn read_chunk(&mut self) -> anyhow::Result<Vec<u8>> {
-        let frame = read_frame(&mut self.inner).await?;
+        let frame = tokio::time::timeout(IDLE_TIMEOUT, read_frame(&mut self.inner))
+            .await
+            .map_err(|_| anyhow!("connection went quiet"))??;
         let len = self
             .transport
             .read_message(self.nonce, &frame, &mut self.buffer)

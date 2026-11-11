@@ -42,7 +42,6 @@ pub const DEFAULT_PORT: u16 = 41573;
 const DIAL_INTERVAL: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const PING_INTERVAL: Duration = Duration::from_secs(20);
-const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const OUTGOING_QUEUE: usize = 64;
 const MAX_PENDING_HANDSHAKES: usize = 16;
 const BACKOFF_BASE_SECS: u64 = 5;
@@ -1549,18 +1548,14 @@ async fn read_loop(
     let catching_up = Arc::new(AtomicBool::new(false));
     loop {
         let received = tokio::select! {
-            received = tokio::time::timeout(IDLE_TIMEOUT, reader.recv_message()) => received,
+            received = reader.recv_message() => received,
             _ = kill.changed() => return,
             _ = shutdown.changed() => return,
         };
         let (message, attachment) = match received {
-            Ok(Ok(message)) => message,
-            Ok(Err(err)) => {
+            Ok(message) => message,
+            Err(err) => {
                 log::info!("lan sync connection to {peer_id} closed: {err:#}");
-                return;
-            }
-            Err(_) => {
-                log::info!("lan sync connection to {peer_id} went quiet, closing");
                 return;
             }
         };
@@ -1710,10 +1705,7 @@ async fn write_loop(
             biased;
             _ = kill.changed() => break,
             _ = shutdown.changed() => break,
-            result = tokio::time::timeout(
-                IDLE_TIMEOUT,
-                writer.send_message(&message, &attachment),
-            ) => result.unwrap_or_else(|_| Err(anyhow!("sync write timed out"))),
+            result = writer.send_message(&message, &attachment) => result,
         };
         if let Err(err) = result {
             log::info!("lan sync write failed: {err:#}");
