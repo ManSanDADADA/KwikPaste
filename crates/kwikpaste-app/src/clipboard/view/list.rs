@@ -1695,33 +1695,30 @@ impl ClipboardList {
                         == crate::clipboard::model::filter::Range::Favorite)
                     .then_some(ReorderSection::Favorite)
             });
-        let record_reorder = reorder_section.is_some();
-        let reorder_canvas = canvas(
-            move |bounds, window, _| {
-                let mut geometry = reorder_geometry.borrow_mut();
-                if record_reorder {
+        let reorder_canvas = reorder_section.map(|section| {
+            canvas(
+                move |bounds, window, _| {
+                    let mut geometry = reorder_geometry.borrow_mut();
                     geometry
                         .cards
                         .retain(|(id, _, _)| id.as_ref() != reorder_id.as_ref());
-                    if let Some(section) = reorder_section {
-                        geometry.cards.push((reorder_id.clone(), section, bounds));
-                    }
+                    geometry.cards.push((reorder_id.clone(), section, bounds));
                     if !geometry.repaint_requested {
                         geometry.repaint_requested = true;
                         window.request_animation_frame();
                     }
-                }
-            },
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full();
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+        });
 
         card::card(env, &item, index, state)
             .children(anchor)
-            .child(reorder_canvas)
+            .children(reorder_canvas)
             .on_hover(cx.listener(move |list, hovered: &bool, _, cx| {
                 list.hover_card(&id, *hovered, cx);
             }))
