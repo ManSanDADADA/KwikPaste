@@ -1306,45 +1306,59 @@ async fn import_ecopaste_history(
     backup.close().await;
     let rows = rows?;
 
-    let mut imported_items = 0;
-    let mut skipped_items = 0;
-    {
+    let (imported_items, skipped_items) = {
         let _publication = core.cleanup.image_publication().await;
-        let _upsert = core.upsert_lock.lock().await;
-        let pool = core.db.pool().await;
-        for row in rows {
-            let Some(payload) = row.payload(root)? else {
-                skipped_items += 1;
-                continue;
-            };
-            let settings = core.settings.snapshot();
-            let Some(mut item) = clipboard::build_item_with_settings(
-                &core.images,
-                &payload,
-                &settings.clipboard.capture,
-                &settings.clipboard.sensitive,
-                settings.clipboard.content.copy_plain,
-                settings.clipboard.compiled_rules(),
-            )?
-            else {
-                skipped_items += 1;
-                continue;
-            };
-            item.note = row
-                .note
-                .map(|note| note.trim().to_owned())
-                .filter(|note| !note.is_empty());
-            item.is_favorite = row.favorite == Some(1);
-            let timestamp = row
-                .create_time
-                .as_deref()
-                .and_then(|value| NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").ok())
-                .and_then(|value| Local.from_local_datetime(&value).single())
-                .map(|value| value.with_timezone(&Utc))
-                .unwrap_or_else(Utc::now);
-            item.created_at = timestamp;
-            item.updated_at = timestamp;
+        let images = core.images.clone();
+        let settings = core.settings.snapshot();
+        let root = root.to_owned();
+        // 读旧图片、写原图、算指纹都是同步 I/O：整批放进阻塞线程池，入库时才逐条拿采集锁，
+        // 导入几千条期间本机采集不被挡住。
+        let (items, mut skipped_items) = blocking(move || {
+            let mut items = Vec::with_capacity(rows.len());
+            let mut skipped = 0;
+            for row in rows {
+                let Some(payload) = row.payload(&root)? else {
+                    skipped += 1;
+                    continue;
+                };
+                let Some(mut item) = clipboard::build_item_with_settings(
+                    &images,
+                    &payload,
+                    &settings.clipboard.capture,
+                    &settings.clipboard.sensitive,
+                    settings.clipboard.content.copy_plain,
+                    settings.clipboard.compiled_rules(),
+                )?
+                else {
+                    skipped += 1;
+                    continue;
+                };
+                item.note = row
+                    .note
+                    .map(|note| note.trim().to_owned())
+                    .filter(|note| !note.is_empty());
+                item.is_favorite = row.favorite == Some(1);
+                let timestamp = row
+                    .create_time
+                    .as_deref()
+                    .and_then(|value| {
+                        NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S").ok()
+                    })
+                    .and_then(|value| Local.from_local_datetime(&value).single())
+                    .map(|value| value.with_timezone(&Utc))
+                    .unwrap_or_else(Utc::now);
+                item.created_at = timestamp;
+                item.updated_at = timestamp;
+                items.push(item);
+            }
+            Ok((items, skipped))
+        })
+        .await?;
 
+        let pool = core.db.pool().await;
+        let mut imported_items = 0;
+        for item in items {
+            let _upsert = core.upsert_lock.lock().await;
             let exists: Option<i64> =
                 sqlx::query_scalar("SELECT 1 FROM clipboard_items WHERE content_hash = ? LIMIT 1")
                     .bind(&item.content_hash)
@@ -1358,7 +1372,8 @@ async fn import_ecopaste_history(
             crate::db::items::insert_item(&pool, &item).await?;
             imported_items += 1;
         }
-    }
+        (imported_items, skipped_items)
+    };
     refresh_apps_registry(core).await;
     core.events.emit(CoreEvent::ClipboardReloaded);
     core.ocr.nudge();
