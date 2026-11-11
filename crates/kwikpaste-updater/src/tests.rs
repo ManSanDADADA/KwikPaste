@@ -320,6 +320,7 @@ fn silent_nsis_parameters_and_hidden_restart_arguments_preserve_manual_mode() {
         "--relaunched-after-crash",
         "3",
         "--crash-degraded",
+        "D:/Backups/history.KwikPasteBak",
     ];
     assert_eq!(
         restart_args(crashed.map(OsString::from).to_vec(), false),

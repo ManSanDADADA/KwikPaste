@@ -31,7 +31,7 @@ mod verify;
 mod testing;
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -591,8 +591,9 @@ impl Inner {
 
 /// 静默重启保留参数并补上托盘启动标记；手动更新保持其余参数不变。
 ///
-/// 去掉崩溃重启的参数：新版本带着它会当成崩溃后拉起的进程，进入降级模式。Windows 还去掉提权重启标记：
-/// 安装器拉起的新进程不带管理员令牌，带着标记它就不再按设置提权。
+/// 去掉崩溃重启的参数：新版本带着它会当成崩溃后拉起的进程，进入降级模式。冷启动时带的备份文件也去掉，
+/// 否则新版本会再导入一次。Windows 还去掉提权重启标记：安装器拉起的新进程不带管理员令牌，带着标记它就
+/// 不再按设置提权。
 fn restart_args(args: Vec<OsString>, silent: bool) -> Vec<OsString> {
     use kwikpaste_os::single_instance::{CRASH_DEGRADED_ARG, RELAUNCHED_AFTER_CRASH_ARG};
 
@@ -607,7 +608,7 @@ fn restart_args(args: Vec<OsString>, silent: bool) -> Vec<OsString> {
         if arg == kwikpaste_os::win::admin::ADMIN_RESTARTED_ARG {
             continue;
         }
-        if arg != CRASH_DEGRADED_ARG {
+        if arg != CRASH_DEGRADED_ARG && !kwikpaste_core::backup::is_backup_path(Path::new(&arg)) {
             kept.push(arg);
         }
     }
