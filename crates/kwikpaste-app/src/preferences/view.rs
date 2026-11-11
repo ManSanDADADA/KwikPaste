@@ -14,7 +14,7 @@ use kwikpaste_core::{
     settings::Settings,
     settings::{
         CaptureKind, Content, CopySoundTone, GroupBarEntry, ItemAction, RetentionRule,
-        RetentionUnit,
+        RetentionUnit, SettingsDelta,
     },
     sync::{LanDeviceView, LanNearbyView, LanSyncState, PairTarget},
 };
@@ -562,8 +562,8 @@ impl Preferences {
         let subscriptions: Vec<Subscription> = core_events(cx)
             .map(|events| {
                 cx.subscribe_in(&events, window, |this, _, event: &CoreEvent, window, cx| {
-                    if matches!(event, CoreEvent::SettingsUpdated { .. }) {
-                        this.sync_settings(window, cx);
+                    if let CoreEvent::SettingsUpdated { delta, .. } = event {
+                        this.sync_settings(delta, window, cx);
                     }
                     if matches!(
                         event,
@@ -768,8 +768,14 @@ impl Preferences {
         );
     }
 
-    /// 导入或其它入口更新设置后，同步快照及独立持有状态的控件。
-    fn sync_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 导入或其它入口更新设置后，同步快照及独立持有状态的控件；下拉、数字框和滑块只同步这次改到的。
+    /// 分组列表由 `GroupsUpdated` 单独刷新。
+    fn sync_settings(
+        &mut self,
+        delta: &SettingsDelta,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(core) = core_host::core(cx) else {
             return;
         };
@@ -781,7 +787,9 @@ impl Preferences {
             .flat_map(|tab| &tab.sections)
             .flat_map(|section| &section.settings)
         {
-            let Some(path) = setting.path else { continue };
+            let Some(path) = setting.path.filter(|path| delta.touches(path)) else {
+                continue;
+            };
             if let Some(state) = self.selects.get(setting.id)
                 && let Some(value) = values::get_choice(&settings, path)
             {
@@ -805,7 +813,6 @@ impl Preferences {
             .set_value(u64::from(self.settings.sync.lan.max_image_mb), window, cx);
         self.sidebar_collapsed = self.settings.appearance.preferences_sidebar_collapsed;
         self.sync_retention(window, cx);
-        self.refresh_startup_groups(window, cx);
         cx.notify();
     }
 
