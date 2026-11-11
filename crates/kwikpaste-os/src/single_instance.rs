@@ -19,6 +19,11 @@ use crate::win::single_instance as platform;
 
 pub use platform::PrimaryInstance;
 
+/// 崩溃重启的子进程带的参数：`--relaunched-after-crash <n>`，`n` 是 10 分钟内的第几次。
+pub const RELAUNCHED_AFTER_CRASH_ARG: &str = "--relaunched-after-crash";
+/// 降级重启另带的参数。
+pub const CRASH_DEGRADED_ARG: &str = "--crash-degraded";
+
 /// 后启动的实例转交过来的启动参数。`args[0]` 是对方的可执行文件路径。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invocation {

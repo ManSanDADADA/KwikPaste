@@ -315,6 +315,16 @@ fn silent_nsis_parameters_and_hidden_restart_arguments_preserve_manual_mode() {
         vec![OsString::from(AUTO_LAUNCH_ARG)]
     );
     assert_eq!(restart_args(original.clone(), false), original);
+    let crashed = [
+        "/custom",
+        "--relaunched-after-crash",
+        "3",
+        "--crash-degraded",
+    ];
+    assert_eq!(
+        restart_args(crashed.map(OsString::from).to_vec(), false),
+        vec![OsString::from("/custom")]
+    );
     #[cfg(target_os = "windows")]
     assert_eq!(
         restart_args(

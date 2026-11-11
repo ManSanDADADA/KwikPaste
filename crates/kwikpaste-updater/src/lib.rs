@@ -589,20 +589,36 @@ impl Inner {
     }
 }
 
-/// 静默重启保留参数并补上托盘启动标记；手动更新保持原参数不变。
+/// 静默重启保留参数并补上托盘启动标记；手动更新保持其余参数不变。
 ///
-/// Windows 去掉提权重启标记：安装器拉起的新进程不带管理员令牌，带着标记它就不再按设置提权。
-fn restart_args(mut args: Vec<OsString>, silent: bool) -> Vec<OsString> {
-    #[cfg(target_os = "windows")]
-    args.retain(|arg| arg != kwikpaste_os::win::admin::ADMIN_RESTARTED_ARG);
+/// 去掉崩溃重启的参数：新版本带着它会当成崩溃后拉起的进程，进入降级模式。Windows 还去掉提权重启标记：
+/// 安装器拉起的新进程不带管理员令牌，带着标记它就不再按设置提权。
+fn restart_args(args: Vec<OsString>, silent: bool) -> Vec<OsString> {
+    use kwikpaste_os::single_instance::{CRASH_DEGRADED_ARG, RELAUNCHED_AFTER_CRASH_ARG};
+
+    let mut kept = Vec::new();
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        if arg == RELAUNCHED_AFTER_CRASH_ARG {
+            args.next();
+            continue;
+        }
+        #[cfg(target_os = "windows")]
+        if arg == kwikpaste_os::win::admin::ADMIN_RESTARTED_ARG {
+            continue;
+        }
+        if arg != CRASH_DEGRADED_ARG {
+            kept.push(arg);
+        }
+    }
     if silent
-        && !args
+        && !kept
             .iter()
             .any(|arg| arg == kwikpaste_os::autostart::AUTO_LAUNCH_ARG)
     {
-        args.push(kwikpaste_os::autostart::AUTO_LAUNCH_ARG.into());
+        kept.push(kwikpaste_os::autostart::AUTO_LAUNCH_ARG.into());
     }
-    args
+    kept
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

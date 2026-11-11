@@ -37,9 +37,9 @@ pub use crash::{Restart, exit_code, request_restart, restart_requests, spawn_rel
 use crate::selftest;
 
 /// 崩溃重启的子进程带的参数：`--relaunched-after-crash <n>`，`n` 是 10 分钟内的第几次。
-pub const RELAUNCHED: &str = "--relaunched-after-crash";
+pub const RELAUNCHED: &str = kwikpaste_os::single_instance::RELAUNCHED_AFTER_CRASH_ARG;
 /// 降级重启另带的参数。
-pub const DEGRADED: &str = "--crash-degraded";
+pub const DEGRADED: &str = kwikpaste_os::single_instance::CRASH_DEGRADED_ARG;
 /// Internal helper process mode. It is handled before GPUI/logging is initialized.
 pub const WATCHDOG: &str = "--watchdog";
 
