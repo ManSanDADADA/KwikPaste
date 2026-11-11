@@ -188,6 +188,9 @@ pub(super) fn observe_double_tap(message: u32, event: &KBDLLHOOKSTRUCT) {
     let timestamp = EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64;
     let fire = {
         let mut detector = DOUBLE_TAP.lock().unwrap_or_else(|p| p.into_inner());
+        if down {
+            detector.clear_released(|physical| key_down(virtual_key(physical)));
+        }
         let fire = if let Some(key) = physical_key(event.vkCode) {
             detector.modifier(key, down, timestamp)
         } else {
@@ -230,6 +233,17 @@ fn physical_key(vk: u32) -> Option<PhysicalKey> {
         _ => return None,
     };
     Some(PhysicalKey { key, side })
+}
+
+fn virtual_key(physical: PhysicalKey) -> VIRTUAL_KEY {
+    match (physical.key, physical.side) {
+        (DoubleTapKey::Control, KeySide::Left) => VK_LCONTROL,
+        (DoubleTapKey::Control, _) => VK_RCONTROL,
+        (DoubleTapKey::Shift, KeySide::Left) => VK_LSHIFT,
+        (DoubleTapKey::Shift, _) => VK_RSHIFT,
+        (_, KeySide::Left) => VK_LMENU,
+        (_, _) => VK_RMENU,
+    }
 }
 
 /// 处理一个按键事件，返回是否吞掉。

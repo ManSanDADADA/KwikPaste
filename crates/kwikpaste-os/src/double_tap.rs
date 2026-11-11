@@ -65,6 +65,22 @@ impl Detector {
         self.held = None;
     }
 
+    /// 清掉 `is_down` 判定已松开的按住位：松开事件没送到钩子（如 Ctrl+Alt+Del）时不让脏位留下。
+    pub fn clear_released(&mut self, is_down: impl Fn(PhysicalKey) -> bool) {
+        for key in [
+            DoubleTapKey::Control,
+            DoubleTapKey::Shift,
+            DoubleTapKey::Alt,
+        ] {
+            for side in [KeySide::Left, KeySide::Right] {
+                let physical = PhysicalKey { key, side };
+                if self.pressed & physical.bit() != 0 && !is_down(physical) {
+                    self.pressed &= !physical.bit();
+                }
+            }
+        }
+    }
+
     /// 输入物理修饰键的按下/松开；只在合格的第二次松开返回 true。
     pub fn modifier(&mut self, physical: PhysicalKey, down: bool, timestamp: u64) -> bool {
         let bit = physical.bit();
@@ -229,6 +245,20 @@ mod tests {
         assert!(!d.modifier(k, true, 80));
         assert!(!d.modifier(k, false, 90));
         assert!(!tap(&mut d, k, 100, 110));
+    }
+
+    #[test]
+    fn clear_released_drops_a_stuck_bit_so_the_next_tap_counts() {
+        let ctrl = key(DoubleTapKey::Control, KeySide::Left);
+        let alt = key(DoubleTapKey::Alt, KeySide::Left);
+        let mut d = detector(ctrl.key, KeySide::Any);
+        assert!(!d.modifier(alt, true, 0)); // Alt up never arrives.
+        assert!(!tap(&mut d, ctrl, 10, 20));
+        assert!(!tap(&mut d, ctrl, 30, 40));
+
+        d.clear_released(|physical| physical != alt);
+        assert!(!tap(&mut d, ctrl, 50, 60));
+        assert!(tap(&mut d, ctrl, 70, 80));
     }
 
     #[test]
