@@ -100,14 +100,6 @@ struct Onboarding {
     icons: Entity<KpImageCache>,
 }
 
-/// 快捷键一步里下拉选项的候选项（值、当前语言的文字）。
-fn select_options(setting: &schema::Setting) -> Vec<SelectOption> {
-    text::options(setting)
-        .into_iter()
-        .map(|(value, label)| SelectOption::new(value, label))
-        .collect()
-}
-
 impl Onboarding {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let settings = core_host::core(cx).map_or_else(Settings::default, |core| core.settings());
@@ -182,7 +174,12 @@ impl Onboarding {
             };
             let numeric = matches!(kind, schema::Options::Numbers(_));
             let selected = values::get_choice(&settings_json, path);
-            let state = SelectState::new(select_options(&setting), selected.as_deref(), window, cx);
+            let state = SelectState::new(
+                view::select_options(&setting),
+                selected.as_deref(),
+                window,
+                cx,
+            );
             subscriptions.push(state.on_change(cx, move |this, value, cx| {
                 if let Some(value) = value {
                     this.update_settings(values::choice_patch(path, &value, numeric), cx);
@@ -232,7 +229,7 @@ impl Onboarding {
         self.options_language = language;
         for setting in schema::shortcut_settings() {
             if let Some(state) = self.selects.get(setting.id) {
-                state.set_options(select_options(&setting), window, cx);
+                state.set_options(view::select_options(&setting), window, cx);
             }
         }
     }

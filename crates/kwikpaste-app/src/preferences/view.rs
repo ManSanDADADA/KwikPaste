@@ -267,6 +267,8 @@ struct Preferences {
     _subscriptions: Vec<Subscription>,
     language: SelectState,
     selects: std::collections::HashMap<&'static str, SelectState>,
+    /// 下拉选项文字所用的语言；切换语言后重新填一遍。
+    options_language: i18n::Language,
     number_inputs: std::collections::HashMap<&'static str, NumberInputState>,
     sliders: std::collections::HashMap<&'static str, SliderState>,
     scroll: ScrollHandle,
@@ -421,13 +423,14 @@ impl Preferences {
                     match setting.control {
                         Control::Select(kind) => {
                             let numeric = matches!(kind, schema::Options::Numbers(_));
-                            let options = text::options(setting)
-                                .into_iter()
-                                .map(|(value, label)| SelectOption::new(value, label))
-                                .collect();
                             let selected =
                                 values::get_choice(&settings_json, setting.path.unwrap_or(""));
-                            let state = SelectState::new(options, selected.as_deref(), window, cx);
+                            let state = SelectState::new(
+                                select_options(setting),
+                                selected.as_deref(),
+                                window,
+                                cx,
+                            );
                             let path = setting.path;
                             let subscription = state.on_change(cx, move |this, value, cx| {
                                 if let (Some(path), Some(value)) = (path, value) {
@@ -524,20 +527,8 @@ impl Preferences {
             kwikpaste_core::settings::RetentionUnit::Months => "months",
             kwikpaste_core::settings::RetentionUnit::Forever => "forever",
         };
-        let retention_unit_state = SelectState::new(
-            ["minutes", "hours", "days", "weeks", "months", "forever"]
-                .into_iter()
-                .map(|value| {
-                    SelectOption::new(
-                        value,
-                        i18n::t(&format!("preferences:schema.retentionUnits.{value}")),
-                    )
-                })
-                .collect(),
-            Some(retention_unit),
-            window,
-            cx,
-        );
+        let retention_unit_state =
+            SelectState::new(retention_unit_options(), Some(retention_unit), window, cx);
         let retention_unit_sub =
             retention_unit_state.on_change_in(window, cx, |this, value, window, cx| {
                 if let Some(value) = value {
@@ -672,6 +663,7 @@ impl Preferences {
             _subscriptions: subscriptions,
             language,
             selects,
+            options_language: i18n::language(),
             number_inputs,
             sliders,
             scroll,
@@ -714,27 +706,66 @@ impl Preferences {
                 }
             };
             let _ = this.update_in(cx, |this, window, cx| {
-                this.groups = groups.clone();
-                cx.notify();
-                let Some(state) = this.selects.get("window.selectGroupOnOpen") else {
-                    return;
-                };
-                let mut options = ["all", "preserve"]
-                    .into_iter()
-                    .map(|value| SelectOption::new(value, startup_group_label(value)))
-                    .collect::<Vec<_>>();
-                options.extend(
-                    groups
-                        .into_iter()
-                        .map(|group| SelectOption::new(format!("group:{}", group.id), group.name)),
-                );
-                state.set_options(options, window, cx);
-                let selected = &this.settings.clipboard.window.select_group_on_open;
-                state.set_value(selected, window, cx);
+                this.groups = groups;
+                this.sync_startup_group_options(window, cx);
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// 启动分组下拉：两个固定项加当前全部分组。
+    fn sync_startup_group_options(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(state) = self.selects.get("window.selectGroupOnOpen") else {
+            return;
+        };
+        let mut options = ["all", "preserve"]
+            .into_iter()
+            .map(|value| SelectOption::new(value, startup_group_label(value)))
+            .collect::<Vec<_>>();
+        options.extend(
+            self.groups
+                .iter()
+                .map(|group| SelectOption::new(format!("group:{}", group.id), group.name.clone())),
+        );
+        state.set_options(options, window, cx);
+        state.set_value(
+            &self.settings.clipboard.window.select_group_on_open,
+            window,
+            cx,
+        );
+    }
+
+    /// 切换界面语言后，下拉选项与占位文字换成新语言（选中值不变）。
+    fn relabel_options(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let language = i18n::language();
+        if self.options_language == language {
+            return;
+        }
+        self.options_language = language;
+        let portable = core_host::core(cx).is_some_and(|core| core.paths().is_portable());
+        for setting in schema::tabs(portable)
+            .iter()
+            .flat_map(|tab| &tab.sections)
+            .flat_map(|section| &section.settings)
+        {
+            if let (Control::Select(_), Some(state)) =
+                (setting.control, self.selects.get(setting.id))
+            {
+                state.set_options(select_options(setting), window, cx);
+            }
+        }
+        if let Some(state) = self.selects.get("history.retention.unit") {
+            state.set_options(retention_unit_options(), window, cx);
+        }
+        self.sync_startup_group_options(window, cx);
+        self.search
+            .set_placeholder(i18n::t("preferences:search.placeholder"), window, cx);
+        self.lan_name.set_placeholder(
+            i18n::t("preferences:schema.settings.sync.lan.deviceName.placeholder"),
+            window,
+            cx,
+        );
     }
 
     /// 导入或其它入口更新设置后，同步快照及独立持有状态的控件。
@@ -5111,15 +5142,7 @@ impl RetentionRuleEditor {
             cx,
         );
         let keep_unit = SelectState::new(
-            ["minutes", "hours", "days", "weeks", "months", "forever"]
-                .into_iter()
-                .map(|key| {
-                    SelectOption::new(
-                        key,
-                        i18n::t(&format!("preferences:schema.retentionUnits.{key}")),
-                    )
-                })
-                .collect(),
+            retention_unit_options(),
             Some(retention_unit_key(rule.keep.unit)),
             window,
             cx,
@@ -5344,6 +5367,26 @@ fn retention_unit_key(unit: RetentionUnit) -> &'static str {
         RetentionUnit::Months => "months",
         RetentionUnit::Forever => "forever",
     }
+}
+
+fn retention_unit_options() -> Vec<SelectOption> {
+    ["minutes", "hours", "days", "weeks", "months", "forever"]
+        .into_iter()
+        .map(|key| {
+            SelectOption::new(
+                key,
+                i18n::t(&format!("preferences:schema.retentionUnits.{key}")),
+            )
+        })
+        .collect()
+}
+
+/// 下拉设置的候选项（值、当前语言的文字）。
+pub(super) fn select_options(setting: &Setting) -> Vec<SelectOption> {
+    text::options(setting)
+        .into_iter()
+        .map(|(value, label)| SelectOption::new(value, label))
+        .collect()
 }
 
 fn startup_group_label(value: &str) -> gpui::SharedString {
@@ -5595,6 +5638,7 @@ fn platform_label(platform: kwikpaste_core::db::models::Platform) -> &'static st
 
 impl Render for Preferences {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.relabel_options(window, cx);
         div()
             .size_full()
             .track_focus(&self.focus)
