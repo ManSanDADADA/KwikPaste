@@ -51,6 +51,12 @@ pub(crate) fn claim(identifier: &str, sink: Sink) -> io::Result<Claim> {
     }
 }
 
+/// 锁文件放 `$TMPDIR`（每用户一份）：放共享的 `/tmp` 会归先运行的用户所有，其他用户打不开。
+fn lock_path(socket: &Path) -> PathBuf {
+    let name = socket.with_extension("lock");
+    std::env::temp_dir().join(name.file_name().unwrap_or_default())
+}
+
 /// 串行化 socket 的检查、替换与清理；锁文件不删除，避免新文件绕过仍存活的旧锁。
 fn lock_socket(socket: &Path) -> io::Result<File> {
     let file = File::options()
@@ -58,7 +64,7 @@ fn lock_socket(socket: &Path) -> io::Result<File> {
         .write(true)
         .create(true)
         .truncate(false)
-        .open(socket.with_extension("lock"))?;
+        .open(lock_path(socket))?;
     file.lock()?;
     Ok(file)
 }
@@ -112,7 +118,7 @@ mod tests {
         let contender = File::options()
             .read(true)
             .write(true)
-            .open(socket.with_extension("lock"))
+            .open(lock_path(&socket))
             .unwrap();
 
         assert!(contender.try_lock().is_err());
