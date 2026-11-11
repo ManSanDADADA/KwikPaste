@@ -43,6 +43,9 @@ const DIAL_INTERVAL: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const PING_INTERVAL: Duration = Duration::from_secs(20);
 const OUTGOING_QUEUE: usize = 64;
+/// 补齐收集失败（原图被占用、数据库忙）后隔多久重试；第几次尝试起跳过读不出来的原图。
+const CATCH_UP_RETRY: Duration = Duration::from_secs(30);
+const CATCH_UP_SKIP_ATTEMPT: u32 = 3;
 const MAX_PENDING_HANDSHAKES: usize = 16;
 const BACKOFF_BASE_SECS: u64 = 5;
 const BACKOFF_MAX_SECS: u64 = 120;
@@ -1638,22 +1641,35 @@ struct CatchUpRequest {
     attachment_limit: u64,
 }
 
+/// 答一次补齐请求。收集失败时隔一会儿在这条连接上重试：对方收到这一页才会要下一页，
+/// 放弃就会让补齐和检查点一直停着；断线重连又会立刻重拨，不能代替重试的间隔。
 async fn send_catch_up(
     core: Arc<CoreInner>,
     request: CatchUpRequest,
     after: u64,
     epoch: Option<String>,
 ) {
-    let page =
-        match engine::collect_catch_up(&core, after, epoch.as_deref(), request.attachment_limit)
-            .await
+    let mut attempt = 1;
+    let page = loop {
+        let skip_unreadable = attempt >= CATCH_UP_SKIP_ATTEMPT;
+        match engine::collect_catch_up(
+            &core,
+            after,
+            epoch.as_deref(),
+            request.attachment_limit,
+            skip_unreadable,
+        )
+        .await
         {
-            Ok(page) => page,
-            Err(err) => {
-                log::warn!("lan sync catch-up failed: {err:#}");
-                return;
-            }
-        };
+            Ok(page) => break page,
+            Err(err) => log::warn!("lan sync catch-up attempt {attempt} failed: {err:#}"),
+        }
+        attempt += 1;
+        tokio::select! {
+            _ = tokio::time::sleep(CATCH_UP_RETRY) => {}
+            _ = request.tx.closed() => return,
+        }
+    };
 
     for (item, attachment) in page.items {
         let push = Message::Push { item, live: false };

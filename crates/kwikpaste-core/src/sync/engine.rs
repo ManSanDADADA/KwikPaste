@@ -176,11 +176,13 @@ pub struct CatchUpPage {
 /// 对方请求本机序号大于 `after` 的记录：最近 7 天、最新的 500 条以内，按序号从小到大分页。
 /// 对方的水位线属于另一代序号（本机数据库重建过）或还没有水位线时从头发。
 /// 最后一页的 `until` 是本机当前的计数器，不参与同步的记录（敏感、文件）也一并跳过。
+/// 原图读不出来时整页报错留待重试；`skip_unreadable` 时像原图不存在一样跳过这条。
 pub async fn collect_catch_up(
     core: &CoreInner,
     after: u64,
     epoch: Option<&str>,
     attachment_limit: u64,
+    skip_unreadable: bool,
 ) -> anyhow::Result<CatchUpPage> {
     let lan = core.settings.snapshot().sync.lan;
     let pool = core.db.pool().await;
@@ -209,8 +211,13 @@ pub async fn collect_catch_up(
             continue;
         }
         let limit = attachment_limit.min(lan.max_image_bytes());
-        if let Some(wire) = wire_from_item(core, &item, limit).await? {
-            items.push(wire);
+        match wire_from_item(core, &item, limit).await {
+            Ok(Some(wire)) => items.push(wire),
+            Ok(None) => {}
+            Err(err) if skip_unreadable => {
+                log::warn!("lan sync catch-up skips unreadable item {id}: {err:#}");
+            }
+            Err(err) => return Err(err),
         }
     }
 
@@ -497,16 +504,28 @@ mod tests {
                     .await
                     .unwrap()
                     .is_none());
-                let page = collect_catch_up(&core.0, 0, None, u64::MAX).await.unwrap();
+                let page = collect_catch_up(&core.0, 0, None, u64::MAX, false)
+                    .await
+                    .unwrap();
                 assert!(page.items.is_empty());
                 assert_eq!(page.until, 1);
 
                 std::fs::create_dir(&path).unwrap();
                 assert!(wire_from_item(&core.0, &item, u64::MAX).await.is_err());
-                assert!(collect_catch_up(&core.0, 0, None, u64::MAX).await.is_err());
+                assert!(collect_catch_up(&core.0, 0, None, u64::MAX, false)
+                    .await
+                    .is_err());
+                // 重试几次仍读不出来就跳过，水位线照样越过它。
+                let page = collect_catch_up(&core.0, 0, None, u64::MAX, true)
+                    .await
+                    .unwrap();
+                assert!(page.items.is_empty());
+                assert_eq!(page.until, 1);
                 std::fs::remove_dir(&path).unwrap();
                 std::fs::write(path, bytes).unwrap();
-                let page = collect_catch_up(&core.0, 0, None, u64::MAX).await.unwrap();
+                let page = collect_catch_up(&core.0, 0, None, u64::MAX, false)
+                    .await
+                    .unwrap();
                 assert_eq!(page.items.len(), 1);
                 assert_eq!(page.until, 1);
                 Ok(())
@@ -583,7 +602,7 @@ mod tests {
             let core = core.clone();
             async move {
                 assert!(wire_from_item(&core.0, &item, 0).await.unwrap().is_none());
-                let page = collect_catch_up(&core.0, 0, None, 0).await.unwrap();
+                let page = collect_catch_up(&core.0, 0, None, 0, false).await.unwrap();
                 assert!(page.items.is_empty());
                 assert_eq!(page.until, 1);
 
