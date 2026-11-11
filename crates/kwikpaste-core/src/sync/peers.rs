@@ -4,7 +4,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -14,6 +16,9 @@ use crate::db::models::Platform;
 
 const PEERS_FILENAME: &str = "peers.json";
 const PEERS_VERSION: u16 = 1;
+/// 水位线落盘的最短间隔。实时检查点每次复制都会推进它；没落盘的推进最多让下次补齐
+/// 多发几条，对方按内容去重。
+const WATERMARK_SAVE_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,6 +60,9 @@ struct PeersFile {
 pub struct PeerStore {
     path: PathBuf,
     state: Mutex<PeersFile>,
+    /// 上次因为水位线落盘的时间；间隔内的推进只改内存，`watermark_pending` 记着还没写下去。
+    watermark_saved_at: Mutex<Option<Instant>>,
+    watermark_pending: AtomicBool,
 }
 
 impl PeerStore {
@@ -72,6 +80,8 @@ impl PeerStore {
         Self {
             path,
             state: Mutex::new(state),
+            watermark_saved_at: Mutex::new(None),
+            watermark_pending: AtomicBool::new(false),
         }
     }
 
@@ -148,7 +158,25 @@ impl PeerStore {
         }
 
         peer.watermark = until;
+        let mut saved_at = self
+            .watermark_saved_at
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if saved_at.is_some_and(|at| at.elapsed() < WATERMARK_SAVE_INTERVAL) {
+            self.watermark_pending.store(true, Ordering::Relaxed);
+            return;
+        }
+        *saved_at = Some(Instant::now());
+        drop(saved_at);
         self.save(&state);
+    }
+
+    /// 把间隔内只改了内存的水位线写下去；同步运行时停止时调用。
+    pub fn flush(&self) {
+        let state = self.lock();
+        if self.watermark_pending.load(Ordering::Relaxed) {
+            self.save(&state);
+        }
     }
 
     /// 移除配对，名称留作历史记录的来源显示。
@@ -206,6 +234,7 @@ impl PeerStore {
     }
 
     fn save(&self, state: &PeersFile) {
+        self.watermark_pending.store(false, Ordering::Relaxed);
         if let Err(err) = self.write(state) {
             log::warn!("save sync peers failed: {err:#}");
         }
@@ -292,5 +321,14 @@ mod tests {
         store.advance_watermark("a", "e2", 3);
         let peer = store.get("a").unwrap();
         assert_eq!((peer.epoch.as_deref(), peer.watermark), (Some("e2"), 3));
+        // 间隔内的推进先只改内存，停止时再写下去。
+        let on_disk = PeerStore::load(dir.path()).get("a").unwrap();
+        assert_eq!(on_disk.watermark, 40);
+        store.flush();
+        let on_disk = PeerStore::load(dir.path()).get("a").unwrap();
+        assert_eq!(
+            (on_disk.epoch.as_deref(), on_disk.watermark),
+            (Some("e2"), 3)
+        );
     }
 }

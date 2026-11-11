@@ -51,6 +51,8 @@ const BACKOFF_BASE_SECS: u64 = 5;
 const BACKOFF_MAX_SECS: u64 = 120;
 const UNPAIR_FLUSH_DELAY: Duration = Duration::from_millis(300);
 const LISTEN_BACKLOG: i32 = 128;
+/// 后台多久重新枚举一次本机地址（换网、连上 VPN 后界面跟着变）。
+const ADDRESS_REFRESH: Duration = Duration::from_secs(30);
 
 type Outgoing = (Message, Arc<Vec<u8>>);
 
@@ -103,7 +105,13 @@ impl LanSyncNetwork {
             ];
         }
 
-        local_addresses()
+        let local = local_addresses();
+        local
+            .ipv4
+            .iter()
+            .map(ToString::to_string)
+            .chain(local.ipv6)
+            .collect()
     }
 }
 
@@ -313,6 +321,7 @@ impl LanSyncService {
             tokio::spawn(accept_loop(shared.clone(), listener));
         }
         tokio::spawn(dial_loop(shared.clone()));
+        tokio::spawn(address_loop(shared.clone()));
 
         let lan = core.settings.snapshot().sync.lan;
         let name = effective_device_name(&lan);
@@ -367,6 +376,7 @@ impl LanSyncService {
         *self.shared.write().expect("lan sync poisoned") = None;
         let _ = runtime.shutdown.send(true);
         runtime.shared.kill_all();
+        self.peers.flush();
         if let Some(discovery) = runtime.discovery {
             let _ = tokio::task::spawn_blocking(move || discovery.stop()).await;
         }
@@ -782,7 +792,7 @@ impl Shared {
     fn on_discovery(&self, event: DiscoveryEvent) {
         let changed = match event {
             DiscoveryEvent::Found(mut found) => {
-                rank_addresses(&mut found.addresses, &local_ipv4s());
+                rank_addresses(&mut found.addresses, &local_addresses().ipv4);
                 let mut nearby = self.nearby.lock().expect("lan sync poisoned");
                 let changed = nearby.get(&found.device_id).is_none_or(|existing| {
                     existing.name != found.name
@@ -1427,6 +1437,23 @@ async fn dial_loop(shared: Arc<Shared>) {
     }
 }
 
+/// 定期在后台重新枚举本机地址，变了才通知界面。
+async fn address_loop(shared: Arc<Shared>) {
+    let mut shutdown = shared.shutdown.clone();
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(ADDRESS_REFRESH) => {}
+            _ = shutdown.changed() => return,
+        }
+        if tokio::task::spawn_blocking(refresh_local_addresses)
+            .await
+            .unwrap_or(false)
+        {
+            shared.emit_state();
+        }
+    }
+}
+
 async fn dial_peer(shared: Arc<Shared>, peer: TrustedPeer, addresses: Vec<SocketAddr>) {
     let goal = DialGoal::Sync {
         device_id: peer.device_id.clone(),
@@ -1818,19 +1845,47 @@ fn interface_index(name: &str) -> Option<u32> {
         .and_then(|interface| interface.index)
 }
 
-fn local_addresses() -> Vec<String> {
-    let mut addresses: Vec<String> = local_ipv4s().into_iter().map(|ip| ip.to_string()).collect();
-    addresses.extend(local_ipv6s());
-    addresses
+/// 本机可被别的设备连接的地址。枚举网卡加一次 UDP 选路要几毫秒，偏好页每次刷新、
+/// 每个 mDNS 事件都要用，所以缓存起来，由 [`address_loop`] 在后台定期刷新。
+#[derive(Clone, PartialEq, Eq)]
+struct LocalAddresses {
+    ipv4: Vec<Ipv4Addr>,
+    ipv6: Vec<String>,
+}
+
+static LOCAL_ADDRESSES: Mutex<Option<LocalAddresses>> = Mutex::new(None);
+
+impl LocalAddresses {
+    fn scan() -> Self {
+        let interfaces = if_addrs::get_if_addrs().unwrap_or_default();
+        Self {
+            ipv4: local_ipv4s(&interfaces),
+            ipv6: local_ipv6s(&interfaces),
+        }
+    }
+}
+
+/// 缓存的本机地址；还没枚举过时当场枚举一次。
+fn local_addresses() -> LocalAddresses {
+    LOCAL_ADDRESSES
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get_or_insert_with(LocalAddresses::scan)
+        .clone()
+}
+
+/// 重新枚举本机地址；和之前缓存的不同时返回 `true`。
+fn refresh_local_addresses() -> bool {
+    let fresh = LocalAddresses::scan();
+    let mut cache = LOCAL_ADDRESSES.lock().unwrap_or_else(|p| p.into_inner());
+    let changed = cache.as_ref().is_some_and(|old| *old != fresh);
+    *cache = Some(fresh);
+    changed
 }
 
 /// 本机可被别的设备连接的 IPv4 地址，默认路由所在网卡排第一。
 /// Hyper-V、WSL、VMware 等虚拟网卡的地址别的电脑连不到，只在没有别的地址时才列出。
-fn local_ipv4s() -> Vec<Ipv4Addr> {
-    let Ok(interfaces) = if_addrs::get_if_addrs() else {
-        return Vec::new();
-    };
-
+fn local_ipv4s(interfaces: &[if_addrs::Interface]) -> Vec<Ipv4Addr> {
     let mut physical = Vec::new();
     let mut virtual_adapters = Vec::new();
     for interface in interfaces {
@@ -1860,11 +1915,7 @@ fn local_ipv4s() -> Vec<Ipv4Addr> {
 
 /// 物理网卡上的 IPv6 地址：全局地址在前，链路本地地址带 `%scope`（Windows 写网卡编号，
 /// macOS 写网卡名，与系统自己的写法一致）。
-fn local_ipv6s() -> Vec<String> {
-    let Ok(interfaces) = if_addrs::get_if_addrs() else {
-        return Vec::new();
-    };
-
+fn local_ipv6s(interfaces: &[if_addrs::Interface]) -> Vec<String> {
     let mut global = Vec::new();
     let mut link_local = Vec::new();
     for interface in interfaces {
