@@ -90,6 +90,8 @@ pub fn serve(cx: &mut App, commands: Sender<PanelCommand>) {
         // 订阅句柄跟着任务活到进程结束。
         let _watch = watch;
         while receiver.recv().await.is_ok() {
+            // 广播成串到达：积压的通知合并成一次重读。
+            while receiver.try_recv().is_ok() {}
             let signals = read();
             let changed = cx.update(|cx| {
                 let previous = cx.try_global::<SystemSignals>().copied();
