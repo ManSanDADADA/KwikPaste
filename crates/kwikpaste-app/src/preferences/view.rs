@@ -416,12 +416,12 @@ impl Preferences {
         let mut setting_subscriptions = Vec::new();
         let settings_json = values::to_json(&settings);
         for tab in schema::tabs(portable) {
-            for section in tab.sections {
-                for setting in section.settings {
+            for section in &tab.sections {
+                for setting in &section.settings {
                     match setting.control {
                         Control::Select(kind) => {
                             let numeric = matches!(kind, schema::Options::Numbers(_));
-                            let options = text::options(&setting)
+                            let options = text::options(setting)
                                 .into_iter()
                                 .map(|(value, label)| SelectOption::new(value, label))
                                 .collect();
@@ -655,9 +655,9 @@ impl Preferences {
         subscriptions.push(cx.on_blur(&focus, window, |this, _, cx| this.stop_recording(cx)));
         let scroll = ScrollHandle::new();
         let setting_anchors = schema::tabs(portable)
-            .into_iter()
-            .flat_map(|tab| tab.sections)
-            .flat_map(|section| section.settings)
+            .iter()
+            .flat_map(|tab| &tab.sections)
+            .flat_map(|section| &section.settings)
             .map(|setting| (setting.id, ScrollAnchor::for_handle(scroll.clone())))
             .collect();
         let mut preferences = Self {
@@ -746,9 +746,9 @@ impl Preferences {
         let settings = values::to_json(&self.settings);
         let portable = core.paths().is_portable();
         for setting in schema::tabs(portable)
-            .into_iter()
-            .flat_map(|tab| tab.sections)
-            .flat_map(|section| section.settings)
+            .iter()
+            .flat_map(|tab| &tab.sections)
+            .flat_map(|section| &section.settings)
         {
             let Some(path) = setting.path else { continue };
             if let Some(state) = self.selects.get(setting.id)
@@ -3028,7 +3028,7 @@ impl Preferences {
             group = Some(tab.group);
             let selected = tab.id == self.tab;
             let id = tab.id;
-            let title = text::tab_title_of(&tab);
+            let title = text::tab_title_of(tab);
             nav = nav.child(
                 div()
                     .id(id.key())
@@ -3176,10 +3176,10 @@ impl Preferences {
         if let Some(id) = setting_id {
             let portable = core_host::core(cx).is_some_and(|core| core.paths().is_portable());
             if schema::tabs(portable)
-                .into_iter()
+                .iter()
                 .filter(|page| page.id == tab)
-                .flat_map(|page| page.sections)
-                .flat_map(|section| section.settings)
+                .flat_map(|page| &page.sections)
+                .flat_map(|section| &section.settings)
                 .any(|setting| setting.id == id && setting.is_advanced(&self.settings))
             {
                 self.advanced_expanded.insert(tab);

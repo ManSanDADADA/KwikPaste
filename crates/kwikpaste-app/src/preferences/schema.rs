@@ -3,6 +3,8 @@
 //! 设置项 id 是 i18n key（`preferences:schema.settings.<id>.*`）与搜索跳转的目标，挪动分类时保持不变；
 //! `path` 是 `settings.json` 的点分 camelCase 路径，读值和写补丁都按它走。
 
+use std::sync::LazyLock;
+
 use super::icons::PrefIcon;
 use kwikpaste_core::settings::{ListDensity, ListStyle, Settings};
 
@@ -320,7 +322,14 @@ fn not_custom_density(settings: &Settings) -> bool {
 }
 
 /// 全部分类。平台条件与 1.x 相同；`portable` 时不显示以管理员身份运行（计划任务记着 exe 路径）。
-pub fn tabs(portable: bool) -> Vec<Tab> {
+/// 结构只随 `portable` 变化，偏好窗每帧都要遍历，所以各建一次后共用。
+pub fn tabs(portable: bool) -> &'static [Tab] {
+    static INSTALLED: LazyLock<Vec<Tab>> = LazyLock::new(|| build_tabs(false));
+    static PORTABLE: LazyLock<Vec<Tab>> = LazyLock::new(|| build_tabs(true));
+    if portable { &PORTABLE } else { &INSTALLED }
+}
+
+fn build_tabs(portable: bool) -> Vec<Tab> {
     vec![
         Tab {
             id: TabId::General,
