@@ -181,11 +181,12 @@ impl NativePanel {
 
     pub fn hide(&self) -> Option<WindowGeometry> {
         let geometry = self.panel.geometry();
+        let changed = geometry != self.last.get();
         if geometry.is_some() {
             self.last.set(geometry);
         }
         self.panel.hide();
-        geometry
+        geometry.filter(|_| changed)
     }
 
     pub fn is_editing(&self) -> bool {

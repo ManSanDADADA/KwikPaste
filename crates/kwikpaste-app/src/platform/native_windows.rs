@@ -263,14 +263,15 @@ impl NativePanel {
         }
     }
 
-    /// 隐藏面板，返回隐藏前的几何（外框左上角与内容区尺寸，逻辑像素），供存档。
+    /// 隐藏面板，返回隐藏前的几何（外框左上角与内容区尺寸，逻辑像素），供存档；与上次相同时为 `None`。
     pub fn hide(&self) -> Option<WindowGeometry> {
         let geometry = self.geometry();
+        let changed = geometry != self.last.get();
         if geometry.is_some() {
             self.last.set(geometry);
         }
         self.panel.hide();
-        geometry
+        geometry.filter(|_| changed)
     }
 
     fn geometry(&self) -> Option<WindowGeometry> {
