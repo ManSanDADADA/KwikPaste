@@ -29,25 +29,51 @@ pub fn secret_spans(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     )
 }
 
-/// 敏感条目里 `Authorization` / `Cookie` 等请求头的值。只用于遮罩：请求头本身不让条目变敏感，
-/// 但条目因别的凭据变敏感后，同一段 curl 里的 session cookie 也得遮住。
+/// 敏感条目里 curl / fetch / PowerShell 命令与配置片段中的凭据值：`Authorization` / `Cookie` / `x-*-token`
+/// 请求头、`-u user:pass`、URL 里的 `user:pass@`、`password` 类赋值。只用于遮罩：这些写法本身不让条目变敏感，
+/// 但条目因别的凭据变敏感后，同一段命令里的这些值也得遮住，其余文字保留以便辨认。
 pub fn credential_header_spans(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     static HEADER_RE: OnceLock<Regex> = OnceLock::new();
-    HEADER_RE
-        .get_or_init(|| {
-            Regex::new(
-                r#"(?mx)
-                (?:
-                    (?:^|[\s'"])(?i:authorization|cookie|x-api-key)\s*:\s*['"]?
-                  | (?:^|\s)(?:-b|--cookie)\s+\^?['"]
-                )
-                ([^'"\r\n]+)
-                "#,
+    static USER_RE: OnceLock<Regex> = OnceLock::new();
+    static USERINFO_RE: OnceLock<Regex> = OnceLock::new();
+    static PASSWORD_RE: OnceLock<Regex> = OnceLock::new();
+
+    // 请求头名后可跟闭合引号再接 `:` 或 `=`（JSON 的 "cookie": "..."、PowerShell 的 "authorization"="..."）；
+    // 不带引号时只认 `:`，免得把普通文字里的 `cookie=` 当请求头。
+    let header = HEADER_RE.get_or_init(|| {
+        Regex::new(
+            r#"(?mx)
+            (?:
+                (?:^|[\s'"])(?i:authorization|cookie|x-api-key|x-[a-z0-9-]*token)(?:['"]\s*[:=]|\s*:)\s*['"]?
+              | (?:^|\s)(?:-b|--cookie)\s+\^?['"]
             )
+            ([^'"\r\n]+)
+            "#,
+        )
+        .expect("valid regex")
+    });
+    // curl `-u user:pass` / `--user user:pass`，只遮密码。
+    let user = USER_RE.get_or_init(|| {
+        Regex::new(r#"(?:^|\s)(?:-u|--user)(?:\s+|=)['"]?[^\s'":]+:([^\s'"]+)"#)
             .expect("valid regex")
+    });
+    // URL 里的 `scheme://user:pass@host`，只遮密码。
+    let userinfo = USERINFO_RE.get_or_init(|| {
+        Regex::new(r#"(?i)[a-z][a-z0-9+.-]*://[^\s/:@'"]+:([^\s/@'"]+)@"#).expect("valid regex")
+    });
+    // `password` / `passwd` / `pwd` 赋值：JSON、表单、`.env` 的 `DB_PASSWORD=`，以及被转义的引号。
+    let password = PASSWORD_RE.get_or_init(|| {
+        Regex::new(r#"(?i)(?:password|passwd|pwd)\\?['"]?\s*[:=]\s*\\?['"]?([^\s'",;&\\]+)"#)
+            .expect("valid regex")
+    });
+
+    [header, user, userinfo, password]
+        .into_iter()
+        .flat_map(move |regex| {
+            regex
+                .captures_iter(text)
+                .filter_map(|captures| captures.get(1).map(|value| value.range()))
         })
-        .captures_iter(text)
-        .filter_map(|captures| captures.get(1).map(|value| value.range()))
 }
 
 /// 识别 PEM/OpenSSH 私钥块，区间延伸到 END 行（缺失时到文本末尾），避免露出私钥正文。
@@ -119,7 +145,7 @@ fn labeled_secret() -> &'static Regex {
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_secret, secret_spans};
+    use super::{contains_secret, credential_header_spans, secret_spans};
 
     #[test]
     fn spans_cover_labeled_values_and_whole_private_keys() {
@@ -208,6 +234,41 @@ mod tests {
         // 单引号 key + 单引号 value（部分 shell / dotenv 风格）。
         let single_quoted_both = r#"'access_token': 'abcdefghijklmnopqrstuvwxyz123456'"#;
         assert!(contains_secret(single_quoted_both));
+    }
+
+    fn header_values(text: &str) -> Vec<&str> {
+        credential_header_spans(text)
+            .map(|span| &text[span])
+            .collect()
+    }
+
+    #[test]
+    fn masks_credentials_in_curl_fetch_and_powershell_commands() {
+        let curl =
+            "curl -H 'Cookie: sid=abc' -H 'x-auth-token: tok1' -u admin:pw1 https://u:pw2@host/x";
+        assert_eq!(header_values(curl), ["sid=abc", "tok1", "pw1", "pw2"]);
+        assert_eq!(header_values("curl --user=admin:pw1 host"), ["pw1"]);
+
+        let fetch =
+            r#"fetch(u, {"headers": {"authorization": "Bearer abc.def", "cookie": "sid=1; b=2"}})"#;
+        assert_eq!(header_values(fetch), ["Bearer abc.def", "sid=1; b=2"]);
+
+        let powershell = r#"$h = @{ "authorization"="Bearer abc"; "x-csrf-token"="t9" }"#;
+        assert_eq!(header_values(powershell), ["Bearer abc", "t9"]);
+
+        let body = r#"--data-raw '{"password":"p@ss1","user":"a"}' && DB_PASSWORD=p4ss2
+pwd=p3&x=1"#;
+        assert_eq!(header_values(body), ["p@ss1", "p4ss2", "p3"]);
+        let escaped = r#"--data-raw "{\"password\":\"p@ss1\"}""#;
+        assert_eq!(header_values(escaped), ["p@ss1"]);
+    }
+
+    #[test]
+    fn credential_spans_ignore_prose_and_plain_urls() {
+        assert!(
+            header_values("Reset your password in settings, cookie policy, pwd is cwd").is_empty()
+        );
+        assert!(header_values("https://example.com:8080/a@b curl -u admin host").is_empty());
     }
 
     #[test]
