@@ -647,6 +647,11 @@ impl Preferences {
             }
         }));
         subscriptions.push(cx.on_blur(&focus, window, |this, _, cx| this.stop_recording(cx)));
+        let view = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            let _ = view.update(cx, |this, cx| this.commit_focused_input(window, cx));
+            true
+        });
         let scroll = ScrollHandle::new();
         let setting_anchors = schema::tabs(portable)
             .iter()
@@ -990,6 +995,14 @@ impl Preferences {
         self.recording = None;
         hotkey::resume(cx.entity_id(), cx);
         cx.notify();
+    }
+
+    /// 关窗前提交正在编辑的数字框和设备名：它们只在失焦或回车时保存，移除窗口不会再发失焦。
+    fn commit_focused_input(&self, window: &Window, cx: &mut App) {
+        for state in self.number_inputs.values().chain([&self.lan_max_image]) {
+            state.commit_if_focused(window, cx);
+        }
+        self.lan_name.commit_if_focused(window, cx);
     }
 
     /// 结束正在进行的全局快捷键或窗口内按键录制。
@@ -5678,7 +5691,9 @@ impl Render for Preferences {
                     } else if this.shortcut_detail.is_some() {
                         this.close_shortcut_detail(cx);
                     } else {
-                        window.remove_window();
+                        this.commit_focused_input(window, cx);
+                        // 提交事件要在窗口还在时送达，关窗排在它后面。
+                        cx.defer_in(window, |_, window, _| window.remove_window());
                     }
                     return;
                 }

@@ -2,8 +2,8 @@
 //! 避免连续输入时频繁落盘（1.x `NumberControl`）。
 
 use gpui::{
-    App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Rems, RenderOnce,
-    SharedString, Styled as _, Subscription, Window, div, prelude::FluentBuilder as _,
+    App, AppContext as _, Context, Entity, Focusable as _, IntoElement, ParentElement as _, Rems,
+    RenderOnce, SharedString, Styled as _, Subscription, Window, div, prelude::FluentBuilder as _,
 };
 use gpui_component::input::{Input as KitInput, InputEvent, InputState};
 
@@ -42,6 +42,13 @@ impl NumberInputState {
     /// 当前输入夹到范围内的值；输入为空时取下限。
     pub fn clamped(&self, cx: &App) -> u64 {
         clamp(self.state.read(cx).value().as_ref(), self.min, self.max)
+    }
+
+    /// 正在编辑时按失焦提交一次。关窗前用：移除窗口不会再发失焦，没提交的输入会丢。
+    pub fn commit_if_focused(&self, window: &Window, cx: &mut App) {
+        if self.state.read(cx).focus_handle(cx).is_focused(window) {
+            self.state.update(cx, |_, cx| cx.emit(InputEvent::Blur));
+        }
     }
 
     /// 失焦或回车时回调，给出夹取后的值（同时把输入框改成这个值）。返回的订阅要由视图保存。
