@@ -397,8 +397,11 @@ impl Preferences {
             cx,
         );
         lan_name.set_value(settings.sync.lan.device_name.clone(), window, cx);
-        let lan_name_sub = lan_name.on_change(cx, |this, value, cx| {
-            this.update("sync.lan.deviceName", json!(value.to_string()), cx);
+        // 设备名改名会通知局域网对端，所以和数字框一样只在失焦或回车时保存。
+        let lan_name_sub = lan_name.on_commit(window, cx, |this, value, _, cx| {
+            if value.as_ref() != this.settings.sync.lan.device_name {
+                this.update("sync.lan.deviceName", json!(value.to_string()), cx);
+            }
         });
         let lan_max_image = NumberInputState::new(
             u64::from(settings.sync.lan.max_image_mb),
@@ -805,14 +808,24 @@ impl Preferences {
         if let Some(value) = values::get_choice(&settings, "appearance.language") {
             self.language.set_value(&value, window, cx);
         }
-        if self.lan_name.value(cx).as_ref() != self.settings.sync.lan.device_name {
+        // 输入框里还没提交的内容只在这次改到它时才被覆盖。
+        if delta.touches("sync.lan.deviceName")
+            && self.lan_name.value(cx).as_ref() != self.settings.sync.lan.device_name
+        {
             self.lan_name
                 .set_value(self.settings.sync.lan.device_name.clone(), window, cx);
         }
-        self.lan_max_image
-            .set_value(u64::from(self.settings.sync.lan.max_image_mb), window, cx);
+        if delta.touches("sync.lan.maxImageMb") {
+            self.lan_max_image.set_value(
+                u64::from(self.settings.sync.lan.max_image_mb),
+                window,
+                cx,
+            );
+        }
         self.sidebar_collapsed = self.settings.appearance.preferences_sidebar_collapsed;
-        self.sync_retention(window, cx);
+        if delta.touches("clipboard.history.retention") {
+            self.sync_retention(window, cx);
+        }
         cx.notify();
     }
 

@@ -107,6 +107,24 @@ impl TextInput {
         })
     }
 
+    /// 失焦或回车时回调当前内容，用于不该每个键都落盘的输入。返回的订阅要由视图保存。
+    pub fn on_commit<V: 'static>(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<V>,
+        handler: impl Fn(&mut V, SharedString, &mut Window, &mut Context<V>) + 'static,
+    ) -> Subscription {
+        cx.subscribe_in(
+            &self.state,
+            window,
+            move |view, state, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. }) {
+                    handler(view, state.read(cx).value(), window, cx);
+                }
+            },
+        )
+    }
+
     /// 内容变化（输入法组字期间不发，组字结束时补发）、获得焦点、失去焦点。返回的订阅要由视图保存。
     pub fn on_event_in<V: 'static>(
         &self,
