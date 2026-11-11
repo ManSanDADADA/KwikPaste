@@ -232,6 +232,7 @@ fn local_captures_auto_group_by_first_enabled_app_match() {
         {"id": "later", "groupId": "missing", "appIds": [old]}
     ]}})))
     .unwrap();
+    fixture.take_events();
 
     for (app, content, expected) in [
         (old, "matching", Some(group.id.clone())),
@@ -241,6 +242,10 @@ fn local_captures_auto_group_by_first_enabled_app_match() {
     ] {
         fixture.platform.set_frontmost(app, "Test app");
         let id = copy_in(&core, text(content)).unwrap();
+        assert!(fixture.take_events().iter().any(|event| matches!(
+            event,
+            CoreEvent::ClipboardUpserted { group_id, .. } if *group_id == expected
+        )));
         assert_eq!(
             block_on(core.find_item(&id)).unwrap().unwrap().group_id,
             expected

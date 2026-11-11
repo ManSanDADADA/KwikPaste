@@ -43,6 +43,9 @@ pub enum CoreEvent {
         id: String,
         kind: ClipboardKind,
         deduplicated: bool,
+        /// 新记录要归入的自定义分组（自动分组规则命中时），正在看这个分组的列表据此刷新。
+        /// 复用已有记录时为 `None`。
+        group_id: Option<String>,
     },
     /// 自动或手动清理删掉了记录（1.x `clipboard://updated` 的 `{ cleanup }`），列表需要整体刷新。
     ClipboardCleaned {

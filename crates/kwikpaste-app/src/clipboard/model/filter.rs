@@ -185,10 +185,15 @@ impl ListFilter {
         setting && !self.favorites() && self.group_id.is_none() && !self.searching()
     }
 
-    /// 一条新记录或被重新使用的记录可能出现在当前视图里吗（1.x `shouldRefreshCurrentGroup`）。
+    /// 一条新记录可能出现在当前视图里吗（1.x `shouldRefreshCurrentGroup`）。`group_id` 是它自动归入的分组。
     /// 与 1.x 一样不看搜索词：搜索时有新记录也回到顶部刷新。
-    pub fn may_include(&self, kind: Option<ItemKind>) -> bool {
-        if self.group_id.is_some() || self.favorites() {
+    pub fn may_include(&self, kind: Option<ItemKind>, group_id: Option<&str>) -> bool {
+        if self.favorites()
+            || self
+                .group_id
+                .as_deref()
+                .is_some_and(|group| group_id != Some(group))
+        {
             return false;
         }
 
@@ -371,40 +376,49 @@ mod tests {
     #[test]
     fn new_records_refresh_only_views_that_may_show_them() {
         let all = ListFilter::default();
-        assert!(all.may_include(Some(ItemKind::Image)));
+        assert!(all.may_include(Some(ItemKind::Image), None));
+        assert!(all.may_include(Some(ItemKind::Text), Some("g")));
 
         let text = ListFilter {
             category: Some(ItemKind::Text),
             ..ListFilter::default()
         };
-        assert!(text.may_include(Some(ItemKind::Text)));
-        assert!(!text.may_include(Some(ItemKind::Files)));
-        assert!(!text.may_include(None));
+        assert!(text.may_include(Some(ItemKind::Text), None));
+        assert!(!text.may_include(Some(ItemKind::Files), None));
+        assert!(!text.may_include(None, None));
 
         let image = ListFilter {
             category: Some(ItemKind::Image),
             ..ListFilter::default()
         };
-        assert!(image.may_include(Some(ItemKind::Files)), "image files");
-        assert!(!image.may_include(Some(ItemKind::Text)));
+        assert!(
+            image.may_include(Some(ItemKind::Files), None),
+            "image files"
+        );
+        assert!(!image.may_include(Some(ItemKind::Text), None));
 
         let favorites = ListFilter {
             range: Range::Favorite,
             ..ListFilter::default()
         };
-        assert!(!favorites.may_include(Some(ItemKind::Text)));
+        assert!(!favorites.may_include(Some(ItemKind::Text), None));
 
         let group = ListFilter {
             group_id: Some("g".into()),
             ..ListFilter::default()
         };
-        assert!(!group.may_include(Some(ItemKind::Text)));
+        assert!(!group.may_include(Some(ItemKind::Text), None));
+        assert!(!group.may_include(Some(ItemKind::Text), Some("other")));
+        assert!(
+            group.may_include(Some(ItemKind::Text), Some("g")),
+            "auto-grouped"
+        );
 
         let searching = ListFilter {
             keyword: "abc".into(),
             ..ListFilter::default()
         };
-        assert!(searching.may_include(Some(ItemKind::Text)));
+        assert!(searching.may_include(Some(ItemKind::Text), None));
     }
 
     #[test]

@@ -83,6 +83,11 @@ pub(crate) async fn store_and_emit(core: &CoreInner, item: &ClipboardItem) -> Re
         id: result.id.clone(),
         kind: item.kind,
         deduplicated: result.deduplicated,
+        group_id: if result.deduplicated {
+            None
+        } else {
+            item.group_id.clone()
+        },
     });
     Ok(result)
 }

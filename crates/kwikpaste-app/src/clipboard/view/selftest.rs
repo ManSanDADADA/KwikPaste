@@ -1675,6 +1675,7 @@ impl Driver {
                 ListUpdate::Upserted {
                     kind: ItemKind::Text,
                     deduplicated: false,
+                    group_id: None,
                 },
                 cx,
             );

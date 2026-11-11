@@ -406,10 +406,14 @@ impl ClipboardList {
                     return;
                 }
                 CoreEvent::ClipboardUpserted {
-                    kind, deduplicated, ..
+                    kind,
+                    deduplicated,
+                    group_id,
+                    ..
                 } => ListUpdate::Upserted {
                     kind: item_kind(*kind),
                     deduplicated: *deduplicated,
+                    group_id: group_id.as_deref().map(Arc::from),
                 },
                 CoreEvent::ClipboardCleaned { removed } => {
                     ListUpdate::Cleaned { removed: *removed }
@@ -473,7 +477,7 @@ impl ClipboardList {
     pub fn on_update(&mut self, update: ListUpdate, cx: &mut Context<Self>) {
         let action = self
             .controller
-            .on_update(update, self.visible, self.at_top());
+            .on_update(&update, self.visible, self.at_top());
         log::debug!("list update {update:?} -> {action:?}");
         let reset_selection = match action {
             UpdateAction::ReloadNow { reset_selection }

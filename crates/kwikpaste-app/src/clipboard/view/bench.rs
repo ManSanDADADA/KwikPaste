@@ -622,6 +622,7 @@ fn run_step(
                 ListUpdate::Upserted {
                     kind: ItemKind::Text,
                     deduplicated: false,
+                    group_id: None,
                 },
                 cx,
             );
@@ -748,6 +749,7 @@ fn run_step(
                 ListUpdate::Upserted {
                     kind: item.kind,
                     deduplicated: true,
+                    group_id: None,
                 },
                 cx,
             );
@@ -854,6 +856,7 @@ fn run_step(
                 ListUpdate::Upserted {
                     kind: ItemKind::Text,
                     deduplicated: false,
+                    group_id: None,
                 },
                 cx,
             );

@@ -34,10 +34,14 @@ pub enum NavOutcome {
 }
 
 /// core 发来的列表变化（`CoreEvent` 中与列表有关的几种）。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ListUpdate {
-    /// 新记录入库或已有记录被重新使用（`deduplicated`）。
-    Upserted { kind: ItemKind, deduplicated: bool },
+    /// 新记录入库或已有记录被重新使用（`deduplicated`）。`group_id` 是新记录自动归入的分组。
+    Upserted {
+        kind: ItemKind,
+        deduplicated: bool,
+        group_id: Option<Arc<str>>,
+    },
     /// 清理删掉了 `removed` 条。
     Cleaned { removed: u64 },
     /// 历史数据整体换了一份：导入备份、切换存储位置（core `ClipboardReloaded`，1.x `imported`）。
@@ -209,14 +213,18 @@ impl ListController {
     }
 
     /// 列表变化的处理决定（1.x `handleClipboardUpdated` + `requestReloadAtTop`）。
-    pub fn on_update(&mut self, update: ListUpdate, visible: bool, at_top: bool) -> UpdateAction {
+    pub fn on_update(&mut self, update: &ListUpdate, visible: bool, at_top: bool) -> UpdateAction {
         let reset_selection = match update {
             ListUpdate::Cleaned { .. } | ListUpdate::Reloaded => true,
-            ListUpdate::Upserted { kind, deduplicated } => {
-                let relevant = if deduplicated {
-                    self.filter.may_include_existing(Some(kind))
+            ListUpdate::Upserted {
+                kind,
+                deduplicated,
+                group_id,
+            } => {
+                let relevant = if *deduplicated {
+                    self.filter.may_include_existing(Some(*kind))
                 } else {
-                    self.filter.may_include(Some(kind))
+                    self.filter.may_include(Some(*kind), group_id.as_deref())
                 };
                 if !relevant {
                     return UpdateAction::Ignore;
@@ -545,10 +553,11 @@ mod tests {
         let upsert = ListUpdate::Upserted {
             kind: ItemKind::Text,
             deduplicated: false,
+            group_id: None,
         };
 
         assert_eq!(
-            controller.on_update(upsert, true, true),
+            controller.on_update(&upsert, true, true),
             UpdateAction::ReloadNow {
                 reset_selection: false
             }
@@ -556,7 +565,7 @@ mod tests {
         assert!(!controller.has_pending_reload());
 
         assert_eq!(
-            controller.on_update(upsert, true, false),
+            controller.on_update(&upsert, true, false),
             UpdateAction::Defer {
                 reset_selection: false
             }
@@ -572,15 +581,16 @@ mod tests {
         let reuse = ListUpdate::Upserted {
             kind: ItemKind::Text,
             deduplicated: true,
+            group_id: None,
         };
 
         assert_eq!(
-            controller.on_update(reuse, true, false),
+            controller.on_update(&reuse, true, false),
             UpdateAction::RefreshInPlace
         );
         assert!(!controller.has_pending_reload());
         assert_eq!(
-            controller.on_update(reuse, true, true),
+            controller.on_update(&reuse, true, true),
             UpdateAction::ReloadNow {
                 reset_selection: false
             }
@@ -592,9 +602,10 @@ mod tests {
         let mut controller = ListController::new();
         controller.hover(&"r1".into());
         let action = controller.on_update(
-            ListUpdate::Upserted {
+            &ListUpdate::Upserted {
                 kind: ItemKind::Text,
                 deduplicated: false,
+                group_id: None,
             },
             false,
             false,
@@ -609,7 +620,7 @@ mod tests {
         );
         assert!(!controller.has_pending_reload());
 
-        let cleaned = controller.on_update(ListUpdate::Cleaned { removed: 3 }, false, true);
+        let cleaned = controller.on_update(&ListUpdate::Cleaned { removed: 3 }, false, true);
         assert_eq!(
             cleaned,
             UpdateAction::ReloadNow {
@@ -625,7 +636,7 @@ mod tests {
         controller.hover(&"r1".into());
 
         assert_eq!(
-            controller.on_update(ListUpdate::Cleaned { removed: 3 }, true, false),
+            controller.on_update(&ListUpdate::Cleaned { removed: 3 }, true, false),
             UpdateAction::Defer {
                 reset_selection: true
             }
@@ -634,7 +645,7 @@ mod tests {
 
         controller.hover(&"r2".into());
         assert_eq!(
-            controller.on_update(ListUpdate::Reloaded, true, true),
+            controller.on_update(&ListUpdate::Reloaded, true, true),
             UpdateAction::ReloadNow {
                 reset_selection: true
             }
@@ -648,7 +659,7 @@ mod tests {
         let mut controller = ListController::new();
         controller.hover(&"r1".into());
         assert_eq!(
-            controller.on_update(ListUpdate::ImageTextChanged, true, true),
+            controller.on_update(&ListUpdate::ImageTextChanged, true, true),
             UpdateAction::ReloadNow {
                 reset_selection: false
             }
@@ -666,7 +677,7 @@ mod tests {
         ] {
             controller.set_filter(filter);
             assert_eq!(
-                controller.on_update(ListUpdate::ImageTextChanged, true, false),
+                controller.on_update(&ListUpdate::ImageTextChanged, true, false),
                 UpdateAction::RefreshInPlace
             );
         }
@@ -677,7 +688,7 @@ mod tests {
         });
         controller.hover(&"r1".into());
         assert_eq!(
-            controller.on_update(ListUpdate::ImageTextChanged, true, true),
+            controller.on_update(&ListUpdate::ImageTextChanged, true, true),
             UpdateAction::ReloadNow {
                 reset_selection: false
             }
@@ -690,7 +701,7 @@ mod tests {
             ..ListFilter::default()
         });
         assert_eq!(
-            controller.on_update(ListUpdate::ImageTextChanged, true, true),
+            controller.on_update(&ListUpdate::ImageTextChanged, true, true),
             UpdateAction::Ignore
         );
     }
@@ -704,9 +715,10 @@ mod tests {
         });
         assert_eq!(
             controller.on_update(
-                ListUpdate::Upserted {
+                &ListUpdate::Upserted {
                     kind: ItemKind::Text,
-                    deduplicated: false
+                    deduplicated: false,
+                    group_id: None,
                 },
                 true,
                 false
@@ -715,9 +727,10 @@ mod tests {
         );
         assert_eq!(
             controller.on_update(
-                ListUpdate::Upserted {
+                &ListUpdate::Upserted {
                     kind: ItemKind::Text,
-                    deduplicated: true
+                    deduplicated: true,
+                    group_id: None,
                 },
                 true,
                 false
@@ -735,9 +748,10 @@ mod tests {
         });
 
         let action = controller.on_update(
-            ListUpdate::Upserted {
+            &ListUpdate::Upserted {
                 kind: ItemKind::Text,
                 deduplicated: false,
+                group_id: None,
             },
             true,
             true,

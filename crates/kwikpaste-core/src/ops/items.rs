@@ -355,6 +355,7 @@ pub(crate) async fn mark_item_reused_if_enabled(
         id: id.to_owned(),
         kind,
         deduplicated: true,
+        group_id: None,
     });
     Ok(())
 }
