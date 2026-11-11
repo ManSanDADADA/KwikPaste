@@ -93,6 +93,7 @@ fn draft_from_text(text: &TextPayload, capture: &Capture, plain_only: bool) -> O
 
     let html = non_empty(&text.html);
     let rtf = non_empty(&text.rtf);
+    let limit = capture.max_text_bytes();
 
     if !plain_only {
         for kind in capture.ordered_kinds() {
@@ -103,6 +104,9 @@ fn draft_from_text(text: &TextPayload, capture: &Capture, plain_only: bool) -> O
             match kind {
                 CaptureKind::Html => {
                     if let Some(html) = html {
+                        if exceeds_text_limit(html.len(), limit) {
+                            continue;
+                        }
                         return Some(Draft {
                             kind: ClipboardKind::Text,
                             sub_kind: Some(ClipboardSubKind::Html),
@@ -118,6 +122,9 @@ fn draft_from_text(text: &TextPayload, capture: &Capture, plain_only: bool) -> O
                 }
                 CaptureKind::Rtf => {
                     if let Some(rtf) = rtf {
+                        if exceeds_text_limit(rtf.len(), limit) {
+                            continue;
+                        }
                         return Some(Draft {
                             kind: ClipboardKind::Text,
                             sub_kind: Some(ClipboardSubKind::Rtf),
@@ -132,6 +139,9 @@ fn draft_from_text(text: &TextPayload, capture: &Capture, plain_only: bool) -> O
                     }
                 }
                 CaptureKind::Text => {
+                    if exceeds_text_limit(plain.len(), limit) {
+                        continue;
+                    }
                     return Some(draft_plain_text(plain, plain_search, summary));
                 }
                 CaptureKind::Files | CaptureKind::Image => {}
@@ -141,7 +151,7 @@ fn draft_from_text(text: &TextPayload, capture: &Capture, plain_only: bool) -> O
         return None;
     }
 
-    if !capture.text {
+    if !capture.text || exceeds_text_limit(plain.len(), limit) {
         return None;
     }
 
@@ -177,6 +187,17 @@ fn exceeds_limit(size: usize, limit: Option<u64>) -> bool {
     limit.is_some_and(|limit| size as u64 > limit)
 }
 
+/// 文本表示超过上限时记一行日志并返回 true，调用方改试下一种表示。
+fn exceeds_text_limit(size: usize, limit: Option<u64>) -> bool {
+    let exceeds = exceeds_limit(size, limit);
+    if exceeds {
+        log::info!(
+            "clipboard text representation skipped because size {size} exceeds limit {limit:?}"
+        );
+    }
+    exceeds
+}
+
 /// 使用默认采集开关把载荷转换为待入库记录。
 #[cfg(test)]
 pub fn build_item(store: &ImageStore, payload: &ClipboardPayload) -> Result<Option<ClipboardItem>> {
@@ -202,6 +223,11 @@ pub fn build_item_with_settings(
     let mut is_sensitive = false;
     let draft = match payload {
         ClipboardPayload::Text(text) => {
+            // 先按大小选出表示：超限的大文本不必再跑密钥与自定义规则正则。
+            let draft = draft_from_text(text, capture, plain_only);
+            if draft.is_none() {
+                return Ok(None);
+            }
             if rules.matches(super::rules::RuleAction::Ignore, &text.text) {
                 return Ok(None);
             }
@@ -215,7 +241,7 @@ pub fn build_item_with_settings(
                 is_sensitive = true;
             }
 
-            draft_from_text(text, capture, plain_only)
+            draft
         }
         ClipboardPayload::Files(files) => {
             if !capture.files {
@@ -295,17 +321,6 @@ pub fn build_item_with_settings(
     let Some(draft) = draft else {
         return Ok(None);
     };
-    if draft.kind == ClipboardKind::Text
-        && exceeds_limit(draft.content.len(), capture.max_text_bytes())
-    {
-        log::info!(
-            "clipboard text skipped because size {} exceeds limit {:?}",
-            draft.content.len(),
-            capture.max_text_bytes()
-        );
-        return Ok(None);
-    }
-
     let now = Utc::now();
     Ok(Some(ClipboardItem {
         id: uuid::Uuid::new_v4().to_string(),
@@ -557,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn rich_text_limit_uses_stored_source_bytes() {
+    fn oversized_rich_text_falls_back_to_plain_text() {
         let (_d, s) = store();
         let capture = Capture {
             max_text_mb: 1,
@@ -572,9 +587,11 @@ mod tests {
             false,
             &crate::clipboard::rules::CompiledRules::default(),
         )
+        .unwrap()
         .unwrap();
 
-        assert!(item.is_none());
+        assert_eq!(item.content, "visible");
+        assert_eq!(item.sub_kind, None);
     }
 
     #[test]
