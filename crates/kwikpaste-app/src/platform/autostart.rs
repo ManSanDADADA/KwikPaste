@@ -5,7 +5,7 @@
 //!   `com.fastthree.kwikpaste.native-dev`、`com.fastthree.kwikpaste.native-dev.admin`），绝不碰本机
 //!   已安装应用的启动项和任务。
 //! - [`elevate_if_configured`]：启动最早期、单实例判重之前（与 1.x 相同），设置要求以管理员运行而
-//!   当前没提权时拉起提权的进程，调用方退出；已提权时（重）建计划任务。便携版、自测跳过。
+//!   当前没提权时拉起提权的进程，调用方退出；已提权时按需（重）建计划任务。便携版、自测跳过。
 //! - [`sync_at_startup`]：core 起来之后，自启按设置写或删；便携版反过来以本机启动项为准、改设置
 //!   （设置随文件夹带到别的电脑时不应自动注册）。首次运行（引导未完成）设置为关时也以本机为准，
 //!   不删 1.x 留下的启动项。
@@ -181,7 +181,7 @@ fn sync_admin_task(configured: bool) {
 }
 
 /// 启动最早期调用（单实例判重之前）：设置要求以管理员运行、当前没提权时拉起提权的进程并返回
-/// `true`，调用方应直接退出；已提权时（重）建计划任务。便携版、自测、带了重启标记的进程跳过。
+/// `true`，调用方应直接退出；已提权时（重）建计划任务。便携版、自测、`--quit`、带了重启标记的进程跳过。
 pub fn elevate_if_configured() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -189,7 +189,11 @@ pub fn elevate_if_configured() -> bool {
             AdminTask, has_restart_marker, is_running_as_admin, launch_elevated,
         };
 
-        if selftest::active() || portable() || !configured_run_as_admin() {
+        if selftest::active()
+            || portable()
+            || kwikpaste_os::args().any(|arg| arg == super::instance::QUIT)
+            || !configured_run_as_admin()
+        {
             return false;
         }
         let task = AdminTask::new(&task_name());
@@ -197,7 +201,9 @@ pub fn elevate_if_configured() -> bool {
             return false;
         };
         if is_running_as_admin() {
-            if let Err(err) = task.create(&exe) {
+            if !task.is_ready(&exe)
+                && let Err(err) = task.create(&exe)
+            {
                 log::warn!("admin task {} not synced at startup: {err}", task.name());
             }
             return false;
