@@ -559,11 +559,13 @@ impl Inner {
         }
     }
 
-    /// 换上新找到的版本；还是同一个版本、同一个地址时保留已下载的安装包。
+    /// 换上新找到的版本；还是同一个版本、同一个签名时保留已下载的安装包。不比下载地址：主镜像和
+    /// GitHub 兜底给的是同一个文件、不同的地址。
     fn set_candidate(&self, found: Option<Candidate>) {
         let mut pending = lock(&self.pending);
         let keep = |current: &Pending, next: &Candidate| {
-            current.candidate.version == next.version && current.candidate.platform == next.platform
+            current.candidate.version == next.version
+                && current.candidate.platform.signature == next.platform.signature
         };
         *pending = match (pending.take(), found) {
             (Some(current), Some(next)) if keep(&current, &next) => Some(Pending {

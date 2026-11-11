@@ -139,12 +139,16 @@ fn silent_update_downloads_without_prompt_or_badge_and_waits_for_idle() {
     let key = TestKey::generate();
     let installer = b"MZ silent installer";
     let files = Server::start(vec![Reply::ok(installer.to_vec())]);
-    let body = manifest(
-        "2.0.1",
-        &files.url("/setup.exe"),
-        &key.sign_as(installer, &asset(&InstallKind::Nsis, "2.0.1")),
-    );
-    let manifests = Server::start(vec![Reply::ok(body.clone()), Reply::ok(body)]);
+    let signature = key.sign_as(installer, &asset(&InstallKind::Nsis, "2.0.1"));
+    // 第二次检查换了镜像：地址不同、签名相同，仍是已下载的那个包。
+    let manifests = Server::start(vec![
+        Reply::ok(manifest("2.0.1", &files.url("/setup.exe"), &signature)),
+        Reply::ok(manifest(
+            "2.0.1",
+            &files.url("/mirror/setup.exe"),
+            &signature,
+        )),
+    ]);
     let Setup {
         test,
         updater,
