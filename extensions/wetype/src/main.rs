@@ -258,9 +258,9 @@ async fn run(state: PathBuf) -> anyhow::Result<()> {
                     &mut buffer,
                     protocol::WETYPE_MAX_FRAME_BYTES,
                 ) {
+                    // 队列满时阻塞读取，背压沿管道传回宿主；只有主循环退出才会失败。
                     Ok(Some(command)) => {
-                        if let Err(err) = input.try_send(command) {
-                            eprintln!("WeType input queue unavailable: {err}");
+                        if input.blocking_send(command).is_err() {
                             break;
                         }
                     }
