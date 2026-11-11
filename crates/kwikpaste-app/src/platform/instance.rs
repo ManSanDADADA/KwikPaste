@@ -67,7 +67,7 @@ pub fn restart(cx: &mut App) {
         Ok(_) => cx.quit(),
         Err(err) => {
             log::error!("the restarted instance could not be started: {err}");
-            super::hotkey::resume(cx);
+            super::hotkey::reregister(cx);
             if let Err(err) = reclaim(cx) {
                 log::error!("the single instance could not be reclaimed: {err:#}");
             }

@@ -287,6 +287,14 @@ pub fn unregister_all(cx: &mut App) {
     clear_registered(cx);
 }
 
+/// [`unregister_all`] 之后没交接出去（新进程没拉起来）时按当前设置重新注册；录制或暂停中仍由 [`apply`] 拦下。
+pub fn reregister(cx: &mut App) {
+    if let Some(core) = core_host::core(cx) {
+        let shortcuts = core.settings().shortcuts;
+        apply(&shortcuts, cx);
+    }
+}
+
 /// 暂停全局热键，给 `owner` 视图里的物理按键录制让出输入。
 pub fn suspend(owner: EntityId, cx: &mut App) {
     cx.default_global::<Recorders>().0.insert(owner);

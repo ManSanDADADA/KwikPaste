@@ -284,7 +284,7 @@ fn restart_as_admin(cx: &mut App) -> anyhow::Result<()> {
             cx.quit();
             return Ok(());
         }
-        super::hotkey::resume(cx);
+        super::hotkey::reregister(cx);
         super::instance::reclaim(cx)?;
         anyhow::bail!("the administrator relaunch was cancelled or failed")
     }
