@@ -186,44 +186,18 @@ pub(super) fn open(cx: &mut App) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// 导入确认框开在唯一的偏好窗里：已经开着就复用并带到前台，否则先打开。
 pub(super) fn open_import(path: PathBuf, cx: &mut App) -> anyhow::Result<()> {
-    let options = WindowOptions {
-        window_bounds: Some(WindowBounds::centered(window_size(cx), cx)),
-        window_min_size: Some(WINDOW_MIN_SIZE),
-        titlebar: Some(kwikpaste_ui::titlebar_options(i18n::t(
-            "preferences:windowTitle",
-        ))),
-        focus: false,
-        ..Default::default()
+    open(cx)?;
+    let Some(handle) = cx
+        .try_global::<PreferencesWindow>()
+        .map(|window| window.handle)
+    else {
+        return Ok(());
     };
-    let (handle, view) = crate::platform::open_window(options, cx, |window, cx| {
-        let view = cx.new(|cx| Preferences::new(window, cx));
-        view.update(cx, |this, cx| {
-            this.refresh_storage_overview(cx);
-            this.refresh_image_text(cx);
-            if this.tab == TabId::Extensions {
-                this.refresh_extensions(window, cx);
-            }
-        });
-        crate::platform::reveal_after_first_frame(window, cx, |window, cx| {
-            bring_window_to_front(window, cx);
-        });
-        Preferences::show_import_confirmation(path.clone(), window, cx);
-        view
-    })?;
-    cx.set_global(PreferencesWindow {
-        handle,
-        view: view.downgrade(),
-    });
-    let window_id = handle.window_id();
-    cx.on_window_closed(move |cx, closed_id| {
-        if closed_id == window_id {
-            hotkey::resume(cx);
-            let _ = cx.remove_global::<PreferencesWindow>();
-        }
+    handle.update(cx, |_, window, cx| {
+        Preferences::show_import_confirmation(path, window, cx);
     })
-    .detach();
-    Ok(())
 }
 
 /// 取前台会同步收到窗口消息；放到任务里，等调用方的 GPUI 借用（窗口 update、托盘 dispatch）结束后再做，
