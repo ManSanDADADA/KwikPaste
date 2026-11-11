@@ -184,6 +184,7 @@ fn restart_now(cx: &mut App, restart: &Restart) {
     );
     probe::quitting();
     // 先放掉单实例，子进程启动时直接成为主实例。
+    super::hotkey::unregister_all(cx);
     instance::release(cx);
     if let Err(err) = health::spawn_relaunch(restart) {
         log::error!("the restarted instance could not be started: {err}");

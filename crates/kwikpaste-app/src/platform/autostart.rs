@@ -272,11 +272,13 @@ fn restart_as_admin(cx: &mut App) -> anyhow::Result<()> {
 
         let exe = std::env::current_exe()?;
         let args: Vec<String> = std::env::args().skip(1).collect();
+        super::hotkey::unregister_all(cx);
         super::instance::release(cx);
         if launch_elevated(&AdminTask::new(&task_name()), &exe, &args) {
             cx.quit();
             return Ok(());
         }
+        super::hotkey::resume(cx);
         super::instance::reclaim(cx)?;
         anyhow::bail!("the administrator relaunch was cancelled or failed")
     }

@@ -55,6 +55,8 @@ pub fn release(cx: &mut App) {
 /// 原样重启：放掉单实例，用同样的参数拉起新进程后退出；没拉起来就重新占回单实例。
 pub fn restart(cx: &mut App) {
     log::info!("restart requested");
+    // 新进程要注册同样的热键，旧进程到退出才释放就会抢不到。
+    super::hotkey::unregister_all(cx);
     release(cx);
     let spawned = std::env::current_exe().and_then(|exe| {
         std::process::Command::new(exe)
@@ -65,6 +67,7 @@ pub fn restart(cx: &mut App) {
         Ok(_) => cx.quit(),
         Err(err) => {
             log::error!("the restarted instance could not be started: {err}");
+            super::hotkey::resume(cx);
             if let Err(err) = reclaim(cx) {
                 log::error!("the single instance could not be reclaimed: {err:#}");
             }
