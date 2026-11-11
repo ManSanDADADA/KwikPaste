@@ -16,7 +16,7 @@ pub fn run_if_requested() -> anyhow::Result<bool> {
     if std::env::var("KWIKPASTE_SELFTEST").as_deref() != Ok("1") {
         return Ok(false);
     }
-    let args: Vec<_> = std::env::args().collect();
+    let args: Vec<_> = kwikpaste_os::args().collect();
     if let Some(root) = args.iter().find_map(|arg| arg.strip_prefix(GENERATE)) {
         generate(std::path::Path::new(root))?;
         return Ok(true);

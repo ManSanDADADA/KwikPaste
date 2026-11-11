@@ -344,7 +344,7 @@ impl Bench {
 
 /// 跑分的输出目录：`--selftest-out <目录>`，默认 `<临时目录>/kwikpaste-list-bench`。
 fn out_dir() -> PathBuf {
-    let mut args = std::env::args();
+    let mut args = kwikpaste_os::args();
     while let Some(arg) = args.next() {
         if arg == "--selftest-out"
             && let Some(dir) = args.next()
@@ -1112,7 +1112,7 @@ impl Bench {
 /// 跑分用的合成数据：1 万行（`--selftest-rows <n>` 可改），开头 2 条置顶。
 pub fn fixture(assets: &AssetSet) -> (FixtureStore, usize) {
     let mut rows = 10_000;
-    let mut args = std::env::args();
+    let mut args = kwikpaste_os::args();
     while let Some(arg) = args.next() {
         if arg == "--selftest-rows"
             && let Some(value) = args.next().and_then(|value| value.parse().ok())

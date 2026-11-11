@@ -119,7 +119,7 @@ pub fn queue_launch_arguments(cx: &mut App) {
     if auto_launch() {
         return;
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = kwikpaste_os::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
     if let Some(path) = backup_path(&args, &cwd) {
         let request = HostRequest::ImportBackup {

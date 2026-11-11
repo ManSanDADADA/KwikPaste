@@ -130,7 +130,7 @@ pub fn install() {
         logger::init(paths.log_dir());
     }
 
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = kwikpaste_os::args().collect();
     let relaunch = parse_relaunch(args.iter().cloned());
     let degraded = args.iter().any(|arg| arg == DEGRADED);
     let restart_enabled = !selftest::active() || selftest::enabled(selftest::CRASH_RESTART);
@@ -165,7 +165,7 @@ pub fn install() {
 
 /// Handle the helper process before any GPUI or renderer code is loaded.
 pub fn run_watchdog_if_requested() -> bool {
-    let mut args = std::env::args().skip(1);
+    let mut args = kwikpaste_os::args().skip(1);
     if args.next().as_deref() != Some(WATCHDOG) {
         return false;
     }

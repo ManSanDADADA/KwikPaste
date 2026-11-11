@@ -299,7 +299,7 @@ pub fn spawn_relaunch(restart: &Restart) -> std::io::Result<u32> {
             fallback_window_start(now).unwrap_or(now).to_rfc3339(),
         );
         command.args(super::relaunch_args(
-            std::env::args().skip(1),
+            kwikpaste_os::args().skip(1),
             restart.relaunch,
             restart.degraded,
         ));
@@ -342,7 +342,7 @@ pub(super) fn start_watchdog(running_file: &Path, crash_file: &Path) {
         .arg(std::process::id().to_string())
         .arg(running_file)
         .arg(crash_file)
-        .args(std::env::args().skip(1));
+        .args(kwikpaste_os::args().skip(1));
     match command.spawn() {
         Ok(child) => {
             if let Ok(mut slot) = WATCHDOG_CHILD.lock() {

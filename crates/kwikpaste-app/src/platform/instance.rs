@@ -60,7 +60,7 @@ pub fn restart(cx: &mut App) {
     release(cx);
     let spawned = std::env::current_exe().and_then(|exe| {
         std::process::Command::new(exe)
-            .args(std::env::args().skip(1))
+            .args(kwikpaste_os::args().skip(1))
             .spawn()
     });
     match spawned {

@@ -18,6 +18,12 @@ pub mod services;
 pub mod single_instance;
 mod sound;
 
+/// 命令行参数（有损转成 UTF-8）。`std::env::args` 遇到非 Unicode 参数（如带孤立代理项的 NTFS 路径）
+/// 会 panic，release 下进程直接 abort。
+pub fn args() -> impl Iterator<Item = String> {
+    std::env::args_os().map(|arg| arg.to_string_lossy().into_owned())
+}
+
 #[cfg(target_os = "macos")]
 pub mod mac;
 #[cfg(target_os = "windows")]

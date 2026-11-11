@@ -202,10 +202,10 @@ pub fn elevate_if_configured() -> bool {
             }
             return false;
         }
-        if has_restart_marker(std::env::args()) {
+        if has_restart_marker(kwikpaste_os::args()) {
             return false;
         }
-        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args: Vec<String> = kwikpaste_os::args().skip(1).collect();
         let launched = launch_elevated(&task, &exe, &args);
         if launched {
             log::info!("relaunched as administrator");
@@ -271,7 +271,7 @@ fn restart_as_admin(cx: &mut App) -> anyhow::Result<()> {
         use kwikpaste_os::win::admin::{AdminTask, launch_elevated};
 
         let exe = std::env::current_exe()?;
-        let args: Vec<String> = std::env::args().skip(1).collect();
+        let args: Vec<String> = kwikpaste_os::args().skip(1).collect();
         super::hotkey::unregister_all(cx);
         super::instance::release(cx);
         if launch_elevated(&AdminTask::new(&task_name()), &exe, &args) {

@@ -110,7 +110,7 @@ const LIST_WATCHDOG: Duration = Duration::from_secs(5 * 60);
 
 /// 本进程是否处于任一自测模式。
 pub fn active() -> bool {
-    env_enabled() && std::env::args().any(|arg| arg.starts_with(PREFIX))
+    env_enabled() && kwikpaste_os::args().any(|arg| arg.starts_with(PREFIX))
 }
 
 /// 这次自测的种类，用作 identifier 的后缀（`….selftest-<kind>`）：每种自测各有自己的单实例名字和
@@ -170,7 +170,7 @@ fn platform_probe() -> bool {
     ];
 
     env_enabled()
-        && std::env::args().any(|arg| {
+        && kwikpaste_os::args().any(|arg| {
             COMMANDS.contains(&arg.as_str())
                 || arg.starts_with(SETTINGS)
                 || arg.starts_with(COPY_ITEM)
@@ -185,7 +185,7 @@ fn platform_probe() -> bool {
 
 /// 本进程是否打开了某个自测开关。
 pub fn enabled(flag: &str) -> bool {
-    env_enabled() && std::env::args().any(|arg| arg == flag)
+    env_enabled() && kwikpaste_os::args().any(|arg| arg == flag)
 }
 
 /// 是否打开组件展示窗（`--selftest-gallery`）。
@@ -266,7 +266,7 @@ pub fn schedule(cx: &mut App) {
     #[cfg(target_os = "macos")]
     if enabled(DRAGOUT) {
         let mut payload_seen = false;
-        for argument in std::env::args() {
+        for argument in kwikpaste_os::args() {
             if let Some(payload) = argument.strip_prefix(DRAG_PAYLOAD) {
                 payload_seen = true;
                 if let Err(error) = crate::platform::drag_out::set_selftest_payload(payload) {

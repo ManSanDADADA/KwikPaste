@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     #[cfg(target_os = "windows")]
-    if std::env::args().nth(1).as_deref() == Some("--icon-helper") {
+    if kwikpaste_os::args().nth(1).as_deref() == Some("--icon-helper") {
         let result =
             kwikpaste_core::clipboard::icon::run_helper(std::io::stdin(), std::io::stdout().lock());
         if let Err(err) = result {
