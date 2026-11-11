@@ -4,11 +4,13 @@
 //! 失败时整个目录删掉；成功的留给安装交接使用，下次启动时清理一天以前的旧目录。
 
 use std::fs::{self, File};
-use std::io::{Cursor, Read, Write};
+#[cfg(any(target_os = "windows", test))]
+use std::io::Read;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, bail};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -41,7 +43,7 @@ pub struct Package {
     pub file: PathBuf,
     pub(crate) signature: String,
     pub(crate) public_key: String,
-    /// 已验签内容落成的最终字节摘要；NSIS 的旧式 zip 会先提取 exe。
+    /// 已验签字节的摘要，交接前确认文件没被换掉。
     #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
     pub(crate) digest: [u8; 32],
 }
@@ -158,70 +160,36 @@ fn finalize(
     kind: &InstallKind,
     bytes: &[u8],
 ) -> anyhow::Result<(PathBuf, [u8; 32])> {
-    let (name, contents): (String, std::borrow::Cow<'_, [u8]>) = match kind {
-        InstallKind::Nsis => (
-            format!("{TEMP_DIR_PREFIX}{version}-installer.exe"),
-            nsis_installer(bytes)?.into(),
-        ),
+    let name = match kind {
+        InstallKind::Nsis => {
+            if !bytes.starts_with(b"MZ") {
+                bail!("installer is not a Windows program");
+            }
+            format!("{TEMP_DIR_PREFIX}{version}-installer.exe")
+        }
         InstallKind::Portable => {
             if !bytes.starts_with(b"PK") {
                 bail!("portable update is not a zip archive");
             }
-            (
-                format!("{TEMP_DIR_PREFIX}{version}-portable.zip"),
-                bytes.into(),
-            )
+            format!("{TEMP_DIR_PREFIX}{version}-portable.zip")
         }
         InstallKind::MacApp { .. } => {
             if !bytes.starts_with(&[0x1f, 0x8b]) {
                 bail!("macOS update is not a gzip archive");
             }
-            (
-                format!("{TEMP_DIR_PREFIX}{version}.app.tar.gz"),
-                bytes.into(),
-            )
+            format!("{TEMP_DIR_PREFIX}{version}.app.tar.gz")
         }
         InstallKind::Unmanaged => bail!("this build does not install updates"),
     };
 
     let path = dir.join(name);
-    fs::write(&path, &contents).with_context(|| format!("failed to write {path:?}"))?;
-    Ok((path, Sha256::digest(&contents).into()))
-}
-
-/// NSIS 安装包：直接是 exe（`MZ` 开头），或者是只含一个 exe 的 zip（Tauri v1 兼容格式）。
-fn nsis_installer(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
-    if bytes.starts_with(b"MZ") {
-        return Ok(bytes.to_vec());
-    }
-    if !bytes.starts_with(b"PK") {
-        bail!("installer is neither an exe nor a zip archive");
-    }
-
-    let mut archive =
-        zip::ZipArchive::new(Cursor::new(bytes)).context("failed to read installer archive")?;
-    let mut found = None;
-    for index in 0..archive.len() {
-        let entry = archive
-            .by_index(index)
-            .context("failed to read installer archive")?;
-        let is_exe = entry.is_file() && entry.name().to_ascii_lowercase().ends_with(".exe");
-        if is_exe && found.replace(index).is_some() {
-            bail!("installer archive contains more than one executable");
-        }
-    }
-    let index = found.ok_or_else(|| anyhow!("installer archive contains no executable"))?;
-    let entry = archive.by_index(index)?;
-    let size = entry.size();
-    let installer = read_entry(entry, size)?;
-    if !installer.starts_with(b"MZ") {
-        bail!("installer is not a Windows program");
-    }
-    Ok(installer)
+    fs::write(&path, bytes).with_context(|| format!("failed to write {path:?}"))?;
+    Ok((path, Sha256::digest(bytes).into()))
 }
 
 /// 读出压缩包里的一个文件，最多 [`MAX_PACKAGE_BYTES`]。条目头里声称的大小只用来预分配（同样封顶），
 /// 实际读到超过上限就报错：改过的包不能让我们按它声称的大小去分配内存（分配失败直接终止进程）。
+#[cfg(any(target_os = "windows", test))]
 pub(crate) fn read_entry(entry: impl Read, declared_size: u64) -> anyhow::Result<Vec<u8>> {
     let mut bytes = Vec::with_capacity(declared_size.min(MAX_PACKAGE_BYTES) as usize);
     entry
@@ -263,7 +231,7 @@ pub(crate) fn remove_stale_dirs(temp: &Path, now: SystemTime) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
+    use std::io::{Cursor, Write as _};
     use std::sync::Mutex;
 
     use super::*;
@@ -506,19 +474,9 @@ mod tests {
 
         let exe = finalize(dir.path(), "2.0.1", &InstallKind::Nsis, b"MZ setup").unwrap();
         assert_eq!(fs::read(exe.0).unwrap(), b"MZ setup");
-        let zipped = zip(&[("KwikPaste_2.0.1_x64-setup.exe", b"MZ zipped")]);
-        let exe = finalize(dir.path(), "2.0.2", &InstallKind::Nsis, &zipped).unwrap();
-        assert_eq!(fs::read(exe.0).unwrap(), b"MZ zipped");
         assert!(finalize(dir.path(), "2.0.3", &InstallKind::Nsis, b"#!/bin/sh").is_err());
-        assert!(
-            finalize(
-                dir.path(),
-                "2.0.3",
-                &InstallKind::Nsis,
-                &zip(&[("a.exe", b"MZ a"), ("b.exe", b"MZ b")])
-            )
-            .is_err()
-        );
+        let zipped = zip(&[("KwikPaste_2.0.1_x64-setup.exe", b"MZ zipped")]);
+        assert!(finalize(dir.path(), "2.0.2", &InstallKind::Nsis, &zipped).is_err());
 
         let portable = zip(&[("KwikPaste/KwikPaste.exe", b"MZ new")]);
         assert!(finalize(dir.path(), "2.0.1", &InstallKind::Portable, &portable).is_ok());
