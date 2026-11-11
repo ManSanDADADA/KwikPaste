@@ -122,7 +122,7 @@ impl NativePanel {
     }
 
     /// 按设置的摆放方式定位：跟随光标（光标所在显示器、光标附近）、居中（光标所在显示器的工作区正中）
-    /// 或回到记住的位置（那里已没有显示器时居中到光标所在显示器，与 1.x 相同）。取不到光标时用主显示器。
+    /// 或回到记住的位置（落在最近的显示器上并夹回工作区）。取不到光标时用主显示器。
     pub fn place(&self, layout: &PanelLayout) -> anyhow::Result<Placement> {
         let cursor_monitor = monitor::at_cursor()
             .or_else(|err| {
@@ -179,18 +179,18 @@ impl NativePanel {
         scale_size(logical, monitor.scale())
     }
 
-    /// 记住的外框左上角所在的显示器和对应的内容区左上角；那里已经没有显示器时为 `None`。
+    /// 离记住的外框左上角最近的显示器和对应的内容区左上角；拖到屏幕上沿、左沿后外框会出屏，
+    /// 落点交给 `follow_cursor` 夹回工作区。没有任何显示器时为 `None`。
     fn remembered_origin(&self, geometry: WindowGeometry) -> Option<(MonitorInfo, Point)> {
         let outer = Point {
             x: (geometry.x * geometry.scale).round() as i32,
             y: (geometry.y * geometry.scale).round() as i32,
         };
-        let monitor = monitor::all().into_iter().find(|info| {
+        let monitor = monitor::all().into_iter().min_by_key(|info| {
             let rect = info.monitor;
-            outer.x >= rect.left
-                && outer.x < rect.right
-                && outer.y >= rect.top
-                && outer.y < rect.bottom
+            let dx = i64::from((rect.left - outer.x).max(outer.x - (rect.right - 1)).max(0));
+            let dy = i64::from((rect.top - outer.y).max(outer.y - (rect.bottom - 1)).max(0));
+            dx * dx + dy * dy
         })?;
         let insets = self
             .panel
