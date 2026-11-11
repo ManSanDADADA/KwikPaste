@@ -17,15 +17,24 @@ pub(crate) fn public_key() -> String {
         .unwrap_or_else(|| PRODUCTION_PUBLIC_KEY.trim().to_owned())
 }
 
-/// 用 `public_key`（base64 的公钥文件）校验 `data` 的 `signature`（base64 的签名文件）。
-pub(crate) fn verify(data: &[u8], signature: &str, public_key: &str) -> anyhow::Result<()> {
+/// 用 `public_key`（base64 的公钥文件）校验 `data` 的 `signature`（base64 的签名文件），返回签名时的文件名。
+///
+/// `tauri signer sign` 和 `tauri bundle` 写的 trusted comment 是 `timestamp:<秒>\tfile:<文件名>`，受全局签名
+/// 保护。同一把密钥签 1.x、2.x 和扩展，调用方必须拿文件名确认签的就是期望的那个发布产物。
+pub(crate) fn verify(data: &[u8], signature: &str, public_key: &str) -> anyhow::Result<String> {
     let public_key = PublicKey::decode(&decode_text(public_key).context("invalid public key")?)
         .map_err(|err| anyhow!("invalid public key: {err}"))?;
     let signature = Signature::decode(&decode_text(signature).context("invalid signature")?)
         .map_err(|err| anyhow!("invalid signature: {err}"))?;
     public_key
         .verify(data, &signature, true)
-        .map_err(|err| anyhow!("signature verification failed: {err}"))
+        .map_err(|err| anyhow!("signature verification failed: {err}"))?;
+    signature
+        .trusted_comment()
+        .split('\t')
+        .find_map(|field| field.strip_prefix("file:"))
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow!("signature does not name the signed file"))
 }
 
 fn decode_text(value: &str) -> anyhow::Result<String> {
@@ -73,8 +82,17 @@ pub(crate) mod testing {
             b64(text.as_bytes())
         }
 
-        /// 与清单 `signature` 字段同格式的签名；`prehashed` 对应 minisign 的新格式。
+        /// 与清单 `signature` 字段同格式的签名；`prehashed` 对应 minisign 的新格式。签名记的文件名无关紧要时用。
         pub(crate) fn sign(&self, data: &[u8], prehashed: bool) -> String {
+            self.sign_with(data, prehashed, "KwikPaste-test")
+        }
+
+        /// 像 `tauri signer sign <file>` 一样把文件名写进 trusted comment。
+        pub(crate) fn sign_as(&self, data: &[u8], file: &str) -> String {
+            self.sign_with(data, true, file)
+        }
+
+        fn sign_with(&self, data: &[u8], prehashed: bool, file: &str) -> String {
             let (algorithm, message) = if prehashed {
                 (b"ED", Blake2b512::digest(data).to_vec())
             } else {
@@ -85,7 +103,7 @@ pub(crate) mod testing {
             bin.extend_from_slice(&self.key_id);
             bin.extend_from_slice(&signature);
 
-            let trusted = "timestamp:1790000000\tfile:KwikPaste-test";
+            let trusted = format!("timestamp:1790000000\tfile:{file}");
             let mut global = signature.to_vec();
             global.extend_from_slice(trusted.as_bytes());
             let global = self.signing.sign(&global).to_bytes();
@@ -124,9 +142,17 @@ mod tests {
 
         for prehashed in [true, false] {
             let signature = key.sign(data, prehashed);
-            verify(data, &signature, &key.public_key()).unwrap();
+            assert_eq!(
+                verify(data, &signature, &key.public_key()).unwrap(),
+                "KwikPaste-test"
+            );
             assert!(verify(b"MZ tampered bytes", &signature, &key.public_key()).is_err());
         }
+        let signature = key.sign_as(data, "KwikPaste_2.0.1_x64-setup.exe");
+        assert_eq!(
+            verify(data, &signature, &key.public_key()).unwrap(),
+            "KwikPaste_2.0.1_x64-setup.exe"
+        );
     }
 
     #[test]

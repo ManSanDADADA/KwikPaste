@@ -66,7 +66,8 @@ pub(crate) async fn download(
         let part = dir.join(format!("{TEMP_DIR_PREFIX}{version}.download"));
         fetch_to_file(client, url, &part, MAX_PACKAGE_BYTES, on_progress).await?;
         let bytes = fs::read(&part).with_context(|| format!("failed to read {part:?}"))?;
-        crate::verify::verify(&bytes, signature, public_key)?;
+        let signed = crate::verify::verify(&bytes, signature, public_key)?;
+        check_signed_name(kind, version, &signed)?;
         let (file, digest) = finalize(&dir, version, kind, &bytes)?;
         fs::remove_file(&part).ok();
         Ok(Package {
@@ -134,6 +135,20 @@ pub(crate) async fn fetch_to_file(
         bail!("download ended early: {downloaded} of {total:?} bytes");
     }
     Ok(downloaded)
+}
+
+/// 签名记的文件名必须是这个版本、这种安装形态、本机架构的发布产物：同一把密钥签过的 1.x 安装包、
+/// 旧版本、别的形态或扩展换进清单都不认。
+fn check_signed_name(kind: &InstallKind, version: &str, signed: &str) -> anyhow::Result<()> {
+    let matches = kind.asset_suffix(version).is_some_and(|suffix| {
+        signed
+            .strip_suffix(suffix.as_str())
+            .is_some_and(|product| !product.is_empty())
+    });
+    if !matches {
+        bail!("the signature is for {signed}, not the {version} update of this installation");
+    }
+    Ok(())
 }
 
 /// 按安装形态检查并落成最终文件名。
@@ -285,12 +300,16 @@ mod tests {
         let server = Server::start(vec![Reply::ok(installer.clone())]);
         let url = Url::parse(&server.url("/setup.exe")).unwrap();
         let seen = Mutex::new(Vec::new());
+        let name = format!(
+            "KwikPaste{}",
+            InstallKind::Nsis.asset_suffix("2.0.1").unwrap()
+        );
 
         let package = rt
             .block_on(download(
                 &client(),
                 &url,
-                &key.sign(&installer, true),
+                &key.sign_as(&installer, &name),
                 &key.public_key(),
                 "2.0.1",
                 &InstallKind::Nsis,
@@ -325,39 +344,114 @@ mod tests {
         fs::remove_dir_all(&package.dir).unwrap();
     }
 
+    /// 别的密钥签的，或者正式密钥签的别的文件（这里是 1.x 安装包）。
     #[test]
     fn bad_signature_removes_the_download() {
         let rt = runtime();
         let key = TestKey::generate();
         let other = TestKey::generate();
         let installer = b"MZ unsigned".to_vec();
-        let server = Server::start(vec![Reply::ok(installer.clone())]);
-        let url = Url::parse(&server.url("/setup.exe")).unwrap();
 
-        let err = rt
-            .block_on(download(
-                &client(),
-                &url,
-                &other.sign(&installer, true),
-                &key.public_key(),
-                "2.0.1-sigtest",
+        for signature in [
+            other.sign(&installer, true),
+            key.sign_as(&installer, "KwikPaste_1.4.0_x64-setup.exe"),
+        ] {
+            let server = Server::start(vec![Reply::ok(installer.clone())]);
+            let url = Url::parse(&server.url("/setup.exe")).unwrap();
+            let err = rt
+                .block_on(download(
+                    &client(),
+                    &url,
+                    &signature,
+                    &key.public_key(),
+                    "2.0.1-sigtest",
+                    &InstallKind::Nsis,
+                    &|_| {},
+                ))
+                .unwrap_err();
+
+            assert!(format!("{err:#}").contains("signature"), "{err:#}");
+            let leftovers = fs::read_dir(std::env::temp_dir())
+                .unwrap()
+                .flatten()
+                .filter(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with("KwikPaste-2.0.1-sigtest-updater-")
+                })
+                .count();
+            assert_eq!(leftovers, 0);
+        }
+    }
+
+    #[test]
+    fn signatures_must_name_this_version_kind_and_arch() {
+        let (windows, other, mac) = if cfg!(target_arch = "aarch64") {
+            ("arm64", "x64", "aarch64")
+        } else {
+            ("x64", "arm64", "x64")
+        };
+        let mac_app = InstallKind::MacApp {
+            bundle: PathBuf::from("/Applications/KwikPaste.app"),
+        };
+        for (kind, name) in [
+            (
                 &InstallKind::Nsis,
-                &|_| {},
-            ))
-            .unwrap_err();
+                format!("KwikPaste_2.0.10_{windows}-setup.exe"),
+            ),
+            (
+                &InstallKind::Nsis,
+                format!("KwikPasteBundleTest_2.0.10_{windows}-setup.exe"),
+            ),
+            (
+                &InstallKind::Portable,
+                format!("KwikPaste_2.0.10_{windows}_portable.zip"),
+            ),
+            (&mac_app, format!("KwikPaste_2.0.10_{mac}.app.tar.gz")),
+        ] {
+            assert!(check_signed_name(kind, "2.0.10", &name).is_ok(), "{name}");
+        }
 
-        assert!(format!("{err:#}").contains("signature"), "{err:#}");
-        let leftovers = fs::read_dir(std::env::temp_dir())
-            .unwrap()
-            .flatten()
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with("KwikPaste-2.0.1-sigtest-updater-")
-            })
-            .count();
-        assert_eq!(leftovers, 0);
+        // 1.x、旧版本、别的形态、别的架构、扩展，以及 bundle 阶段签的不带版本号的 macOS 包。
+        for (kind, name) in [
+            (
+                &InstallKind::Nsis,
+                format!("KwikPaste_1.4.0_{windows}-setup.exe"),
+            ),
+            (
+                &InstallKind::Nsis,
+                format!("KwikPaste_2.0.9_{windows}-setup.exe"),
+            ),
+            (
+                &InstallKind::Nsis,
+                format!("KwikPaste_12.0.10_{windows}-setup.exe"),
+            ),
+            (
+                &InstallKind::Nsis,
+                format!("KwikPaste_2.0.10_{other}-setup.exe"),
+            ),
+            (&InstallKind::Nsis, format!("_2.0.10_{windows}-setup.exe")),
+            (
+                &InstallKind::Nsis,
+                format!("KwikPaste_2.0.10_{windows}_portable.zip"),
+            ),
+            (
+                &InstallKind::Portable,
+                format!("KwikPaste_2.0.10_{windows}-setup.exe"),
+            ),
+            (
+                &InstallKind::Portable,
+                "KwikPaste-ext-ocr_2.0.10_windows-x86_64.exe".to_owned(),
+            ),
+            (&mac_app, "KwikPaste.app.tar.gz".to_owned()),
+            (
+                &InstallKind::Unmanaged,
+                format!("KwikPaste_2.0.10_{windows}-setup.exe"),
+            ),
+        ] {
+            assert!(check_signed_name(kind, "2.0.10", &name).is_err(), "{name}");
+        }
     }
 
     #[test]

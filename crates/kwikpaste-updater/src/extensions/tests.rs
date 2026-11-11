@@ -151,7 +151,7 @@ fn signature_failure_leaves_nothing_installed_and_size_failure_also_fails_closed
         offered.signature = if bad_signature {
             wrong_key.sign(&bytes, true)
         } else {
-            key.sign(&bytes, true)
+            key.sign_as(&bytes, &asset_name(&offered))
         };
         offered.size = bytes.len() as u64 + u64::from(!bad_signature);
         let server = Server::start(vec![Reply::ok(catalog(&[offered]))]);
@@ -183,6 +183,42 @@ fn signature_failure_leaves_nothing_installed_and_size_failure_also_fails_closed
     }
 }
 
+/// 正式密钥签过的别的文件（别的扩展、旧版本、应用安装包）顶替不了目录里的这一项。
+#[test]
+fn signature_must_name_this_extension_version_and_target() {
+    let target = crate::target::extension_target();
+    let exe = if cfg!(target_os = "windows") {
+        ".exe"
+    } else {
+        ""
+    };
+    assert_eq!(
+        asset_name(&entry("2.0.0")),
+        format!("KwikPaste-ext-ocr_2.0.0_{target}{exe}")
+    );
+
+    for signed in [
+        format!("KwikPaste-ext-wetype_2.0.0_{target}{exe}"),
+        format!("KwikPaste-ext-ocr_1.0.0_{target}{exe}"),
+        "KwikPaste_2.0.0_x64-setup.exe".to_owned(),
+    ] {
+        let core = TestCore::start("2.0.0");
+        let key = TestKey::generate();
+        let bytes = b"MZ fake extension".to_vec();
+        let binary = Server::start(vec![Reply::ok(bytes.clone())]);
+        let mut offered = entry("2.0.0");
+        offered.url = binary.url("/binary").parse().unwrap();
+        offered.signature = key.sign_as(&bytes, &signed);
+        offered.size = bytes.len() as u64;
+        let server = Server::start(vec![Reply::ok(catalog(&[offered]))]);
+        let manager = remote(&core, &server, &key, Arc::default());
+        core.block_on(manager.refresh()).unwrap();
+        let err = core.block_on(manager.install("ocr".into())).unwrap_err();
+        assert!(err.to_string().contains(&signed), "{err}");
+        assert!(core.core.installed_extensions().is_empty());
+    }
+}
+
 #[test]
 fn refresh_auto_updates_in_both_directions_preserving_disabled_state() {
     for version in ["1.0.0", "3.0.0"] {
@@ -193,7 +229,7 @@ fn refresh_auto_updates_in_both_directions_preserving_disabled_state() {
         let binary = Server::start(vec![Reply::ok(bytes.clone())]);
         let mut offered = entry(version);
         offered.url = binary.url("/binary").parse().unwrap();
-        offered.signature = key.sign(&bytes, true);
+        offered.signature = key.sign_as(&bytes, &asset_name(&offered));
         offered.size = bytes.len() as u64;
         let server = Server::start(vec![Reply::ok(catalog(&[offered]))]);
         let manager = remote(&core, &server, &key, Arc::default());

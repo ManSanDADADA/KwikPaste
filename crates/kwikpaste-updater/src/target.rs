@@ -98,6 +98,22 @@ impl InstallKind {
             Self::Unmanaged => Vec::new(),
         }
     }
+
+    /// 发布产物名在产品名之后的部分：`<产品名>_<版本>_<架构>` 加形态后缀，与 scripts/release/v2-manifest.mjs
+    /// 的 `platformAssets` 一致。产品名不在其中：测试身份打出来的包叫 `KwikPasteBundleTest_…`。
+    pub(crate) fn asset_suffix(&self, version: &str) -> Option<String> {
+        let aarch64 = cfg!(target_arch = "aarch64");
+        let windows = if aarch64 { "arm64" } else { "x64" };
+        match self {
+            Self::Nsis => Some(format!("_{version}_{windows}-setup.exe")),
+            Self::Portable => Some(format!("_{version}_{windows}_portable.zip")),
+            Self::MacApp { .. } => Some(format!(
+                "_{version}_{}.app.tar.gz",
+                if aarch64 { "aarch64" } else { "x64" }
+            )),
+            Self::Unmanaged => None,
+        }
+    }
 }
 
 /// 与 Tauri 相同的架构名。
