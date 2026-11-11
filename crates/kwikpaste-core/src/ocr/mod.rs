@@ -387,21 +387,36 @@ fn run_jobs(
                 break;
             };
             log::info!("OCR engine: {}", exe.display());
-            match client::Client::start(&exe) {
-                Ok(client) => {
-                    let mut state = core.ocr.state();
-                    if state.generation != generation || state.suspended != 0 || state.stopped {
-                        drop(client);
-                        break;
-                    }
-                    state.child = Some(client.child.clone());
-                    helper = Some(client);
-                }
+            // helper 起不来（被杀软拦截、系统不让运行）或连探测都答不上不是图片的错：
+            // 结束本轮会话、不写结果，等下次有新图片或设置变化再试。
+            let mut client = match client::Client::start(&exe) {
+                Ok(client) => client,
                 Err(err) => {
                     log::warn!("OCR helper start failed: {err}");
+                    break;
                 }
+            };
+            {
+                let mut state = core.ocr.state();
+                if state.generation != generation || state.suspended != 0 || state.stopped {
+                    drop(client);
+                    break;
+                }
+                state.child = Some(client.child.clone());
             }
+            let probe = client.request(&Request::Probe);
+            if !matches!(probe, Ok(Response::Probe { .. })) {
+                log::warn!("OCR helper did not answer: {probe:?}");
+                client::kill(&client.child);
+                drop(client);
+                core.ocr.state().child = None;
+                break;
+            }
+            helper = Some(client);
         }
+        let Some(active) = helper.as_mut() else {
+            break;
+        };
         let request = Request::Recognize {
             job_id: id.clone(),
             path: core
@@ -410,16 +425,14 @@ fn run_jobs(
                 .to_string_lossy()
                 .into_owned(),
         };
-        let response = helper.as_mut().map(|helper| helper.request(&request));
+        let response = active.request(&request);
         #[cfg(target_os = "windows")]
-        if let Some(helper) = &helper {
-            core.ocr.helper_peak.fetch_max(
-                client::peak_private_usage(&helper.child),
-                std::sync::atomic::Ordering::Relaxed,
-            );
-        }
+        core.ocr.helper_peak.fetch_max(
+            client::peak_private_usage(&active.child),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         let outcome = match response {
-            Some(Ok(Response::Recognize { job_id, outcome })) if job_id == id => {
+            Ok(Response::Recognize { job_id, outcome }) if job_id == id => {
                 failures = 0;
                 outcome
             }

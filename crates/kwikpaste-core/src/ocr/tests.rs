@@ -351,6 +351,22 @@ fn wait_idle(core: &Core) {
     }
 }
 
+/// 装着却起不来的 helper（被杀软拦截、系统不让运行）不能把图片记成识别失败。
+#[test]
+fn helper_that_cannot_start_leaves_images_pending() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    seed(&fixture, &core, "image", 1_800_000_001);
+    let staged = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(staged.path(), b"not an executable").unwrap();
+    block_on(core.install_extension("ocr", "1.0.0", protocol::OCR_PROTOCOL, staged.path()))
+        .unwrap();
+    wait_idle(&core);
+    let status = block_on(core.ocr_status()).unwrap();
+    assert_eq!((status.failed, status.pending), (0, 1));
+    block_on(core.shutdown()).unwrap();
+}
+
 #[test]
 fn priority_starts_idle_session_before_background_queue() {
     let fixture = Fixture::new();
