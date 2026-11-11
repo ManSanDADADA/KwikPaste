@@ -1,6 +1,7 @@
 //! 本地数据目录的体积统计，供偏好页存储占用与按存储上限清理共用。
 
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -24,23 +25,31 @@ pub fn dir_size(path: &Path) -> Result<u64> {
 }
 
 /// 递归统计目录大小，跳过 `excluded` 里列出的文件；目录不存在时按 0 处理。
+/// 遍历期间被别处删掉或改名的条目（缩略图临时文件落盘、清理删文件）同样按 0 处理，不让整次统计失败。
 pub fn dir_size_excluding(path: &Path, excluded: &[PathBuf]) -> Result<u64> {
-    if !path.exists() {
+    let Some(entries) = skip_missing(fs::read_dir(path), || {
+        format!("failed to read directory at {path:?}")
+    })?
+    else {
         return Ok(0);
-    }
+    };
 
     let mut total = 0;
-    for entry in
-        fs::read_dir(path).with_context(|| format!("failed to read directory at {path:?}"))?
-    {
-        let entry = entry.with_context(|| format!("failed to read entry under {path:?}"))?;
+    for entry in entries {
+        let Some(entry) = skip_missing(entry, || format!("failed to read entry under {path:?}"))?
+        else {
+            continue;
+        };
         let entry_path = entry.path();
         if excluded.contains(&entry_path) {
             continue;
         }
-        let metadata = entry
-            .metadata()
-            .with_context(|| format!("failed to read metadata at {entry_path:?}"))?;
+        let Some(metadata) = skip_missing(entry.metadata(), || {
+            format!("failed to read metadata at {entry_path:?}")
+        })?
+        else {
+            continue;
+        };
 
         if metadata.is_dir() {
             total += dir_size_excluding(&entry_path, excluded)?;
@@ -51,6 +60,18 @@ pub fn dir_size_excluding(path: &Path, excluded: &[PathBuf]) -> Result<u64> {
     }
 
     Ok(total)
+}
+
+/// IO 结果里的 NotFound 变成 `None`，其余错误带上下文返回。
+fn skip_missing<T>(
+    result: std::io::Result<T>,
+    context: impl FnOnce() -> String,
+) -> Result<Option<T>> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(anyhow::Error::new(err).context(context()).into()),
+    }
 }
 
 /// 未创建的目标目录沿父级回溯，查询最近已存在目录所在卷的可用字节数。

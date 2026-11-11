@@ -442,7 +442,16 @@ async fn execute(
     shrink_database(&pool, &outcome).await;
 
     let storage = if scope.storage {
-        let (check, over, freed) = enforce_storage_limit(core, &pool, &history, true).await?;
+        let (check, over, freed) = match enforce_storage_limit(core, &pool, &history, true).await {
+            Ok(result) => result,
+            Err(err) => {
+                // 前两步已提交，界面仍要刷新，否则会残留已删除的卡片。
+                if outcome.removed > 0 {
+                    emit_cleanup(core, outcome.removed);
+                }
+                return Err(err);
+            }
+        };
         report.over_storage = over.removed;
         report.freed_bytes += freed;
         outcome.merge(over);
