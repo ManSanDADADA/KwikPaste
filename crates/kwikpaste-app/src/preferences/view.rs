@@ -646,6 +646,13 @@ impl Preferences {
         // 窗口一打开就有焦点，Esc 不用先点一下界面就能关窗。
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        // 录制时按键只送到根节点：切到别的应用或焦点移到别的控件，就结束录制、恢复全局热键。
+        subscriptions.push(cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                this.stop_recording(cx);
+            }
+        }));
+        subscriptions.push(cx.on_blur(&focus, window, |this, _, cx| this.stop_recording(cx)));
         let scroll = ScrollHandle::new();
         let setting_anchors = schema::tabs(portable)
             .into_iter()
@@ -932,6 +939,16 @@ impl Preferences {
         self.recording = None;
         hotkey::resume(cx.entity_id(), cx);
         cx.notify();
+    }
+
+    /// 结束正在进行的全局快捷键或窗口内按键录制。
+    fn stop_recording(&mut self, cx: &mut Context<Self>) {
+        if self.recording.is_some() {
+            self.finish_recording(cx);
+        }
+        if self.recording_panel.is_some() {
+            self.finish_panel_recording(cx);
+        }
     }
 
     fn capture_shortcut(
@@ -3153,12 +3170,7 @@ impl Preferences {
         self.tab = tab;
         self.shortcut_detail = None;
         self.shortcut_conflict = None;
-        if self.recording.is_some() {
-            self.finish_recording(cx);
-        }
-        if self.recording_panel.is_some() {
-            self.finish_panel_recording(cx);
-        }
+        self.stop_recording(cx);
         self.search.set_value("", window, cx);
         self.scroll.set_offset(gpui::point(px(0.), px(0.)));
         if let Some(id) = setting_id {

@@ -192,13 +192,25 @@ impl Onboarding {
         }
         let icons = cx.new(|_| KpImageCache::with_capacity(128));
         subscriptions.push(cx.observe(&icons, |_, _, cx| cx.notify()));
+        // 录制时按键只送到根节点：切到别的应用或焦点移到别的控件，就结束录制、恢复全局热键。
+        let focus = cx.focus_handle();
+        subscriptions.push(cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() && this.recording.is_some() {
+                this.finish_recording(cx);
+            }
+        }));
+        subscriptions.push(cx.on_blur(&focus, window, |this, _, cx| {
+            if this.recording.is_some() {
+                this.finish_recording(cx);
+            }
+        }));
         Self {
             step: initial_step.min(steps.saturating_sub(1)),
             settings,
             has_permissions,
             source_apps: Vec::new(),
             recording: None,
-            focus: cx.focus_handle(),
+            focus,
             scroll: ScrollHandle::new(),
             language,
             selects,
