@@ -1,6 +1,7 @@
 //! 列表卡片的展示数据：在数据库行上补齐缩略图、来源应用图标、文件条目、颜色预览、显示时间、
 //! 快捷信息与可用动作，并按设置脱敏。
 
+use anyhow::Context as _;
 use chrono::{DateTime, Datelike, Offset as _, TimeZone};
 use sqlx::SqlitePool;
 
@@ -95,11 +96,9 @@ where
     );
     let mut span_masked = false;
     if ctx.redact_sensitive && view.item.is_sensitive && view.item.kind == ClipboardKind::Text {
-        // 列表查询没有完整正文；按全文定位遮罩区间，避免截断的摘要把凭据前缀漏出来。
-        if let Some(full) = crate::db::items::find_item_by_id(ctx.pool, &view.item.id).await? {
-            let masked =
-                super::text::mask_with_rules(crate::clipboard::fragment_source(&full), &ctx.rules);
-            view.item.summary = Some(masked.trim().chars().take(SUMMARY_MAX_CHARS).collect());
+        // 列表查询没有完整正文；按正文定位遮罩区间，避免截断的摘要把凭据前缀漏出来。
+        if let Some(summary) = masked_summary(ctx, &view.item).await? {
+            view.item.summary = Some(summary);
             view.color_preview = None;
             span_masked = true;
         }
@@ -111,6 +110,47 @@ where
     attach_image_display_size(&mut view, ctx.image_max_height);
     attach_file_image_preview(ctx.images, &mut view, ctx.image_max_height);
     Ok(view)
+}
+
+/// 敏感摘要先只按正文开头这么多字符遮罩：摘要只取结果的前 [`SUMMARY_MAX_CHARS`] 个字符。
+const MASK_PREFIX_CHARS: usize = 64 * 1024;
+
+/// 敏感文本的遮罩摘要，正文取法同 [`crate::clipboard::fragment_source`]；记录已删除时返回 `None`。
+/// 先只读正文开头一段。这段截断了正文、而遮罩退回了整段遮罩（敏感区间可能在后面）或遮完不够一条摘要
+/// （长区间跨过了截断处）时才读全文重算，摘要与按全文遮罩一致。
+async fn masked_summary<Tz: TimeZone>(
+    ctx: &ListContext<'_, Tz>,
+    item: &ClipboardItem,
+) -> Result<Option<String>> {
+    let query = match item.sub_kind {
+        Some(ClipboardSubKind::Html | ClipboardSubKind::Rtf) => {
+            "SELECT substr(COALESCE(search_text, content), 1, ?) FROM clipboard_items WHERE id = ?"
+        }
+        _ => "SELECT substr(content, 1, ?) FROM clipboard_items WHERE id = ?",
+    };
+    let Some(prefix) = sqlx::query_scalar::<_, String>(query)
+        .bind(MASK_PREFIX_CHARS as i64)
+        .bind(&item.id)
+        .fetch_optional(ctx.pool)
+        .await
+        .context("failed to read sensitive item text")?
+    else {
+        return Ok(None);
+    };
+
+    let mut masked = super::text::mask_with_rules(&prefix, &ctx.rules);
+    if prefix.chars().count() >= MASK_PREFIX_CHARS
+        && (masked.trim().chars().count() < SUMMARY_MAX_CHARS
+            || masked == super::text::mask_sensitive_text(&prefix))
+    {
+        let Some(full) = crate::db::items::find_item_by_id(ctx.pool, &item.id).await? else {
+            return Ok(None);
+        };
+        masked = super::text::mask_with_rules(crate::clipboard::fragment_source(&full), &ctx.rules);
+    }
+    Ok(Some(
+        masked.trim().chars().take(SUMMARY_MAX_CHARS).collect(),
+    ))
 }
 
 /// 同步收到的记录：按来源设备 id 回填 LAN 或 WeType 设备名，已取消配对的设备也保留名称。
@@ -445,6 +485,52 @@ mod tests {
             assert_eq!(view.file_entries.as_ref().unwrap().len(), 1);
             assert!(view.file_entries.as_ref().unwrap()[0].modified.is_some());
             assert_eq!(view.files_preview_kind, Some(expected));
+        }
+    }
+
+    // 只读正文开头时，摘要仍与按全文遮罩一致：密钥在开头、只在开头这段之后、区间跨过截断处、短文本。
+    #[tokio::test]
+    async fn sensitive_summary_matches_masking_the_full_text() {
+        let temp = tempfile::tempdir().unwrap();
+        let pool = crate::db::test_support::memory_pool().await;
+        let images = ImageStore::for_test(temp.path().join("images"));
+        let app_icons = AppIconStore::for_test(temp.path().join("app-icons"));
+        let file_icons = FileIconStore::for_test(temp.path().join("file-icons"));
+        let clipboard = Clipboard::default();
+        let ctx = ListContext::new(
+            &pool,
+            &images,
+            &app_icons,
+            &file_icons,
+            &clipboard,
+            Utc::now(),
+        );
+        let key = "sk-abcdefghijklmnopqrstuvwxyzABCDE1234567890";
+        let filler = "log line\n".repeat(MASK_PREFIX_CHARS / 8);
+        let contents = [
+            format!("{key}\n{filler}"),
+            format!("{filler}{key}"),
+            format!("token {key}{} tail", "x".repeat(MASK_PREFIX_CHARS)),
+            format!("token {key}"),
+        ];
+
+        for (index, content) in contents.into_iter().enumerate() {
+            let mut item = text_item(None, true);
+            item.id = format!("secret-{index}");
+            item.content_hash = crate::db::items::content_hash(ClipboardKind::Text, &content);
+            item.content = content;
+            crate::db::items::insert_item(&pool, &item).await.unwrap();
+
+            let expected: String = super::super::text::mask_with_rules(&item.content, &ctx.rules)
+                .trim()
+                .chars()
+                .take(SUMMARY_MAX_CHARS)
+                .collect();
+            assert_eq!(
+                masked_summary(&ctx, &item).await.unwrap(),
+                Some(expected),
+                "case {index}"
+            );
         }
     }
 
