@@ -281,11 +281,13 @@ const packageMacos = (cli, options, version, info, release) => {
 
   const produced = [];
   const tarName = `${product}_${version}_${info.arch}.app.tar.gz`;
-  copyWithSig(
-    join(release, "bundle", "macos", `${product}.app.tar.gz`),
-    join(options.out, tarName),
-    options.sign,
-  );
+  // Signed again under the versioned name, like the portable zip: the updater checks the file name in
+  // the trusted comment, and the bundler signed the unversioned `<product>.app.tar.gz`.
+  const tar = join(options.out, tarName);
+  copyFileSync(join(release, "bundle", "macos", `${product}.app.tar.gz`), tar);
+  if (options.sign) {
+    run(process.execPath, [cli, "signer", "sign", tar]);
+  }
   produced.push(tarName);
   const dmgName = `${product}_${version}_${info.arch}.dmg`;
   copyFileSync(

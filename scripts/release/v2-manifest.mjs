@@ -8,7 +8,8 @@
 // On GitHub the file is always called latest-v2.json, never latest.json: old clients fall back to
 // releases/latest/download/latest.json. Only the Qiniu mirror publishes it as kwikpaste/v2/<channel>/latest.json.
 //
-// Every platform must be present, every signature must verify against --pubkey with the local file, and
+// Every platform must be present, every signature must verify against --pubkey with the local file and
+// name it (`file:<asset name>` in the trusted comment, which kwikpaste-updater checks), and
 // with --assets (the draft release's asset list) every file must be uploaded with the local size.
 // URLs are always --base-url/<name>: a draft's browser_download_url points at releases/download/untagged-…,
 // which stops resolving once the draft is published.
@@ -198,7 +199,13 @@ const main = () => {
       throw new Error(`${name} or its .sig is missing`);
     }
     const signature = readFileSync(`${path}.sig`, "utf8").trim();
-    verifySignature(readFileSync(path), signature, publicKey);
+    const trusted = verifySignature(readFileSync(path), signature, publicKey);
+    // kwikpaste-updater refuses a signature whose trusted comment names another file.
+    if (!trusted.split("\t").includes(`file:${name}`)) {
+      throw new Error(
+        `${name}.sig was made for another file (trusted comment: ${trusted})`,
+      );
+    }
     return signature;
   };
 
