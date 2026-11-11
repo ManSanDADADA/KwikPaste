@@ -58,16 +58,8 @@ impl Preferences {
             return;
         };
         let editing = existing.is_some();
-        let rules = &self.settings.clipboard.auto_group_rules;
-        let base = existing.unwrap_or_else(|| AutoGroupRule {
-            id: (1..=rules.len() + 1)
-                .map(|i| format!("auto-group-{i}"))
-                .find(|id| !rules.iter().any(|rule| rule.id == *id))
-                .unwrap_or_else(|| format!("auto-group-{}", rules.len() + 1)),
-            enabled: true,
-            group_id: String::new(),
-            app_ids: Vec::new(),
-        });
+        // 新规则的 id 到保存时才分配（见 `save_rule`）：取应用列表期间可能又开了一个弹框。
+        let base = existing.unwrap_or_default();
         let groups = self
             .groups
             .iter()
@@ -278,15 +270,30 @@ fn open_rule_editor(
             let _ = parent.update(cx, |this, cx| {
                 this.auto_group_apps = apps;
                 let mut rules = this.settings.clipboard.auto_group_rules.clone();
-                if let Some(current) = rules.iter_mut().find(|current| current.id == rule.id) {
-                    *current = rule;
-                } else {
-                    rules.push(rule);
+                if save_rule(&mut rules, rule, editing) {
+                    this.update_auto_group_rules(rules, cx);
                 }
-                this.update_auto_group_rules(rules, cx);
             });
         })
         .detach();
+}
+
+/// 把弹框里保存的规则并进当前规则：新规则这时才取一个没用过的 id；
+/// 编辑期间原规则已被删掉就丢弃这次保存，不让它复活。返回是否有改动。
+fn save_rule(rules: &mut Vec<AutoGroupRule>, mut rule: AutoGroupRule, editing: bool) -> bool {
+    if editing {
+        let Some(current) = rules.iter_mut().find(|current| current.id == rule.id) else {
+            return false;
+        };
+        *current = rule;
+        return true;
+    }
+    rule.id = (1..=rules.len() + 1)
+        .map(|i| format!("auto-group-{i}"))
+        .find(|id| !rules.iter().any(|rule| rule.id == *id))
+        .unwrap_or_else(|| format!("auto-group-{}", rules.len() + 1));
+    rules.push(rule);
+    true
 }
 
 struct RuleEditor {
@@ -418,5 +425,34 @@ impl Render for RuleEditor {
                         .child(error),
                 )
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_rules_get_unique_ids_on_save_and_edits_of_deleted_rules_are_dropped() {
+        let mut rules = Vec::new();
+        // 两个同时打开的新增弹框：各自保存时都拿到没用过的 id。
+        assert!(save_rule(&mut rules, AutoGroupRule::default(), false));
+        assert!(save_rule(&mut rules, AutoGroupRule::default(), false));
+        assert_eq!(
+            rules
+                .iter()
+                .map(|rule| rule.id.as_str())
+                .collect::<Vec<_>>(),
+            ["auto-group-1", "auto-group-2"]
+        );
+
+        let mut edited = rules[0].clone();
+        edited.group_id = "work".to_owned();
+        assert!(save_rule(&mut rules, edited, true));
+        assert_eq!(rules[0].group_id, "work");
+
+        let deleted = rules.remove(1);
+        assert!(!save_rule(&mut rules, deleted, true));
+        assert_eq!(rules.len(), 1);
     }
 }
