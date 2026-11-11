@@ -295,12 +295,16 @@ async fn export_history_backup(
     // 删图片的清理与删除都要独占锁；导出持共享锁即可挡住它们，采集照常进行。
     let _publication = core.cleanup.image_publication().await;
     let pool = core.db.pool().await;
-    // 部分备份的源文件在临时目录里，打包完才能删。
+    // 数据库快照（部分备份还有裁剪后的源文件）在临时目录里，打包完才能删。
     let mut _staged = None;
     let (source_paths, counts) = if options.scope.is_all() {
         let counts = load_counts(&pool).await?;
-        checkpoint_database(&pool).await?;
-        (backup_source_paths(&core.paths)?, counts)
+        let staged = tempfile::tempdir().context("failed to create backup snapshot directory")?;
+        let mut paths = backup_source_paths(&core.paths)?;
+        paths.db_path = staged.path().join(DB_FILENAME);
+        snapshot_database(&pool, &paths.db_path).await?;
+        _staged = Some(staged);
+        (paths, counts)
     } else {
         let (staged, counts) = stage_scoped_source(core, &pool, &options.scope).await?;
         let paths = BackupSourcePaths {
@@ -478,6 +482,18 @@ fn normalize_backup_path(path: PathBuf) -> Result<PathBuf> {
     }
 }
 
+/// 用 `VACUUM INTO` 把当前库写成一份一致的快照。导出期间采集照常写库，
+/// 直接打包正在使用的主库文件会撞上自动 checkpoint 改写它。
+async fn snapshot_database(pool: &SqlitePool, target: &Path) -> Result<()> {
+    sqlx::query("VACUUM INTO ?")
+        .bind(target.to_string_lossy().into_owned())
+        .execute(pool)
+        .await
+        .context("failed to snapshot the database for backup")?;
+
+    Ok(())
+}
+
 async fn checkpoint_database(pool: &SqlitePool) -> Result<()> {
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
         .execute(pool)
@@ -574,11 +590,7 @@ async fn stage_scoped_source(
 
     let staged = tempfile::tempdir().context("failed to create partial backup directory")?;
     let db_path = staged.path().join(DB_FILENAME);
-    sqlx::query("VACUUM INTO ?")
-        .bind(db_path.to_string_lossy().into_owned())
-        .execute(pool)
-        .await
-        .context("failed to copy the database for a partial backup")?;
+    snapshot_database(pool, &db_path).await?;
 
     let copy = SqlitePoolOptions::new()
         .max_connections(1)
