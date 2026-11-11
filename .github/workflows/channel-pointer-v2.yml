@@ -97,6 +97,28 @@ jobs:
             exit 1
           fi
 
+          # 渠道只前进：比指针当前版本旧的 release（后发布的积压草稿、补跑的旧 tag）不推；同一版本可以重跑。
+          pointer_tag="channel-v2-${channel}"
+          if gh release view "${pointer_tag}" > /dev/null 2>&1; then
+            gh release download "${pointer_tag}" --pattern latest-v2.json --output current-v2.json
+            current_version="$(jq -r .version current-v2.json)"
+            if ! python3 - "${manifest_version}" "${current_version}" <<'PY'
+          import sys
+
+          def precedence(version):
+              core, _, pre = version.split("+")[0].partition("-")
+              ids = [(0, int(part), "") if part.isdigit() else (1, 0, part) for part in pre.split(".")] if pre else []
+              return [int(part) for part in core.split(".")], not pre, ids
+
+          new, current = sys.argv[1:]
+          sys.exit(0 if precedence(new) >= precedence(current) else 1)
+          PY
+            then
+              echo "::error::${tag_name} is older than ${current_version}, which ${pointer_tag} already points at."
+              exit 1
+            fi
+          fi
+
           {
             echo "proceed=true"
             echo "channel=${channel}"
