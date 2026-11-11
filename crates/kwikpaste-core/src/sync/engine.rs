@@ -100,12 +100,18 @@ pub async fn wire_from_item(
 ) -> anyhow::Result<Option<(WireItem, Vec<u8>)>> {
     match item.kind {
         ClipboardKind::Text => {
+            // 接收方（含已发布的各版本）纯文本只用 content、摘要自己重算：
+            // 只有富文本带纯文本表示，摘要不发，可同步的文本不再被重复字段压掉一半。
+            let rich = matches!(
+                item.sub_kind,
+                Some(ClipboardSubKind::Html | ClipboardSubKind::Rtf)
+            );
             let wire = WireItem {
                 kind: item.kind,
                 sub_kind: item.sub_kind,
                 content: item.content.clone(),
-                search_text: item.search_text.clone(),
-                summary: item.summary.clone(),
+                search_text: if rich { item.search_text.clone() } else { None },
+                summary: None,
                 width: None,
                 height: None,
             };
@@ -588,14 +594,16 @@ mod tests {
     fn escaped_text_over_header_limit_is_skipped_with_its_checkpoint() {
         let fixture = Fixture::new();
         let core = fixture.start();
-        let item = core
+        let mut item = core
             .build_item(&ClipboardPayload::Text(TextPayload {
-                text: "\\".repeat(4 * 1024 * 1024),
+                text: "\\".to_owned(),
                 html: None,
                 rtf: None,
             }))
             .unwrap()
             .unwrap();
+        // 转义后翻倍，超过 JSON 头上限。
+        item.content = "\\".repeat(9 * 1024 * 1024);
         block_on(core.store_item(item.clone(), None)).unwrap();
 
         block_on(core.hop({
@@ -610,6 +618,7 @@ mod tests {
                 plain.content = "a".repeat(4 * 1024 * 1024);
                 plain.search_text = Some(plain.content.clone());
                 let (wire, attachment) = wire_from_item(&core.0, &plain, 0).await.unwrap().unwrap();
+                assert!(wire.search_text.is_none() && wire.summary.is_none());
                 for live in [true, false] {
                     assert!(super::super::protocol::encode(
                         &Message::Push {
