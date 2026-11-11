@@ -97,6 +97,7 @@ jobs:
       - name: Vendored GPUI matches upstream plus patches
         shell: bash
         run: |
+          node scripts/gpui/vendor.mjs gpui-pre --check
           node scripts/gpui/vendor.mjs gpui-pre-windows --check
           node scripts/gpui/vendor.mjs gpui-pre-macos --check
 
