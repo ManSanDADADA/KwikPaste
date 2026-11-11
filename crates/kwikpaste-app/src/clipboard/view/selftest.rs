@@ -1673,6 +1673,7 @@ impl Driver {
         self.list.update(cx, |list, cx| {
             list.on_update(
                 ListUpdate::Upserted {
+                    id: id.into(),
                     kind: ItemKind::Text,
                     deduplicated: false,
                     group_id: None,

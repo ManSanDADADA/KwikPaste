@@ -614,12 +614,13 @@ fn run_step(
             if let Ok(mut store) = bench.borrow().store.lock() {
                 store.insert_newest(item);
             }
-            bench.borrow_mut().deferred_ids.push(id);
+            bench.borrow_mut().deferred_ids.push(id.clone());
             bench
                 .borrow_mut()
                 .check("A1 new item while scrolled (deferred)", list, None, true);
             list.on_update(
                 ListUpdate::Upserted {
+                    id,
                     kind: ItemKind::Text,
                     deduplicated: false,
                     group_id: None,
@@ -747,6 +748,7 @@ fn run_step(
             bench.borrow_mut().reuse_top = Some(top);
             list.on_update(
                 ListUpdate::Upserted {
+                    id: item.id.clone(),
                     kind: item.kind,
                     deduplicated: true,
                     group_id: None,
@@ -851,9 +853,10 @@ fn run_step(
             if let Ok(mut store) = bench.borrow().store.lock() {
                 store.insert_newest(item);
             }
-            bench.borrow_mut().deferred_ids.push(id);
+            bench.borrow_mut().deferred_ids.push(id.clone());
             list.on_update(
                 ListUpdate::Upserted {
+                    id,
                     kind: ItemKind::Text,
                     deduplicated: false,
                     group_id: None,

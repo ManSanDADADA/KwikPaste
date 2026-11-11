@@ -38,6 +38,7 @@ pub enum NavOutcome {
 pub enum ListUpdate {
     /// 新记录入库或已有记录被重新使用（`deduplicated`）。`group_id` 是新记录自动归入的分组。
     Upserted {
+        id: Arc<str>,
         kind: ItemKind,
         deduplicated: bool,
         group_id: Option<Arc<str>>,
@@ -62,7 +63,7 @@ pub enum UpdateAction {
     },
     /// 不在顶部或面板隐藏：记成挂起，回到顶部再刷新。
     Defer { reset_selection: bool },
-    /// 显示中不在顶部时复用了已有记录：就地重拉当前范围，保持顶行的行号。
+    /// 显示中不在顶部时复用了已有记录或识别有了进展：就地重拉当前范围，视口锚点由视图保持。
     RefreshInPlace,
 }
 
@@ -220,6 +221,7 @@ impl ListController {
                 kind,
                 deduplicated,
                 group_id,
+                ..
             } => {
                 let relevant = if *deduplicated {
                     self.filter.may_include_existing(Some(*kind))
@@ -551,6 +553,7 @@ mod tests {
     fn updates_defer_until_the_top() {
         let mut controller = ListController::new();
         let upsert = ListUpdate::Upserted {
+            id: "r1".into(),
             kind: ItemKind::Text,
             deduplicated: false,
             group_id: None,
@@ -579,6 +582,7 @@ mod tests {
     fn reuse_refreshes_in_place_below_the_top() {
         let mut controller = ListController::new();
         let reuse = ListUpdate::Upserted {
+            id: "r1".into(),
             kind: ItemKind::Text,
             deduplicated: true,
             group_id: None,
@@ -603,6 +607,7 @@ mod tests {
         controller.hover(&"r1".into());
         let action = controller.on_update(
             &ListUpdate::Upserted {
+                id: "r1".into(),
                 kind: ItemKind::Text,
                 deduplicated: false,
                 group_id: None,
@@ -716,6 +721,7 @@ mod tests {
         assert_eq!(
             controller.on_update(
                 &ListUpdate::Upserted {
+                    id: "r1".into(),
                     kind: ItemKind::Text,
                     deduplicated: false,
                     group_id: None,
@@ -728,6 +734,7 @@ mod tests {
         assert_eq!(
             controller.on_update(
                 &ListUpdate::Upserted {
+                    id: "r1".into(),
                     kind: ItemKind::Text,
                     deduplicated: true,
                     group_id: None,
@@ -749,6 +756,7 @@ mod tests {
 
         let action = controller.on_update(
             &ListUpdate::Upserted {
+                id: "r1".into(),
                 kind: ItemKind::Text,
                 deduplicated: false,
                 group_id: None,
