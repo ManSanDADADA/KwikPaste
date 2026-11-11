@@ -438,8 +438,10 @@ impl ClipboardList {
 
     /// 在大图预览窗里看这张图：已加载的图片记录按列表顺序做快照，面板按点外部处理（固定时留着）。
     pub fn view_image(&mut self, id: Arc<str>, cx: &mut Context<Self>) {
-        let images: Vec<ViewerImage> = (0..self.model.total())
-            .filter_map(|index| self.model.get(index))
+        let images: Vec<ViewerImage> = self
+            .model
+            .cached_items()
+            .into_iter()
             .filter(|item| item.kind == ItemKind::Image)
             .map(|item| ViewerImage {
                 id: item.id.clone(),

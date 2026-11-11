@@ -110,6 +110,17 @@ impl ListModel {
         self.items.get(&index)
     }
 
+    /// 已缓存的行（总数以内），按模型下标排序。
+    pub fn cached_items(&self) -> Vec<&Arc<ListItem>> {
+        let mut rows: Vec<_> = self
+            .items
+            .iter()
+            .filter(|(index, _)| **index < self.total)
+            .collect();
+        rows.sort_unstable_by_key(|(index, _)| **index);
+        rows.into_iter().map(|(_, item)| item).collect()
+    }
+
     pub fn index_of(&self, id: &str) -> Option<usize> {
         self.items
             .iter()
