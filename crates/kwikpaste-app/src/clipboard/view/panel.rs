@@ -697,12 +697,7 @@ impl ClipboardPanel {
         cx: &mut Context<Self>,
     ) {
         match event {
-            HeaderEvent::Keyword(keyword) => {
-                let side_keyword = keyword.clone();
-                let keyword = keyword.clone();
-                self.update_filter(|filter| filter.keyword = keyword, cx);
-                self.update_side_filter(|filter| filter.keyword = side_keyword, cx);
-            }
+            HeaderEvent::Keyword(keyword) => self.apply_keyword(keyword.clone(), cx),
             HeaderEvent::RequestEditing(trigger) => {
                 editing::begin(EditTarget::Search, *trigger, cx);
             }
@@ -713,6 +708,22 @@ impl ClipboardPanel {
                 self.update_filter(|filter| filter.search = search, cx);
                 self.update_side_filter(|filter| filter.search = side_search, cx);
             }
+        }
+    }
+
+    fn apply_keyword(&mut self, keyword: Arc<str>, cx: &mut Context<Self>) {
+        let side_keyword = keyword.clone();
+        self.update_filter(|filter| filter.keyword = keyword, cx);
+        self.update_side_filter(|filter| filter.keyword = side_keyword, cx);
+    }
+
+    /// 粘贴类按键之前：搜索词还在防抖就当场应用，列表随即挂起按键，等新结果的第一页落地再执行。
+    fn flush_keyword(&mut self, cx: &mut Context<Self>) {
+        if let Some(keyword) = self
+            .header
+            .update(cx, |header, _| header.take_pending_keyword())
+        {
+            self.apply_keyword(keyword, cx);
         }
     }
 
@@ -1001,6 +1012,7 @@ impl Render for ClipboardPanel {
                 panel.current().update(cx, |list, cx| list.select_next(cx));
             })))
             .on_action(cx.listener(unless_menu(|panel, _: &PasteSelected, _, cx| {
+                panel.flush_keyword(cx);
                 panel.current().update(cx, |list, cx| {
                     if list.preview_words(cx).is_some() {
                         // 预览里选了词：Enter 粘贴选中的词（1.x `enterPastePreviewWords`）。
@@ -1015,6 +1027,7 @@ impl Render for ClipboardPanel {
             })))
             .on_action(
                 cx.listener(unless_menu(|panel, _: &PasteSelectedPlain, _, cx| {
+                    panel.flush_keyword(cx);
                     panel.current().update(cx, |list, cx| {
                         if !list.selecting() {
                             list.paste_active(true, cx);
@@ -1130,6 +1143,7 @@ impl Render for ClipboardPanel {
             .on_action(
                 cx.listener(unless_menu(|panel, action: &QuickPaste, _, cx| {
                     let key = action.key;
+                    panel.flush_keyword(cx);
                     panel
                         .current()
                         .update(cx, |list, cx| list.quick_paste(key, cx));

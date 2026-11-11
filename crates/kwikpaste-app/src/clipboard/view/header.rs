@@ -231,6 +231,8 @@ pub struct Header {
     /// 这次在搜索框上按下的鼠标要进入编辑态；按在漏斗或标签上时由它们清掉（见 [`Self::press_search`]）。
     edit_press: bool,
     language: i18n::Language,
+    /// 还没发出的搜索词；防抖到点或 [`Self::take_pending_keyword`] 取走。
+    pending_keyword: Option<Arc<str>>,
     debounce: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -263,6 +265,7 @@ impl Header {
             pinned: false,
             editing: false,
             language: i18n::language(),
+            pending_keyword: None,
             debounce: None,
             edit_press: false,
             _subscriptions: subscriptions,
@@ -321,6 +324,7 @@ impl Header {
 
     /// 清空搜索框和筛选标签，取消还没发出的防抖。由调用方同步列表的筛选条件。
     pub fn clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pending_keyword = None;
         self.debounce = None;
         self.filters = SearchFilters::default();
         self.input.set_value("", window, cx);
@@ -496,12 +500,24 @@ impl Header {
         let keyword: Arc<str> = Arc::from(value.trim());
         // 只记长度：搜索词是用户内容，不进日志。
         log::debug!("search input changed ({} chars)", keyword.chars().count());
+        self.pending_keyword = Some(keyword);
         self.debounce = Some(cx.spawn(async move |header, cx| {
             cx.background_executor().timer(SEARCH_DEBOUNCE).await;
             header
-                .update(cx, |_, cx| cx.emit(HeaderEvent::Keyword(keyword)))
+                .update(cx, |header, cx| {
+                    if let Some(keyword) = header.pending_keyword.take() {
+                        cx.emit(HeaderEvent::Keyword(keyword));
+                    }
+                })
                 .ok();
         }));
+    }
+
+    /// 取走还没发出的搜索词并取消防抖，由调用方当场应用：防抖期间按 Enter 不能按搜索前的结果执行。
+    /// 事件要等这次更新结束才送达，所以直接返回而不是 emit。
+    pub fn take_pending_keyword(&mut self) -> Option<Arc<str>> {
+        self.debounce = None;
+        self.pending_keyword.take()
     }
 }
 
