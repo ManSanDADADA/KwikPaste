@@ -662,9 +662,6 @@
       "panelShortcuts": {
         "title": "In the clipboard window"
       },
-      "performance": {
-        "title": "Performance"
-      },
       "permissions": {
         "title": "System Permissions"
       },
@@ -1293,14 +1290,6 @@
         }
       },
       "window": {
-        "idleDestroySeconds": {
-          "description": "Release hidden windows such as Preferences and Preview after this long. They rebuild on next use.",
-          "title": "Secondary Window Idle Release"
-        },
-        "lightweightMode": {
-          "description": "Pause unnecessary refresh work after the clipboard window hides, and release secondary rendering resources after they become idle.",
-          "title": "Lightweight Mode"
-        },
         "position": {
           "options": {
             "center": "Center of Screen",

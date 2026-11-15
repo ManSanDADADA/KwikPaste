@@ -493,29 +493,6 @@ fn general_sections(portable: bool) -> Vec<Section> {
             settings: permissions,
         });
     }
-    sections.push(Section {
-        id: "performance",
-        settings: vec![
-            Setting::new("window.lightweightMode", Control::Switch)
-                .path("clipboard.window.lightweightMode")
-                .keywords(&["system", "performance", "memory", "idle"])
-                .advanced(),
-            Setting::new(
-                "window.idleDestroySeconds",
-                Control::Number {
-                    min: 5,
-                    max: 86_400,
-                    suffix: Some("seconds"),
-                },
-            )
-            .path("clipboard.window.idleDestroySeconds")
-            .keywords(&["system", "idle", "destroy", "seconds"])
-            .child_of("window.lightweightMode", |settings| {
-                !settings.clipboard.window.lightweight_mode
-            })
-            .advanced(),
-        ],
-    });
     sections
 }
 
