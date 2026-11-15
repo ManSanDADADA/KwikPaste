@@ -40,6 +40,8 @@ impl<B: ClipboardBackend> ClipboardReader<B> {
     /// 同一次复制可能同时存在文件、图片、HTML、RTF、纯文本表示；这里只返回第一个启用且可读取的类型。
     pub fn read_with_capture(&self, capture: &Capture) -> Result<Option<ClipboardPayload>> {
         let mut text_payload: Option<Option<TextPayload>> = None;
+        // 文件读取失败不能丢掉同一次复制里的图片和文本：先记下，其余类型都没有载荷时再报出，交外层重试。
+        let mut files_error = None;
 
         for kind in capture.ordered_kinds() {
             if !capture.is_enabled(kind) {
@@ -47,14 +49,16 @@ impl<B: ClipboardBackend> ClipboardReader<B> {
             }
 
             match kind {
-                CaptureKind::Files => {
-                    if let Some(files) = self.read_files()? {
+                CaptureKind::Files => match self.read_files() {
+                    Ok(Some(files)) => {
                         if let Some(image) = self.app_cache_image(capture, &files) {
                             return Ok(Some(ClipboardPayload::Image(image)));
                         }
                         return Ok(Some(ClipboardPayload::Files(files)));
                     }
-                }
+                    Ok(None) => {}
+                    Err(err) => files_error = Some(err),
+                },
                 CaptureKind::Image => {
                     if self.backend.has(ClipboardFormat::Image) {
                         if let Some(image) = self.read_image()? {
@@ -79,7 +83,7 @@ impl<B: ClipboardBackend> ClipboardReader<B> {
             }
         }
 
-        Ok(None)
+        files_error.map_or(Ok(None), Err)
     }
 
     /// 读取当前剪贴板而不受采集设置影响，供一次性的全局纯文本粘贴使用。
@@ -110,23 +114,31 @@ impl<B: ClipboardBackend> ClipboardReader<B> {
         Ok(Some(files))
     }
 
-    /// 复制的「文件」其实是别的应用自己缓存的一张图、剪贴板上也带着这张图时，取图片载荷。
+    /// 复制的「文件」其实是别的应用自己缓存的一张图时，取图片载荷。
     ///
-    /// QQ、微信等在 macOS 上复制聊天图片，会同时放图片数据和指向沙盒容器里缓存文件的 URL。
-    /// 这个文件是对方应用的内部存储：读它会被系统的「其他 App 的数据」权限拦下，对方清缓存后也会消失。
-    /// 用户复制的是图片，按图片收录。访达复制文件时放的图片是文件图标，所以只认应用私有目录里的文件。
+    /// macOS：QQ、微信复制聊天图片，会同时放图片数据和指向沙盒容器里缓存文件的 URL。
+    /// 这个文件是对方应用的内部存储：读它会被系统的「其他 App 的数据」权限拦下，对方清缓存后也会消失，
+    /// 所以只在剪贴板也带着这张图时按图片收录，且绝不读文件本身。
+    /// Windows：Snow Shot 等只放一个指向临时目录里图片的文件列表、没有位图，微信放的是它数据目录里的图，
+    /// 剪贴板没带图时直接读这个文件。
+    /// 访达/资源管理器复制文件时放的图片是文件图标，所以只认应用私有目录里的文件。
     fn app_cache_image(&self, capture: &Capture, files: &[String]) -> Option<ImagePayload> {
         let [only] = files else {
             return None;
         };
         if !capture.is_enabled(CaptureKind::Image)
-            || !is_app_cache_image(only, &app_cache_roots())
-            || !self.backend.has(ClipboardFormat::Image)
+            || !is_app_cache_file(only, self.backend.temp_dir().as_deref())
         {
             return None;
         }
 
-        self.read_image().ok().flatten()
+        if self.backend.has(ClipboardFormat::Image) {
+            self.read_image().ok().flatten()
+        } else if cfg!(windows) {
+            read_image_file(Path::new(only), capture.max_image_bytes())
+        } else {
+            None
+        }
     }
 
     /// 读取剪贴板中的文本族表示，包含纯文本、HTML 和 RTF。
@@ -214,6 +226,64 @@ fn is_app_cache_image(path: &str, roots: &[PathBuf]) -> bool {
     is_image_path(path) && roots.iter().any(|root| Path::new(path).starts_with(root))
 }
 
+/// `path` 是否是别的应用缓存的图片：macOS 看私有存储根目录，Windows 看系统临时目录和微信数据目录。
+fn is_app_cache_file(path: &str, temp_dir: Option<&Path>) -> bool {
+    is_app_cache_image(path, &app_cache_roots())
+        || (cfg!(windows) && is_windows_app_image(path, temp_dir))
+}
+
+/// Windows 上的应用缓存图片：在系统临时目录（后端给出的规范化路径）下，或路径里有微信的数据目录
+/// （4.x `xwechat_files`、3.9 `WeChat Files`）。微信数据目录常被用户搬到别的盘，所以按目录名匹配而不是固定根。
+/// 动图（GIF、APNG，如微信表情）照常按文件收录：转成图片记录只剩第一帧。
+fn is_windows_app_image(path: &str, temp_dir: Option<&Path>) -> bool {
+    if !is_image_path(path) {
+        return false;
+    }
+    let path = Path::new(path);
+    if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gif") || ext.eq_ignore_ascii_case("apng"))
+    {
+        return false;
+    }
+    let in_wechat_dir = path.components().any(|part| {
+        let part = part.as_os_str();
+        part.eq_ignore_ascii_case("xwechat_files") || part.eq_ignore_ascii_case("WeChat Files")
+    });
+    in_wechat_dir
+        || temp_dir.is_some_and(|temp| {
+            std::fs::canonicalize(path).is_ok_and(|file| file.starts_with(temp))
+        })
+}
+
+/// 读图片文件为 PNG 载荷：PNG 原样直通，其他格式按 [`crate::imaging`] 的上限解码后重编码。
+/// 超过大小上限、读不到或解不开都返回 `None`，调用方退回按文件收录。
+fn read_image_file(path: &Path, max_bytes: Option<u64>) -> Option<ImagePayload> {
+    let len = std::fs::metadata(path).ok()?.len();
+    if max_bytes.is_some_and(|max| len > max) {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    if let Some((width, height)) = png_dimensions(&bytes) {
+        return Some(ImagePayload {
+            bytes,
+            width,
+            height,
+        });
+    }
+
+    let image = crate::imaging::from_bytes(&bytes).ok()?.decode().ok()?;
+    let mut png = Vec::new();
+    image
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .ok()?;
+    Some(ImagePayload {
+        bytes: png,
+        width: image.width(),
+        height: image.height(),
+    })
+}
+
 /// 应用私有存储的根目录：沙盒容器、应用组容器、缓存和每用户临时目录。
 /// iCloud 云盘（`Mobile Documents`）、`CloudStorage` 下的网盘同样在 `~/Library` 里，但那是用户自己的文件，不算。
 #[cfg(target_os = "macos")]
@@ -229,7 +299,7 @@ fn app_cache_roots() -> Vec<PathBuf> {
     roots
 }
 
-/// Windows 上还没遇到这样复制图片的应用，文件照常按文件收录。
+/// 只有 macOS 用目录根判断；Windows 的规则见 [`is_windows_app_image`]。
 #[cfg(not(target_os = "macos"))]
 fn app_cache_roots() -> Vec<PathBuf> {
     Vec::new()
@@ -431,6 +501,83 @@ mod tests {
         assert_eq!(
             read(state, &Capture::default()),
             Some(ClipboardPayload::Files(vec![photo]))
+        );
+    }
+
+    // 微信 4.x 的图片在它自己的数据目录里，剪贴板同时带着位图时按图片收录，与目录在哪个盘无关。
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wechat_data_dir_file_with_image_data_is_read_as_image() {
+        let cached = "D:/Data/xwechat_files/wxid_x/msg/attach/ab/Img/1.png".to_owned();
+        let png = sample_png(6, 4);
+        let state = MemoryState {
+            files: Some(vec![cached]),
+            png: Some(png.clone()),
+            ..MemoryState::default()
+        };
+
+        assert_eq!(
+            read(state, &Capture::default()),
+            Some(ClipboardPayload::Image(ImagePayload {
+                bytes: png,
+                width: 6,
+                height: 4,
+            }))
+        );
+    }
+
+    // Snow Shot「复制图片文件」只放一个指向临时目录的文件列表，没有位图。
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn temp_dir_image_file_without_image_data_is_read_as_image() {
+        let dir = std::env::temp_dir().join(format!("kwikpaste-read-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("SnowShot_1.png");
+        let png = sample_png(6, 4);
+        std::fs::write(&file, &png).unwrap();
+        let state = MemoryState {
+            files: Some(vec![file.to_string_lossy().into_owned()]),
+            temp_dir: Some(std::fs::canonicalize(&dir).unwrap()),
+            ..MemoryState::default()
+        };
+
+        let payload = read(state, &Capture::default());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            payload,
+            Some(ClipboardPayload::Image(ImagePayload {
+                bytes: png,
+                width: 6,
+                height: 4,
+            }))
+        );
+    }
+
+    #[test]
+    fn unreadable_files_do_not_drop_the_rest_of_the_capture() {
+        let png = sample_png(6, 4);
+        let with_image = MemoryState {
+            files_unreadable: true,
+            png: Some(png.clone()),
+            ..MemoryState::default()
+        };
+        assert_eq!(
+            read(with_image, &Capture::default()),
+            Some(ClipboardPayload::Image(ImagePayload {
+                bytes: png,
+                width: 6,
+                height: 4,
+            }))
+        );
+
+        let only_files = MemoryState {
+            files_unreadable: true,
+            ..MemoryState::default()
+        };
+        assert!(
+            ClipboardReader::with_backend(MemoryClipboard::with_state(only_files))
+                .read_with_capture(&Capture::default())
+                .is_err()
         );
     }
 

@@ -6,6 +6,7 @@
 //!
 //! 实现不要求 `Send`：clipboard-rs 的上下文是 `!Send`，调用方在同一线程的同步段里创建、用完、丢弃。
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use clipboard_rs::common::{RustImage, RustImageData};
@@ -59,6 +60,11 @@ pub trait ClipboardBackend {
     fn set_files(&self, files: Vec<String>) -> Result<()>;
     /// 把 PNG 字节原样放上剪贴板；Windows 另附一份 `CF_DIB` 给只认位图的应用。
     fn set_png(&self, png: Vec<u8>) -> Result<()>;
+    /// 系统临时目录（已规范化）：别的应用放上剪贴板的这里的单个图片文件按图片收录。
+    /// 只有 Windows 的系统剪贴板给出；测试用的内存后端只在状态里指定时才有。
+    fn temp_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// 借用的后端照样能用，`ClipboardReader::with_backend(&backend)` 不必转移所有权。
@@ -105,6 +111,10 @@ impl<T: ClipboardBackend + ?Sized> ClipboardBackend for &T {
 
     fn set_png(&self, png: Vec<u8>) -> Result<()> {
         (**self).set_png(png)
+    }
+
+    fn temp_dir(&self) -> Option<PathBuf> {
+        (**self).temp_dir()
     }
 }
 
@@ -188,6 +198,12 @@ impl ClipboardBackend for SystemClipboard {
 
     fn get_files(&self) -> Result<Vec<String>> {
         self.ctx.get_files().map_err(clip_err)
+    }
+
+    /// 规范化后才能和剪贴板里的长路径比较：临时目录常是 8.3 短路径，大小写也可能不同。
+    #[cfg(target_os = "windows")]
+    fn temp_dir(&self) -> Option<PathBuf> {
+        std::fs::canonicalize(std::env::temp_dir()).ok()
     }
 
     fn get_png(&self) -> Result<Vec<u8>> {
@@ -687,6 +703,10 @@ pub struct MemoryState {
     pub rtf: Option<String>,
     pub files: Option<Vec<String>>,
     pub png: Option<Vec<u8>>,
+    /// 剪贴板声明有文件格式，但读取时报错（模拟被占用或格式损坏）。
+    pub files_unreadable: bool,
+    /// 模拟的系统临时目录，见 [`ClipboardBackend::temp_dir`]。
+    pub temp_dir: Option<PathBuf>,
 }
 
 impl MemoryClipboard {
@@ -725,7 +745,7 @@ impl ClipboardBackend for MemoryClipboard {
             ClipboardFormat::Html => state.html.is_some(),
             ClipboardFormat::Rtf => state.rtf.is_some(),
             ClipboardFormat::Image | ClipboardFormat::Png => state.png.is_some(),
-            ClipboardFormat::Files => state.files.is_some(),
+            ClipboardFormat::Files => state.files.is_some() || state.files_unreadable,
         }
     }
 
@@ -742,7 +762,15 @@ impl ClipboardBackend for MemoryClipboard {
     }
 
     fn get_files(&self) -> Result<Vec<String>> {
-        self.lock().files.clone().ok_or_else(|| missing("files"))
+        let state = self.lock();
+        if state.files_unreadable {
+            return Err(AppError::Clipboard("get files failed".to_owned()));
+        }
+        state.files.clone().ok_or_else(|| missing("files"))
+    }
+
+    fn temp_dir(&self) -> Option<PathBuf> {
+        self.lock().temp_dir.clone()
     }
 
     fn get_png(&self) -> Result<Vec<u8>> {
