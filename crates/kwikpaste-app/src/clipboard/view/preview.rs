@@ -12,10 +12,11 @@ use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, DispatchPhase,
     Div, ElementId, Entity, EventEmitter, FontStyle, FontWeight, HighlightStyle, ImageSource,
     InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, MouseExitEvent,
-    MouseMoveEvent, ParentElement as _, Render, ScrollHandle, SharedString, Stateful,
-    StatefulInteractiveElement as _, StrikethroughStyle, Styled as _, StyledText, UnderlineStyle,
-    UniformListScrollHandle, WeakEntity, Window, WindowBounds, WindowKind, WindowOptions, canvas,
-    div, img, point, prelude::FluentBuilder as _, px, size, uniform_list,
+    MouseMoveEvent, ParentElement as _, Render, ScrollDelta, ScrollHandle, ScrollWheelEvent,
+    SharedString, Stateful, StatefulInteractiveElement as _, StrikethroughStyle, Styled as _,
+    StyledText, UnderlineStyle, UniformListScrollHandle, WeakEntity, Window, WindowBounds,
+    WindowKind, WindowOptions, canvas, div, img, point, prelude::FluentBuilder as _, px, size,
+    uniform_list,
 };
 use kwikpaste_core::{
     clipboard::SnippetKind,
@@ -228,7 +229,10 @@ impl PreviewPanel {
                         .unwrap_or_default();
                     (
                         t("preview:title.image"),
-                        SharedString::from(format!("{dimensions}{size}")),
+                        SharedString::from(format!(
+                            "{dimensions}{size} · {}",
+                            t("preview:image.hint")
+                        )),
                     )
                 }
                 ClipboardKind::Text if self.image_text == Some(ImageTextView::Text) => {
@@ -456,6 +460,16 @@ impl PreviewPanel {
                     .id("preview-image")
                     .cursor_pointer()
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(PreviewEvent::ViewImage)))
+                    // 滚轮同点击：打开大图查看器；触控板的精确滚动需按住 Mod 才算，避免误开。
+                    .on_scroll_wheel(cx.listener(|_, event: &ScrollWheelEvent, _, cx| {
+                        let wheel = match event.delta {
+                            ScrollDelta::Lines(delta) => delta.y != 0.,
+                            ScrollDelta::Pixels(_) => event.modifiers.secondary(),
+                        };
+                        if wheel {
+                            cx.emit(PreviewEvent::ViewImage);
+                        }
+                    }))
                     .relative()
                     .flex_none()
                     .w(px(width))

@@ -12,7 +12,8 @@
     "shownCount": "仅显示前 {{shown}} 项，共 {{total}} 项"
   },
   "image": {
-    "alt": "剪贴板图片预览"
+    "alt": "剪贴板图片预览",
+    "hint": "点击或滚轮放大查看"
   },
   "meta": {
     "characters": "{{count}} 字符",

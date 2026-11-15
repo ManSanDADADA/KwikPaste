@@ -12,7 +12,8 @@
     "shownCount": "Showing first {{shown}} of {{total}} items"
   },
   "image": {
-    "alt": "Clipboard image preview"
+    "alt": "Clipboard image preview",
+    "hint": "Click or scroll to zoom"
   },
   "meta": {
     "characters": "{{count}} characters",
