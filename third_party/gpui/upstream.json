@@ -36,7 +36,10 @@
     },
     {
       "name": "gpui-pre",
-      "patches": ["0001-image-format-features.diff"],
+      "patches": [
+        "0001-image-format-features.diff",
+        "0002-anchored-snap-drawn-bounds.diff"
+      ],
       "sha256": "0e87a42bb37c7cb4e76dd1ac0ce88851e46e976e0373a47ab3e0757abffee54d",
       "version": "0.3.7",
       "zedRev": "1a28cff4b409169bac058bca40dfbfeb7621d19b"

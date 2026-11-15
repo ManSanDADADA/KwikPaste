@@ -1,0 +1,28 @@
+diff --git a/src/elements/anchored.rs b/src/elements/anchored.rs
+index 2926006..2f4c274 100644
+--- a/src/elements/anchored.rs
++++ b/src/elements/anchored.rs
+@@ -186,6 +186,14 @@ impl Element for Anchored {
+         }
+         .map(|edge| *edge + client_inset);
+ 
++        // [kwikpaste patch 0002] Snap the children where they are drawn: their own layout offset
++        // (a relative `left`/`top`, a margin) moves them away from `desired`. gpui-component's
++        // submenu sits at `left: -16px` when it opens to the left, so snapping it to the window's
++        // left edge put it 12 px off-screen, and a right-opening one (`left` = parent width) was
++        // never snapped back from the right edge.
++        let children_offset = children_bounds.origin - bounds.origin;
++        desired.origin += children_offset;
++
+         // Snap the horizontal edges of the anchored element to the horizontal edges of the window if
+         // its horizontal bounds overflow, aligning to the left if it is wider than the limits.
+         if desired.right() > limits.right() {
+@@ -204,7 +212,7 @@ impl Element for Anchored {
+             desired.origin.y = limits.origin.y + edges.top;
+         }
+ 
+-        let offset = desired.origin - bounds.origin;
++        let offset = desired.origin - children_offset - bounds.origin;
+         let offset = point(offset.x.round(), offset.y.round());
+ 
+         window.with_element_offset(offset, |window| {
