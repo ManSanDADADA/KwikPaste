@@ -797,6 +797,7 @@ impl ClipboardSource for FixtureSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clipboard::model::filter::Category;
 
     const SAMPLE: &str = include_str!("../../../fixtures/list-sample.json");
 
@@ -951,7 +952,7 @@ mod tests {
         assert_eq!(grouped.total, 2);
 
         let images = list(ListFilter {
-            category: Some(ItemKind::Image),
+            category: Some(Category::Image),
             ..ListFilter::default()
         });
         assert!(images.items.iter().all(|item| item.kind == ItemKind::Image));

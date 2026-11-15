@@ -25,7 +25,7 @@ use super::{
 };
 use crate::clipboard::model::{
     actions::OpenTarget,
-    filter::{ListFilter, SourceApp},
+    filter::{Category, ListFilter, SourceApp},
     item::{
         FileRow, FilesPreview, ItemAction, ItemKind, ItemRef, ListItem, Platform, SubKind,
         TextSnippet,
@@ -69,7 +69,7 @@ pub fn item_query(query: &ListQuery) -> ClipboardItemQuery {
     } = &query.filter;
 
     ClipboardItemQuery {
-        kind: category.map(|kind| match kind {
+        kind: category.map(|category| match category.kind() {
             ItemKind::Text => ClipboardKind::Text,
             ItemKind::Image => ClipboardKind::Image,
             ItemKind::Files => ClipboardKind::Files,
@@ -81,9 +81,10 @@ pub fn item_query(query: &ListQuery) -> ClipboardItemQuery {
             query.hide_favorites.then_some(false)
         },
         group: Some(match category {
-            Some(ItemKind::Text) => kwikpaste_core::db::models::ClipboardGroupFilter::Text,
-            Some(ItemKind::Image) => kwikpaste_core::db::models::ClipboardGroupFilter::Image,
-            Some(ItemKind::Files) => kwikpaste_core::db::models::ClipboardGroupFilter::Files,
+            Some(Category::Text) => kwikpaste_core::db::models::ClipboardGroupFilter::Text,
+            Some(Category::Image) => kwikpaste_core::db::models::ClipboardGroupFilter::Image,
+            Some(Category::Files) => kwikpaste_core::db::models::ClipboardGroupFilter::Files,
+            Some(Category::Link) => kwikpaste_core::db::models::ClipboardGroupFilter::Link,
             None => kwikpaste_core::db::models::ClipboardGroupFilter::All,
         }),
         keyword: (!keyword.is_empty()).then(|| keyword.to_string()),
@@ -831,7 +832,7 @@ mod tests {
             offset: 0,
             limit: 0,
             filter: ListFilter {
-                category: Some(ItemKind::Image),
+                category: Some(Category::Image),
                 ..ListFilter::default()
             },
             sort: Default::default(),

@@ -5,7 +5,7 @@ use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 
 use crate::db::models::{
     ClipboardGroupFilter, ClipboardItem, ClipboardItemQuery, ClipboardItemRef, ClipboardItemSort,
-    ClipboardKind,
+    ClipboardKind, ClipboardSubKind,
 };
 use crate::error::Result;
 
@@ -855,6 +855,11 @@ fn push_filter_clauses(
             (None, q.favorite)
         }
         Some(ClipboardGroupFilter::Files) => (Some(ClipboardKind::Files), q.favorite),
+        Some(ClipboardGroupFilter::Link) => {
+            qb.push(" AND clipboard_items.sub_kind = ")
+                .push_bind(ClipboardSubKind::Url);
+            (Some(ClipboardKind::Text), q.favorite)
+        }
         Some(ClipboardGroupFilter::Favorite) => (None, Some(true)),
         None => (q.kind, q.favorite),
     };
@@ -1367,6 +1372,24 @@ mod tests {
             .await,
             "",
             "conditions combine with AND"
+        );
+        assert_eq!(
+            query(ClipboardItemQuery {
+                group: Some(ClipboardGroupFilter::Link),
+                ..Default::default()
+            })
+            .await,
+            "link"
+        );
+        assert_eq!(
+            query(ClipboardItemQuery {
+                group: Some(ClipboardGroupFilter::Link),
+                sub_kinds: vec![ClipboardSubKind::Email],
+                ..Default::default()
+            })
+            .await,
+            "",
+            "the link group combines with search filters with AND"
         );
 
         let apps = crate::db::apps::list_history_apps(&pool).await.unwrap();

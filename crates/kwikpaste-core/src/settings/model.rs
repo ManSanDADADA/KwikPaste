@@ -914,6 +914,10 @@ pub struct Window {
     pub select_group_on_open: String,
     /// 分组栏「全部」之后显示的内置按钮及顺序；不在列表里的不显示。
     pub group_bar: Vec<GroupBarEntry>,
+    /// `group_bar` 由认识「链接」的版本保存过。2.0.9 写的文件没有这个字段，读入时补一次链接，
+    /// 见 [`Window::add_link_to_released_group_bar`]。
+    #[serde(default)]
+    pub group_bar_knows_link: bool,
     /// 隐藏窗口轻量化：剪贴板窗口隐藏后进入 dormant，非剪贴板窗口空闲后释放 WebView。
     pub lightweight_mode: bool,
     /// 非剪贴板窗口隐藏后释放 WebView 的空闲秒数。
@@ -930,9 +934,26 @@ impl Default for Window {
             select_category_on_open: WindowOpenCategorySelection::All,
             select_group_on_open: WINDOW_OPEN_SELECTION_ALL.to_owned(),
             group_bar: GroupBarEntry::ALL.to_vec(),
+            group_bar_knows_link: true,
             lightweight_mode: true,
             idle_destroy_seconds: 60,
         }
+    }
+}
+
+impl Window {
+    /// 2.0.9 保存的分组栏还没有「链接」：列表仍是当时的默认时补到末尾，改过的留给用户在外观页勾选。
+    /// 只补这一次，之后用户隐藏链接不会再补回来。
+    pub(crate) fn add_link_to_released_group_bar(&mut self) {
+        if self.group_bar_knows_link {
+            return;
+        }
+
+        use GroupBarEntry::{Favorite, Files, Image, Link, Text};
+        if self.group_bar == [Favorite, Text, Image, Files] {
+            self.group_bar.push(Link);
+        }
+        self.group_bar_knows_link = true;
     }
 }
 
@@ -954,6 +975,7 @@ pub enum WindowOpenCategorySelection {
     Text,
     Image,
     Files,
+    Link,
 }
 
 /// 分组栏上可以隐藏和排序的内置按钮；「全部」始终显示，不在其中。
@@ -964,11 +986,19 @@ pub enum GroupBarEntry {
     Text,
     Image,
     Files,
+    /// 网址文本，与搜索筛选的「链接」同一判定。
+    Link,
 }
 
 impl GroupBarEntry {
-    /// 默认顺序，也是旧版分组栏的样子。
-    pub const ALL: [Self; 4] = [Self::Favorite, Self::Text, Self::Image, Self::Files];
+    /// 默认顺序。
+    pub const ALL: [Self; 5] = [
+        Self::Favorite,
+        Self::Text,
+        Self::Image,
+        Self::Files,
+        Self::Link,
+    ];
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]

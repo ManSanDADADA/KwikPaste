@@ -33,7 +33,7 @@ use crate::{
         model::{
             controller::ListUpdate,
             empty_state::empty_text,
-            filter::{ListFilter, Range},
+            filter::{Category, ListFilter, Range},
             item::{ItemKind, ListItem},
             menu::{MenuAction, menu_groups},
         },
@@ -453,7 +453,7 @@ impl Driver {
             cx,
             "right selects text",
             ListFilter {
-                category: Some(ItemKind::Text),
+                category: Some(Category::Text),
                 ..ListFilter::default()
             },
         )
@@ -463,9 +463,9 @@ impl Driver {
         self.key(cx, "left");
         self.filtered(
             cx,
-            "left wraps to files",
+            "left wraps to links",
             ListFilter {
-                category: Some(ItemKind::Files),
+                category: Some(Category::Link),
                 ..ListFilter::default()
             },
         )

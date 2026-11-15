@@ -1,4 +1,4 @@
-//! 头部下方的分组栏（1.x `Group.tsx`）：范围（全部 / 收藏）、分类（文本 / 图片 / 文件）和自定义分组。
+//! 头部下方的分组栏（1.x `Group.tsx`）：范围（全部 / 收藏）、分类（文本 / 图片 / 文件 / 链接）和自定义分组。
 //!
 //! - 「全部」之后的收藏和分类按偏好 `clipboard.window.groupBar` 显示和排序，相邻的范围与分类之间加分隔线；
 //! - 范围始终有一个选中；分类、自定义分组再点一次取消；
@@ -21,10 +21,7 @@ use kwikpaste_ui::{
 
 use crate::{
     clipboard::{
-        model::{
-            filter::{ListFilter, Range, bar_categories, entry_category},
-            item::ItemKind,
-        },
+        model::filter::{Category, ListFilter, Range, bar_categories, entry_category},
         source::Group,
     },
     i18n::t,
@@ -56,7 +53,7 @@ pub enum BarMode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GroupBarEvent {
     SelectRange(Range),
-    ToggleCategory(ItemKind),
+    ToggleCategory(Category),
     ToggleGroup(Arc<str>),
     EditGroup(Group),
     HideGroup(Group),
@@ -70,7 +67,7 @@ pub struct GroupBar {
     entries: Vec<GroupBarEntry>,
     groups: Vec<Group>,
     range: Range,
-    category: Option<ItemKind>,
+    category: Option<Category>,
     group_id: Option<Arc<str>>,
     hints: bool,
 }
@@ -95,6 +92,7 @@ pub(crate) fn entry_glyph(entry: GroupBarEntry) -> (IconName, SharedString) {
         GroupBarEntry::Text => (IconName::GroupText, "text"),
         GroupBarEntry::Image => (IconName::GroupImage, "image"),
         GroupBarEntry::Files => (IconName::GroupFiles, "files"),
+        GroupBarEntry::Link => (IconName::Link, "link"),
     };
     (icon, t(&format!("clipboard:groups.{key}")))
 }
@@ -180,11 +178,12 @@ impl GroupBar {
             .into_any_element()
     }
 
-    fn category_button(&self, kind: ItemKind, cx: &mut Context<Self>) -> AnyElement {
+    fn category_button(&self, kind: Category, cx: &mut Context<Self>) -> AnyElement {
         let (id, entry) = match kind {
-            ItemKind::Text => ("group-text", GroupBarEntry::Text),
-            ItemKind::Image => ("group-image", GroupBarEntry::Image),
-            ItemKind::Files => ("group-files", GroupBarEntry::Files),
+            Category::Text => ("group-text", GroupBarEntry::Text),
+            Category::Image => ("group-image", GroupBarEntry::Image),
+            Category::Files => ("group-files", GroupBarEntry::Files),
+            Category::Link => ("group-link", GroupBarEntry::Link),
         };
         let (icon, label) = entry_glyph(entry);
 

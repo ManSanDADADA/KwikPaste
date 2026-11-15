@@ -168,6 +168,8 @@ pub enum ClipboardGroupFilter {
     Text,
     Image,
     Files,
+    /// 网址文本（`sub_kind = url`）。
+    Link,
     Favorite,
 }
 

@@ -1315,6 +1315,7 @@
             "all": "All",
             "files": "Files",
             "image": "Image",
+            "link": "Links",
             "preserve": "Keep Last Selection",
             "text": "Text"
           },

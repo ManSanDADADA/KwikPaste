@@ -39,8 +39,8 @@ use super::{
 use crate::{
     clipboard::{
         model::{
-            filter::{ListFilter, Range, SearchFilters, adjacent_group, bar_categories},
-            item::{ItemKind, ListItem},
+            filter::{Category, ListFilter, Range, SearchFilters, adjacent_group, bar_categories},
+            item::ListItem,
         },
         source::{ClipboardSource, Group},
     },
@@ -526,7 +526,7 @@ impl ClipboardPanel {
         self.update_filter(|filter| filter.category = Some(kind), cx);
     }
 
-    fn toggle_category(&mut self, kind: ItemKind, cx: &mut Context<Self>) {
+    fn toggle_category(&mut self, kind: Category, cx: &mut Context<Self>) {
         self.update_filter(
             |filter| {
                 filter.category = if filter.category == Some(kind) {
@@ -876,9 +876,10 @@ impl ClipboardPanel {
                 match window_settings.select_category_on_open {
                     WindowOpenCategorySelection::Preserve => {}
                     WindowOpenCategorySelection::All => filter.category = None,
-                    WindowOpenCategorySelection::Text => filter.category = Some(ItemKind::Text),
-                    WindowOpenCategorySelection::Image => filter.category = Some(ItemKind::Image),
-                    WindowOpenCategorySelection::Files => filter.category = Some(ItemKind::Files),
+                    WindowOpenCategorySelection::Text => filter.category = Some(Category::Text),
+                    WindowOpenCategorySelection::Image => filter.category = Some(Category::Image),
+                    WindowOpenCategorySelection::Files => filter.category = Some(Category::Files),
+                    WindowOpenCategorySelection::Link => filter.category = Some(Category::Link),
                 }
                 let group = window_settings.select_group_on_open.as_str();
                 if split {

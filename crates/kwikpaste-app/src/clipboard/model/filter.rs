@@ -26,18 +26,49 @@ impl Range {
     }
 }
 
+/// 分组栏的分类：文本、图片、文件按记录类型分；链接是网址文本，与搜索筛选的「链接」同一判定。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Category {
+    Text,
+    Image,
+    Files,
+    Link,
+}
+
+impl Category {
+    /// 分类里记录的类型。
+    pub fn kind(self) -> ItemKind {
+        match self {
+            Self::Text | Self::Link => ItemKind::Text,
+            Self::Image => ItemKind::Image,
+            Self::Files => ItemKind::Files,
+        }
+    }
+
+    /// 夹具数据源用的归类，与 core 的查询一致（单个图片文件除外）。
+    fn contains(self, item: &ListItem) -> bool {
+        match self {
+            Self::Link => item
+                .sub_kind
+                .is_some_and(|sub| TextKind::Link.sub_kinds().contains(&sub)),
+            _ => item.kind == self.kind(),
+        }
+    }
+}
+
 /// 分组栏按钮对应的分类；收藏不是分类。
-pub fn entry_category(entry: GroupBarEntry) -> Option<ItemKind> {
+pub fn entry_category(entry: GroupBarEntry) -> Option<Category> {
     match entry {
         GroupBarEntry::Favorite => None,
-        GroupBarEntry::Text => Some(ItemKind::Text),
-        GroupBarEntry::Image => Some(ItemKind::Image),
-        GroupBarEntry::Files => Some(ItemKind::Files),
+        GroupBarEntry::Text => Some(Category::Text),
+        GroupBarEntry::Image => Some(Category::Image),
+        GroupBarEntry::Files => Some(Category::Files),
+        GroupBarEntry::Link => Some(Category::Link),
     }
 }
 
 /// 分组栏上显示的分类，按设置的顺序。
-pub fn bar_categories(entries: &[GroupBarEntry]) -> Vec<ItemKind> {
+pub fn bar_categories(entries: &[GroupBarEntry]) -> Vec<Category> {
     entries.iter().copied().filter_map(entry_category).collect()
 }
 
@@ -162,7 +193,7 @@ impl SearchFilters {
 pub struct ListFilter {
     pub range: Range,
     /// 分类；再次点击当前分类时取消。
-    pub category: Option<ItemKind>,
+    pub category: Option<Category>,
     /// 自定义分组；再次点击当前分组时取消。
     pub group_id: Option<Arc<str>>,
     /// 搜索词（已去掉首尾空白）。
@@ -205,16 +236,19 @@ impl ListFilter {
         match (self.category, kind) {
             (None, _) => true,
             (Some(_), None) => false,
-            // 单个图片文件的记录属于「图片」分组，这里只知道类型，宁可多刷新一次。
-            (Some(ItemKind::Image), Some(ItemKind::Files)) => true,
-            (Some(category), Some(kind)) => category == kind,
+            // 单个图片文件的记录属于「图片」分组，文本是不是链接也不知道：这里只知道类型，宁可多刷新一次。
+            (Some(Category::Image), Some(ItemKind::Files)) => true,
+            (Some(category), Some(kind)) => category.kind() == kind,
         }
     }
 
     /// 夹具数据源的过滤：与 core 的查询语义一致（分类、收藏、分组、搜索框筛选、搜索词不区分大小写
     /// 地包含在摘要、备注或文件名里）。core 的搜索走 FTS，这里只求自测可用。
     pub fn matches(&self, item: &ListItem) -> bool {
-        if self.category.is_some_and(|category| category != item.kind) {
+        if self
+            .category
+            .is_some_and(|category| !category.contains(item))
+        {
             return false;
         }
         if !self.search.matches(item, Local::now()) {
@@ -241,7 +275,7 @@ impl ListFilter {
 
     /// ←/→：在分组栏显示的分类里循环；还没选分类时从方向对应的一端进入（1.x
     /// `selectAdjacentCategory`）。分类都隐藏了时没有可选的。
-    pub fn adjacent_category(&self, forward: bool, categories: &[ItemKind]) -> Option<ItemKind> {
+    pub fn adjacent_category(&self, forward: bool, categories: &[Category]) -> Option<Category> {
         let count = categories.len();
         if count == 0 {
             return None;
@@ -306,30 +340,34 @@ mod tests {
     fn categories_cycle_from_the_matching_end() {
         let all = bar_categories(&GroupBarEntry::ALL);
         let none = ListFilter::default();
-        assert_eq!(none.adjacent_category(true, &all), Some(ItemKind::Text));
-        assert_eq!(none.adjacent_category(false, &all), Some(ItemKind::Files));
+        assert_eq!(none.adjacent_category(true, &all), Some(Category::Text));
+        assert_eq!(none.adjacent_category(false, &all), Some(Category::Link));
 
         let image = ListFilter {
-            category: Some(ItemKind::Image),
+            category: Some(Category::Image),
             ..ListFilter::default()
         };
-        assert_eq!(image.adjacent_category(true, &all), Some(ItemKind::Files));
-        assert_eq!(image.adjacent_category(false, &all), Some(ItemKind::Text));
+        assert_eq!(image.adjacent_category(true, &all), Some(Category::Files));
+        assert_eq!(image.adjacent_category(false, &all), Some(Category::Text));
 
-        let files = ListFilter {
-            category: Some(ItemKind::Files),
+        let link = ListFilter {
+            category: Some(Category::Link),
             ..ListFilter::default()
         };
         assert_eq!(
-            files.adjacent_category(true, &all),
-            Some(ItemKind::Text),
+            link.adjacent_category(true, &all),
+            Some(Category::Text),
             "wraps"
         );
 
+        let files = ListFilter {
+            category: Some(Category::Files),
+            ..ListFilter::default()
+        };
         let reordered = bar_categories(&[GroupBarEntry::Files, GroupBarEntry::Text]);
         assert_eq!(
             files.adjacent_category(true, &reordered),
-            Some(ItemKind::Text)
+            Some(Category::Text)
         );
         assert_eq!(none.adjacent_category(true, &[]), None);
     }
@@ -338,13 +376,13 @@ mod tests {
     fn hidden_bar_entries_are_not_left_selected() {
         let mut filter = ListFilter {
             range: Range::Favorite,
-            category: Some(ItemKind::Image),
+            category: Some(Category::Image),
             ..ListFilter::default()
         };
         filter.keep_to_bar(&GroupBarEntry::ALL);
         assert_eq!(
             (filter.range, filter.category),
-            (Range::Favorite, Some(ItemKind::Image))
+            (Range::Favorite, Some(Category::Image))
         );
 
         filter.keep_to_bar(&[GroupBarEntry::Text]);
@@ -380,7 +418,7 @@ mod tests {
         assert!(all.may_include(Some(ItemKind::Text), Some("g")));
 
         let text = ListFilter {
-            category: Some(ItemKind::Text),
+            category: Some(Category::Text),
             ..ListFilter::default()
         };
         assert!(text.may_include(Some(ItemKind::Text), None));
@@ -388,7 +426,7 @@ mod tests {
         assert!(!text.may_include(None, None));
 
         let image = ListFilter {
-            category: Some(ItemKind::Image),
+            category: Some(Category::Image),
             ..ListFilter::default()
         };
         assert!(
@@ -396,6 +434,16 @@ mod tests {
             "image files"
         );
         assert!(!image.may_include(Some(ItemKind::Text), None));
+
+        let link = ListFilter {
+            category: Some(Category::Link),
+            ..ListFilter::default()
+        };
+        assert!(
+            link.may_include(Some(ItemKind::Text), None),
+            "may be a link"
+        );
+        assert!(!link.may_include(Some(ItemKind::Image), None));
 
         let favorites = ListFilter {
             range: Range::Favorite,
@@ -440,7 +488,7 @@ mod tests {
         assert!(!all.hides_favorites(false));
 
         let text = ListFilter {
-            category: Some(ItemKind::Text),
+            category: Some(Category::Text),
             ..ListFilter::default()
         };
         assert!(text.hides_favorites(true), "categories inside All");

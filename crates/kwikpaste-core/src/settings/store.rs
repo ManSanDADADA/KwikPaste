@@ -249,7 +249,11 @@ fn load_from_disk(path: &Path) -> Option<(Settings, SettingsLoadReport)> {
     }
 
     match fs::read_to_string(path) {
-        Ok(content) => Some(lenient::parse(&content)),
+        Ok(content) => {
+            let (mut settings, report) = lenient::parse(&content);
+            settings.clipboard.window.add_link_to_released_group_bar();
+            Some((settings, report))
+        }
         Err(err) => {
             log::warn!("settings file {path:?} unreadable, using defaults: {err}");
             Some((
@@ -283,8 +287,9 @@ fn write_atomic(path: &Path, settings: &impl serde::Serialize) -> Result<()> {
 /// 读一份完整设置文件（覆盖导入用）：整份严格解析并校验，不做逐字段回落。
 pub(crate) fn read_replacement(path: &Path) -> Result<Settings> {
     let content = fs::read_to_string(path).with_context(|| format!("failed to read {path:?}"))?;
-    let next: Settings = serde_json::from_str(&content)
+    let mut next: Settings = serde_json::from_str(&content)
         .map_err(|err| AppError::Other(anyhow::anyhow!("invalid settings file: {err}")))?;
+    next.clipboard.window.add_link_to_released_group_bar();
 
     validate_settings(&next)?;
     Ok(next)
@@ -537,6 +542,40 @@ mod tests {
         );
         assert!(!core.settings().general.tray_icon);
         crate::testing::block_on(core.shutdown())?;
+        Ok(())
+    }
+
+    // 2.0.9 的分组栏没有链接：列表仍是旧默认时补一次，改过的不动；补过之后隐藏链接不会再补回来。
+    #[test]
+    fn released_group_bar_gains_link_once() -> anyhow::Result<()> {
+        use crate::settings::GroupBarEntry::{Favorite, Files, Image, Link, Text};
+
+        let fixture = crate::testing::Fixture::new();
+        let config = fixture.paths.config_dir()?;
+        std::fs::create_dir_all(&config)?;
+        let load = |group_bar: serde_json::Value| -> anyhow::Result<SettingsStore> {
+            let released = serde_json::json!({"clipboard": {"window": {"groupBar": group_bar}}});
+            std::fs::write(config.join("settings.json"), serde_json::to_vec(&released)?)?;
+            Ok(SettingsStore::new(&fixture.paths, None)?)
+        };
+
+        let store = load(serde_json::json!(["favorite", "text", "image", "files"]))?;
+        assert_eq!(
+            store.snapshot().clipboard.window.group_bar,
+            [Favorite, Text, Image, Files, Link]
+        );
+        store.update(serde_json::json!({"clipboard": {"window": {"groupBar": ["favorite", "text", "image", "files"]}}}))?;
+        let reloaded = SettingsStore::new(&fixture.paths, None)?;
+        assert_eq!(
+            reloaded.snapshot().clipboard.window.group_bar,
+            [Favorite, Text, Image, Files]
+        );
+
+        let store = load(serde_json::json!(["text", "favorite"]))?;
+        assert_eq!(
+            store.snapshot().clipboard.window.group_bar,
+            [Text, Favorite]
+        );
         Ok(())
     }
 

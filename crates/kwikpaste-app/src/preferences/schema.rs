@@ -285,7 +285,7 @@ const LIST_ITEM_GAPS: &[u64] = &[0, 2, 4, 6, 8, 12];
 const LIST_PADDINGS_Y: &[u64] = &[2, 4, 6, 8];
 const WINDOW_POSITIONS: &[&str] = &["followCursor", "center", "remember"];
 const OPEN_RANGES: &[&str] = &["preserve", "all", "favorite"];
-const OPEN_CATEGORIES: &[&str] = &["preserve", "all", "text", "image", "files"];
+const OPEN_CATEGORIES: &[&str] = &["preserve", "all", "text", "image", "files", "link"];
 const HOVER_DELAYS: &[&str] = &["ms300", "ms500", "ms1000"];
 const TEXT_VIEWS: &[&str] = &["plain", "words"];
 /// 预览窗与卡片之间可选的距离（px）。
