@@ -235,6 +235,7 @@ fn customized_settings_round_trip_exactly() {
     expected["clipboard"]["window"]["groupBar"] =
         serde_json::json!(["favorite", "text", "image", "files"]);
     expected["appearance"]["preferencesSidebarCollapsed"] = Value::from(false);
+    expected["appearance"]["textSize"] = Value::from("standard");
     expected["extensions"] =
         serde_json::json!({"wetype":{"sendText":true,"sendImage":true,"writeClipboard":true}});
     // 旧文件中的更新选项已移除，读取时忽略，保存时不再写出。

@@ -92,9 +92,7 @@ pub(crate) fn logo() -> Arc<Image> {
 }
 
 fn window_size(cx: &App) -> gpui::Size<gpui::Pixels> {
-    let scale = cx
-        .try_global::<crate::platform::SystemSignals>()
-        .map_or(1.0, |signals| signals.text_scale as f32);
+    let scale = kwikpaste_ui::theme::text_scale(cx);
     size(px(980. * scale), px(700. * scale))
 }
 

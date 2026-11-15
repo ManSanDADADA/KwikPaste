@@ -809,6 +809,15 @@
         "textMaxLines": {
           "title": "文本内容最大显示行数"
         },
+        "textSize": {
+          "description": "同时缩放间距和图标；在系统文本缩放的基础上调整。",
+          "options": {
+            "large": "大",
+            "small": "小",
+            "standard": "标准"
+          },
+          "title": "文字大小"
+        },
         "theme": {
           "options": {
             "auto": "跟随系统",

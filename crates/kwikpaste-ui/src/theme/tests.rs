@@ -99,8 +99,8 @@ fn preference_resolves_against_the_system() {
 }
 
 #[test]
-fn text_scale_is_clamped_like_1x() {
-    assert_eq!(clamp_text_scale(0.5), 1.);
+fn text_scale_is_clamped() {
+    assert_eq!(clamp_text_scale(0.5), 0.9);
     assert_eq!(clamp_text_scale(1.5), 1.5);
     assert_eq!(clamp_text_scale(3.), 2.25);
     assert_eq!(clamp_text_scale(f32::NAN), 1.);

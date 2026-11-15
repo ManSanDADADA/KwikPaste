@@ -819,6 +819,15 @@
         "textMaxLines": {
           "title": "Maximum Text Lines"
         },
+        "textSize": {
+          "description": "Also scales spacing and icons, on top of the system text size.",
+          "options": {
+            "large": "Large",
+            "small": "Small",
+            "standard": "Default"
+          },
+          "title": "Text size"
+        },
         "theme": {
           "options": {
             "auto": "Follow system",

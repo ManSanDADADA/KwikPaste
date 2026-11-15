@@ -12,8 +12,10 @@
 use async_channel::Sender;
 use gpui::{App, Global};
 
+use kwikpaste_core::settings::TextSizeLevel;
+
 use super::panel::PanelCommand;
-use crate::selftest;
+use crate::{core_host, selftest};
 
 /// 当前的系统设置。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,13 +32,36 @@ pub struct SystemSignals {
 
 impl Global for SystemSignals {}
 
-/// 读取并应用一次，返回文本大小系数（面板建窗要用）。
+/// 读取并应用一次，返回生效的文本缩放系数（面板建窗要用）。
 pub fn init(cx: &mut App) -> f64 {
     let signals = read();
     apply(signals, cx);
     log::info!("system signals: {signals:?}");
 
-    signals.text_scale
+    effective_scale(signals.text_scale, text_size_level(cx))
+}
+
+fn text_size_level(cx: &App) -> TextSizeLevel {
+    core_host::core(cx).map_or(TextSizeLevel::Standard, |core| {
+        core.settings().appearance.text_size
+    })
+}
+
+/// 生效的文本缩放：系统文本大小乘以偏好设置里的文字大小档位。主题与面板尺寸都用这个值。
+fn effective_scale(os_scale: f64, level: TextSizeLevel) -> f64 {
+    f64::from(kwikpaste_ui::theme::clamp_text_scale(
+        (os_scale * level.factor()) as f32,
+    ))
+}
+
+/// 偏好设置里的文字大小变了：按当前系统文本大小重算并应用，返回生效值（面板要同步）。
+pub fn apply_text_size(level: TextSizeLevel, cx: &mut App) -> f64 {
+    let os_scale = cx
+        .try_global::<SystemSignals>()
+        .map_or(1.0, |signals| signals.text_scale);
+    let scale = effective_scale(os_scale, level);
+    kwikpaste_ui::theme::set_text_scale(scale as f32, cx);
+    scale
 }
 
 fn read() -> SystemSignals {
@@ -62,7 +87,8 @@ fn read() -> SystemSignals {
 }
 
 fn apply(signals: SystemSignals, cx: &mut App) {
-    kwikpaste_ui::theme::set_text_scale(signals.text_scale as f32, cx);
+    let scale = effective_scale(signals.text_scale, text_size_level(cx));
+    kwikpaste_ui::theme::set_text_scale(scale as f32, cx);
     if cx.reduce_motion() != signals.reduce_motion {
         cx.set_reduce_motion(signals.reduce_motion);
         cx.refresh_windows();
@@ -99,16 +125,17 @@ pub fn serve(cx: &mut App, commands: Sender<PanelCommand>) {
                     return None;
                 }
                 apply(signals, cx);
-                Some(previous)
+                Some((
+                    previous,
+                    effective_scale(signals.text_scale, text_size_level(cx)),
+                ))
             });
-            let Some(previous) = changed else {
+            let Some((previous, scale)) = changed else {
                 continue;
             };
             log::info!("system signals changed: {signals:?}");
             if previous.is_none_or(|previous| previous.text_scale != signals.text_scale) {
-                let _ = commands
-                    .send(PanelCommand::SetTextScale(signals.text_scale))
-                    .await;
+                let _ = commands.send(PanelCommand::SetTextScale(scale)).await;
             }
         }
     })

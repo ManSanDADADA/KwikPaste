@@ -278,6 +278,7 @@ const STORAGE_LIMIT_ACTIONS: &[&str] = &["remind", "cleanup"];
 const LANGUAGES: &[&str] = &["zh-CN", "en-US"];
 const LIST_STYLES: &[&str] = &["card", "seamless"];
 const PANEL_LAYOUTS: &[&str] = &["single", "split"];
+const TEXT_SIZES: &[&str] = &["small", "standard", "large"];
 const LIST_DENSITIES: &[&str] = &["comfortable", "standard", "compact", "custom"];
 /// 自定义密度可选的条目间距与上下内边距（px），与列表的映射一一对应。
 const LIST_ITEM_GAPS: &[u64] = &[0, 2, 4, 6, 8, 12];
@@ -661,6 +662,21 @@ fn appearance_sections() -> Vec<Section> {
                 Setting::new("appearance.listStyle", Control::Tiles(TilesKind::ListStyle))
                     .path("clipboard.display.listStyle")
                     .keywords(&["list", "card", "seamless", "divider", "style"]),
+                Setting::new(
+                    "appearance.textSize",
+                    Control::Segmented(Options::Values(TEXT_SIZES)),
+                )
+                .path("appearance.textSize")
+                .keywords(&[
+                    "font",
+                    "text",
+                    "size",
+                    "scale",
+                    "zoom",
+                    "字号",
+                    "字体",
+                    "文字大小",
+                ]),
                 Setting::new(
                     "appearance.listDensity",
                     Control::Segmented(Options::Values(LIST_DENSITIES)),

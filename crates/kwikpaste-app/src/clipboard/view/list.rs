@@ -1796,7 +1796,13 @@ fn eased_step(remaining: f32, fraction: f32) -> f32 {
 impl Render for ClipboardList {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let render_start = Instant::now();
-        self.rem = window.rem_size();
+        if self.rem != window.rem_size() {
+            // 文字大小（含系统文本缩放）变了：缓存的行高与均值全部作废。
+            self.rem = window.rem_size();
+            self.state.remeasure();
+            self.heights = HeightSamples::default();
+            self.hints.dirty = true;
+        }
         // 时间标签每帧按当前本地时间算（附录 D §8 第 4 条）；一帧只取一次时钟。
         self.now = Local::now();
         if let Some(timing) = &self.timing {

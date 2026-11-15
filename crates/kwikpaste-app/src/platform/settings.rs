@@ -92,6 +92,12 @@ pub fn follow(cx: &mut App) {
         if delta.touches("appearance.theme") {
             apply_appearance_value(settings.appearance.theme, cx);
         }
+        if delta.touches("appearance.textSize") {
+            let scale = super::system::apply_text_size(settings.appearance.text_size, cx);
+            if let Some(panel) = cx.try_global::<Panel>() {
+                panel.request(PanelCommand::SetTextScale(scale));
+            }
+        }
         if language_changed || delta.touches("general.trayIcon") {
             tray::apply(settings, cx);
         }

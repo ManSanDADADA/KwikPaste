@@ -76,6 +76,7 @@ pub struct Appearance {
     pub language: Language,
     /// 偏好设置窗口的侧栏收起成只有图标；旧配置没有这个字段，按展开读取。
     pub preferences_sidebar_collapsed: bool,
+    pub text_size: TextSizeLevel,
 }
 
 impl Default for Appearance {
@@ -85,6 +86,27 @@ impl Default for Appearance {
             material: Material::Default,
             language: Language::ZhCN,
             preferences_sidebar_collapsed: false,
+            text_size: TextSizeLevel::Standard,
+        }
+    }
+}
+
+/// 文字大小档位，叠加在系统文本缩放之上。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TextSizeLevel {
+    Small,
+    #[default]
+    Standard,
+    Large,
+}
+
+impl TextSizeLevel {
+    pub fn factor(self) -> f64 {
+        match self {
+            Self::Small => 0.9,
+            Self::Standard => 1.0,
+            Self::Large => 1.1,
         }
     }
 }

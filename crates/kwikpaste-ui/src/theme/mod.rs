@@ -50,8 +50,8 @@ impl From<WindowAppearance> for Appearance {
 const REM_BASE: f32 = 16.;
 /// gpui-component 代码类控件的等宽字号基准（它的默认值）。
 const MONO_BASE: f32 = 13.;
-/// 文本缩放系数的范围，与 1.x 读 Windows“文本大小”时的钳制一致。
-const TEXT_SCALE_RANGE: (f32, f32) = (1., 2.25);
+/// 文本缩放系数的范围：下限 0.9 是“小”档，上限是 Windows“文本大小”的最大值。
+const TEXT_SCALE_RANGE: (f32, f32) = (0.9, 2.25);
 
 struct KpTheme {
     preference: ThemePreference,
@@ -167,10 +167,10 @@ pub fn resolve(preference: ThemePreference, system: Appearance) -> Appearance {
     }
 }
 
-/// 把文本缩放系数钳到 1.0–2.25；非有限值按 1.0 处理。
+/// 把文本缩放系数钳到 0.9–2.25；非有限值按 1.0 处理。
 pub fn clamp_text_scale(scale: f32) -> f32 {
     if !scale.is_finite() {
-        return TEXT_SCALE_RANGE.0;
+        return 1.;
     }
 
     scale.clamp(TEXT_SCALE_RANGE.0, TEXT_SCALE_RANGE.1)
