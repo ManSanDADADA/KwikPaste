@@ -5,8 +5,8 @@
 //!   可见卡片）：[`paste`]`(cx, id, plain, keep_visible)`。流程：`Core::prepare_paste` 按「粘贴时去除格式」
 //!   「粘贴文件为路径」写回剪贴板并记一次使用 → 让出前台（编辑态先把前台还给进入前的窗口；
 //!   `keep_visible` 为假时隐藏面板，固定面板时传真）→ 面板原先可见就等 50 ms → 注入粘贴键
-//!   （Windows Ctrl+V，macOS ⌘V）。列表经 `clipboard::view::host::PlatformHost` 调到这里
-//!   （`keep_visible` 先传假）；粘贴的就是列表给的 id，「当前项是不是刚复制的那条」由列表负责。
+//!   （Windows Ctrl+V，WindTerm 等少数终端 Shift+Insert；macOS ⌘V）。
+//!   列表经 `clipboard::view::host::PlatformHost` 调到这里（`keep_visible` 先传假）；粘贴的就是列表给的 id，「当前项是不是刚复制的那条」由列表负责。
 //! - **粘贴片段**（快捷信息、拆词选区）：[`paste_fragment`]，流程同上；只复制不粘贴用 [`copy_fragment`]。
 //! - **复制**（不粘贴）：[`copy`]。`Core::copy_item` 写回剪贴板；固定面板（`keep_visible`）完成复制后
 //!   释放导航键，设置「复制后隐藏窗口」打开且 `keep_visible` 为假时隐藏面板。

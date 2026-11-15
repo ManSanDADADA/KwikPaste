@@ -2,7 +2,8 @@
 //!
 //! 写回剪贴板由 core 负责；这里只做「按键注入」这一步，监听回环由 core 的写回守卫抑制。
 //!
-//! - Windows：`SendInput` 的 Ctrl+V。不用 Shift+Insert：Monaco 等编辑器把 Insert 当成切换改写模式。
+//! - Windows：`SendInput` 的 Ctrl+V。默认不用 Shift+Insert：Monaco 等编辑器把 Insert 当成切换改写模式；
+//!   只有 Ctrl+V 不是粘贴的几个终端（WindTerm、PuTTY 等）改发 Shift+Insert。
 //! - macOS：CGEvent 的 ⌘V，需要「辅助功能」权限，未授权时系统静默丢弃。
 
 #[cfg(target_os = "macos")]
@@ -10,7 +11,7 @@ use crate::mac::keystroke as platform;
 #[cfg(target_os = "windows")]
 use crate::win::keystroke as platform;
 
-/// 向系统事件队列投递一次粘贴（Windows Ctrl+V，macOS ⌘V），落到当前前台窗口。
+/// 向系统事件队列投递一次粘贴（Windows Ctrl+V，少数终端 Shift+Insert；macOS ⌘V），落到当前前台窗口。
 pub fn simulate_paste() -> std::io::Result<()> {
     platform::simulate_paste()
 }
