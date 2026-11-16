@@ -23,6 +23,7 @@
       "!src-tauri/target",
       "!src-tauri/.sqlx",
       "!src-tauri/gen",
+      "!third_party",
       "!package.json",
       "!pnpm-lock.yaml"
     ]
