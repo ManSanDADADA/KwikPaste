@@ -1296,7 +1296,8 @@ impl ClipboardList {
     }
 
     /// 按下卡片（1.x `handleCardMouseDown`）：多选时左键勾选、Shift 连选，并记下拖出的起点（按住
-    /// 已勾选的卡片拖动时整组拖出）；否则左键选中、记下拖出的起点并预备单击动作（见
+    /// 已勾选的卡片拖动时整组拖出）；否则按住 Ctrl/Cmd 或 Shift 的左键直接进入多选（见
+    /// [`Self::begin_selection`]），普通左键选中、记下拖出的起点并预备单击动作（见
     /// [`Self::click_card`]），中键按中键设置执行。
     fn press_card(
         &mut self,
@@ -1326,6 +1327,9 @@ impl ClipboardList {
 
         let id = item.id.clone();
         match event.button {
+            MouseButton::Left if event.modifiers.secondary() || event.modifiers.shift => {
+                self.begin_selection(item, event.modifiers.shift, window, cx);
+            }
             MouseButton::Left => {
                 self.controller.select(&id);
                 self.drag.press(id.to_string(), event.position);

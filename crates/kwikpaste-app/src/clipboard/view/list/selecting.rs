@@ -1,5 +1,6 @@
 //! 多选（与 1.3.8 一致）：点击勾选、Shift 连选、Mod+A 全选 / 取消全选、批量删除；另有合并粘贴、
-//! 合并复制和整组拖出（见 `ops.rs` 的 `checked_selection`）。
+//! 合并复制和整组拖出（见 `ops.rs` 的 `checked_selection`）。不在多选时按住 Ctrl/Cmd 或 Shift
+//! 点卡片直接进入多选（资源管理器的习惯）。
 //!
 //! 收藏、置顶记录也能勾选；批量删除时跳过受删除保护的，一条都删不了时提示可以去设置里放开
 //! （同一条提示只留一份）。连选两端都已加载时就地取中间的行，否则向数据源要当前视图的完整顺序
@@ -73,6 +74,28 @@ impl ClipboardList {
             filter: self.filter().clone(),
             sort: self.settings.clipboard.content.sort,
             hide_favorites: self.hides_favorites(),
+        }
+    }
+
+    /// 不在多选时按住修饰键点卡片：直接进入多选，不触发拖出、排序或单击动作。Ctrl/Cmd 只勾被点的
+    /// 那条：当前项跟着指针走，点下去时就是它，更早点过的那条已不再高亮，顺带勾上会把看不见的一条
+    /// 混进合并粘贴。Shift 从最近一次点击或键盘选中的那条连选到被点的那条，没有就只勾被点的。
+    /// 指针移进卡片时排上的悬停预览一并取消：多选时不预览。
+    pub(super) fn begin_selection(
+        &mut self,
+        item: Arc<ListItem>,
+        range: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.close_preview(cx);
+        let anchor = range.then(|| self.controller.picked().cloned()).flatten();
+        self.selection.begin(anchor);
+        self.controller.select(&item.id);
+        if range {
+            self.check_range(item, window, cx);
+        } else {
+            self.toggle_checked(&item, cx);
         }
     }
 

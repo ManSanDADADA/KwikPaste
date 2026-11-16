@@ -705,10 +705,12 @@ fn text_body(env: &CardEnv<'_>, item: &ListItem, on_link: Option<LinkHandler>) -
             .into_any_element();
     };
 
-    // 按住修饰键：主色、下划线，点了打开；按下不冒泡给卡片（不选中、不触发单击粘贴）。
+    // 按住修饰键：主色、下划线，点了打开；按下不冒泡给卡片（不选中、不触发单击粘贴）。宽度只到
+    // 文字为止，旁边的空白仍是卡片：Ctrl/Cmd 点那里是多选。
     div()
         .id("card-link")
-        .w_full()
+        .self_start()
+        .max_w_full()
         .kp_text(TextSize::Sm)
         .line_clamp(env.layout.text_max_lines)
         .text_ellipsis()

@@ -30,6 +30,12 @@ impl Selection {
         self.active = true;
     }
 
+    /// 不在多选时按住修饰键点卡片：进入多选，以 `anchor` 为连选起点（还没勾任何一条）。
+    pub fn begin(&mut self, anchor: Option<Arc<str>>) {
+        self.active = true;
+        self.anchor = anchor;
+    }
+
     /// 退出多选，同时清空勾选。
     pub fn exit(&mut self) {
         self.active = false;

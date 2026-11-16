@@ -73,6 +73,8 @@ pub const HINT_KEYS: [char; 10] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 
 #[derive(Debug, Default)]
 pub struct ListController {
     selected: Option<Arc<str>>,
+    /// 最近一次点击或键盘选中的记录，悬停不改它：不在多选时 Shift 点卡片从它连选（资源管理器的起点）。
+    picked: Option<Arc<str>>,
     /// 第一个可见的项的模型下标（包含置顶行）。
     first_visible: usize,
     pending_reload: bool,
@@ -104,6 +106,11 @@ impl ListController {
     /// 显式选中一条（点击卡片、快捷动作、右键菜单作用到它时）。
     pub fn select(&mut self, id: &Arc<str>) {
         self.selected = Some(id.clone());
+        self.picked = Some(id.clone());
+    }
+
+    pub fn picked(&self) -> Option<&Arc<str>> {
+        self.picked.as_ref()
     }
 
     /// 指针移进卡片：它成为当前项（1.x 的 hover 与键盘共用选中）。返回选中是否变了。
@@ -160,7 +167,7 @@ impl ListController {
 
         match model.get(next) {
             Some(item) => {
-                self.selected = Some(item.id.clone());
+                self.select(&item.id);
                 (NavOutcome::Moved { index: next }, None)
             }
             None => {
@@ -282,12 +289,14 @@ impl ListController {
     /// 面板显示时（`scrollToTopOnOpen` 默认开启）：清掉选中，回到顶部后由下一帧消费挂起的刷新。
     pub fn on_shown(&mut self) {
         self.selected = None;
+        self.picked = None;
     }
 
     /// 过滤条件变化：清掉选中和挂起的刷新（视图会整体重载）。
     pub fn set_filter(&mut self, filter: ListFilter) {
         self.filter = filter;
         self.selected = None;
+        self.picked = None;
         self.pending_reload = false;
     }
 
@@ -438,6 +447,22 @@ mod tests {
         assert!(controller.is_active(7, "r7"));
         assert!(!controller.is_active(0, "r0"));
         assert_eq!(controller.active_index(&model), 7);
+    }
+
+    #[test]
+    fn range_start_follows_clicks_and_arrows_but_not_hover() {
+        let mut model = model(30, 30, 0);
+        let mut controller = ListController::new();
+
+        controller.select(&Arc::from("r3"));
+        controller.hover(&Arc::from("r9"));
+        assert_eq!(controller.picked().map(|id| &**id), Some("r3"));
+
+        controller.navigate(Nav::Down, &mut model);
+        assert_eq!(controller.picked().map(|id| &**id), Some("r10"));
+
+        controller.on_shown();
+        assert_eq!(controller.picked(), None);
     }
 
     #[test]
