@@ -6008,7 +6008,11 @@ fn page_in_scope(tab: TabId, current: TabId, query: &str) -> bool {
 /// 搜索与普通页面共用父子可见性，不读取更多选项的展开状态。
 fn search_setting_matches(setting: &Setting, settings: &Settings, query: &str) -> bool {
     !setting.is_collapsed(settings)
-        && search_matches(query, &text::setting_title(setting), setting.keywords)
+        && (search_matches(query, &text::setting_title(setting), setting.keywords)
+            || search_matches(query, &text::setting_description(setting), &[])
+            || text::options(setting)
+                .iter()
+                .any(|(_, label)| search_matches(query, label, &[])))
 }
 
 /// 复杂面板在搜索结果中只提供跳转，普通设置继续使用原控件。
@@ -6143,6 +6147,27 @@ mod tests {
         assert!(!search_setting_matches(volume, &settings, "volume"));
         settings.clipboard.feedback.copy_sound = true;
         assert!(search_setting_matches(volume, &settings, "volume"));
+    }
+
+    #[test]
+    fn search_matches_descriptions_and_option_labels() {
+        use super::schema;
+        use kwikpaste_core::settings::ListDensity;
+        let tabs = schema::tabs(false);
+        let mut settings = Settings::default();
+        let find = |id: &str| {
+            tabs.iter()
+                .flat_map(|tab| &tab.sections)
+                .flat_map(|section| &section.settings)
+                .find(|setting| setting.id == id)
+                .unwrap()
+        };
+        let image_height = find("appearance.imageMaxHeight");
+        assert!(search_setting_matches(image_height, &settings, "20–100"));
+        assert!(!search_setting_matches(image_height, &settings, "zzzz"));
+        let gap = find("appearance.itemGap");
+        settings.clipboard.display.density = ListDensity::Custom;
+        assert!(search_setting_matches(gap, &settings, "12 px"));
     }
 
     #[test]

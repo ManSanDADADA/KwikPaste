@@ -520,6 +520,7 @@ fn shortcut_sections() -> Vec<Section> {
                         "shortcut",
                         "hotkey",
                         "open",
+                        "快捷键",
                         "double tap",
                         "双击",
                         "mouse",
@@ -532,13 +533,28 @@ fn shortcut_sections() -> Vec<Section> {
                     ]),
                 Setting::new("shortcuts.pastePlain", Control::ShortcutEntry)
                     .path("shortcuts.pastePlain")
-                    .keywords(&["shortcut", "hotkey", "plain", "text", "paste", "纯文本"]),
+                    .keywords(&[
+                        "shortcut",
+                        "hotkey",
+                        "快捷键",
+                        "plain",
+                        "text",
+                        "paste",
+                        "纯文本",
+                    ]),
                 Setting::new("shortcuts.quickPaste", Control::ShortcutEntry)
                     .path("shortcuts.quickPaste")
-                    .keywords(&["quick paste", "number", "digit", "paste", "modifier"]),
+                    .keywords(&[
+                        "quick paste",
+                        "快捷键",
+                        "number",
+                        "digit",
+                        "paste",
+                        "modifier",
+                    ]),
                 Setting::new("shortcuts.openPreference", Control::ShortcutEntry)
                     .path("shortcuts.openPreference")
-                    .keywords(&["shortcut", "hotkey", "preference"]),
+                    .keywords(&["shortcut", "hotkey", "快捷键", "preference"]),
             ],
         },
         Section {
