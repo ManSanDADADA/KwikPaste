@@ -100,6 +100,7 @@ jobs:
           node scripts/gpui/vendor.mjs gpui-pre --check
           node scripts/gpui/vendor.mjs gpui-pre-windows --check
           node scripts/gpui/vendor.mjs gpui-pre-macos --check
+          node scripts/gpui/vendor.mjs gpui-component --check
 
       # 2.0 打开 1.x 的数据库：core 的迁移文件必须与 src-tauri 已发布的逐字节一致（git blob、检出字节、换行属性）。
       - name: Core migrations match the released ones

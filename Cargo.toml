@@ -129,6 +129,7 @@ unexpected_cfgs = "deny"
 gpui-pre-windows = { path = "third_party/gpui/gpui-pre-windows" }
 gpui-pre-macos = { path = "third_party/gpui/gpui-pre-macos" }
 gpui-pre = { path = "third_party/gpui/gpui-pre" }
+gpui-component = { path = "third_party/gpui/gpui-component" }
 
 [profile.dev]
 debug = "line-tables-only"

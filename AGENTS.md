@@ -164,7 +164,7 @@ cargo test
 - `crates/kwikpaste-app`：GPUI 应用，二进制名 `KwikPaste`；需要 `gpui::*` 类型的代码都在这里。
 - `crates/kwikpaste-ui`：唯一依赖 gpui-component 的隔离层，应用只经它使用 gpui-component，窗口经它的 `open_window` 打开。
 - 业务与数据契约放 `crates/kwikpaste-core`（不依赖 tauri / gpui，不用 `cfg!(dev)`），只需原生句柄或 OS API 的集成放 `crates/kwikpaste-os`；这两个 crate 随重写计划加入。
-- `third_party/gpui/`：打了补丁的 GPUI crate。`upstream.json` 记版本、sha256 和补丁顺序；用 `node scripts/gpui/vendor.mjs <crate>` 重建，加 `--check` 校验与“原版 + 补丁”逐字节一致。
+- `third_party/gpui/`：打了补丁的 GPUI crate 与 gpui-component（浮层的描边环和阴影由应用主题提供）。`upstream.json` 记版本、sha256 和补丁顺序；用 `node scripts/gpui/vendor.mjs <crate>` 重建，加 `--check` 校验与“原版 + 补丁”逐字节一致。
 
 **命令**
 

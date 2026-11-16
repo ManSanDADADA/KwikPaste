@@ -43,6 +43,12 @@
       "sha256": "0e87a42bb37c7cb4e76dd1ac0ce88851e46e976e0373a47ab3e0757abffee54d",
       "version": "0.3.7",
       "zedRev": "1a28cff4b409169bac058bca40dfbfeb7621d19b"
+    },
+    {
+      "name": "gpui-component",
+      "patches": ["0001-popover-elevation-from-app.diff"],
+      "sha256": "ac246c9f3d9771e56fbf90bd7d8656d0992d83940b580debf2efab4c44fe91df",
+      "version": "0.7.0"
     }
   ]
 }

@@ -1,0 +1,56 @@
+diff --git a/src/styled.rs b/src/styled.rs
+index cf4577a..43831d2 100644
+--- a/src/styled.rs
++++ b/src/styled.rs
+@@ -35,6 +35,26 @@ pub(crate) fn popover_ring(cx: &App) -> Hsla {
+     cx.theme().foreground.alpha(POPOVER_RING_INK)
+ }
+ 
++// [kwikpaste patch 0001] The app can replace the hairline ring and the shadow layers of every
++// popup surface (menus, submenus, selects, popovers). shadcn's `rgb(0 0 0 / 0.1)` layers cannot
++// be seen on a dark surface, so a popup could not be told from the window behind it.
++static POPOVER_ELEVATION: std::sync::RwLock<Option<PopoverElevation>> =
++    std::sync::RwLock::new(None);
++
++/// The ring colour and the shadow layers the app wants on popup surfaces.
++#[derive(Clone, Debug)]
++pub struct PopoverElevation {
++    pub ring: Hsla,
++    pub shadows: Vec<BoxShadow>,
++}
++
++/// Replaces the ring and shadow of popup surfaces; `None` restores the built-in ones.
++pub fn set_popover_elevation(elevation: Option<PopoverElevation>) {
++    if let Ok(mut slot) = POPOVER_ELEVATION.write() {
++        *slot = elevation;
++    }
++}
++
+ /// shadcn/ui's popup surface shadow — a hairline `ring` plus `shadow-md` — at
+ /// `strength` of its full ink.
+ ///
+@@ -56,6 +76,24 @@ pub(crate) fn popover_ring(cx: &App) -> Hsla {
+ /// animation can hold it across frames, where no `App` is in hand.
+ pub(crate) fn popover_shadow(ring: Hsla, strength: f32) -> Vec<BoxShadow> {
+     let strength = strength.clamp(0., 1.);
++    // [kwikpaste patch 0001] The app's ring and layers, faded by `strength` like the built-in ones.
++    let custom = POPOVER_ELEVATION
++        .read()
++        .ok()
++        .and_then(|slot| slot.clone());
++    if let Some(elevation) = custom {
++        let ring = elevation.ring;
++        let mut layers = vec![
++            BoxShadow::new(px(0.), px(0.), ring.alpha(ring.a * strength))
++                .blur_radius(px(0.))
++                .spread_radius(px(1.)),
++        ];
++        layers.extend(elevation.shadows.into_iter().map(|mut layer| {
++            layer.color = layer.color.alpha(layer.color.a * strength);
++            layer
++        }));
++        return layers;
++    }
+     let ink = hsla(0., 0., 0., SURFACE_SHADOW_INK * strength);
+     vec![
+         // The ring, sitting in the 1px band outside the surface. No blur, so it
