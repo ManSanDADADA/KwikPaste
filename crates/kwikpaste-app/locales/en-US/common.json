@@ -45,7 +45,7 @@
     "downloaded": "The update has been downloaded and is ready to install.",
     "downloadedTitle": "Ready to install",
     "downloading": "Downloading KwikPaste {{version}}. Please wait.",
-    "error": "Update failed: {{message}}",
+    "error": "{{message}}",
     "errorBody": "Something went wrong while updating. Please try again.",
     "errorTitle": "Update failed",
     "install": "Install and Relaunch",
@@ -57,6 +57,7 @@
     "ok": "OK",
     "progress": "Download progress: {{progress}}%",
     "releaseNotes": "View Release Notes",
+    "retry": "Retry",
     "title": "Software Update",
     "unsupported": "No release notes were provided for this version.",
     "updatingTitle": "Updating KwikPaste"

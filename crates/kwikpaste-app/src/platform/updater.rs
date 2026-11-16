@@ -1185,7 +1185,6 @@ impl Render for UpdateWindow {
                             update.is_some()
                                 && !self.downloading
                                 && !self.installing
-                                && !downloaded
                                 && self.error.is_none(),
                             |element| {
                                 element.child(
@@ -1206,6 +1205,22 @@ impl Render for UpdateWindow {
                                     .on_click(cx.listener(|view, _, _, cx| view.check(cx))),
                             )
                         })
+                        .when(
+                            update.is_some()
+                                && !self.downloading
+                                && !self.installing
+                                && self.error.is_some(),
+                            |element| {
+                                element.child(
+                                    Button::new("update-retry", t("common:update.retry")).on_click(
+                                        cx.listener(|view, _, _, cx| {
+                                            view.error = None;
+                                            view.download(cx);
+                                        }),
+                                    ),
+                                )
+                            },
+                        )
                         .when(
                             (update.is_none() && !self.checking) || self.error.is_some(),
                             |element| {
