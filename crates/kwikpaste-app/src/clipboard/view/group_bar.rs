@@ -293,7 +293,6 @@ impl GroupBar {
                         .update(cx, |_, cx| cx.emit(GroupBarEvent::ManageGroups))
                         .ok();
                 })
-                .icon(IconName::Settings2)
                 .into(),
             ]
         })
@@ -318,14 +317,12 @@ fn group_menu(group: &Group, entity: gpui::WeakEntity<GroupBar>) -> Vec<MenuEntr
                 .update(cx, |_, cx| cx.emit(GroupBarEvent::EditGroup(edit.clone())))
                 .ok();
         })
-        .icon(IconName::Pencil)
         .into(),
         MenuItem::new(t("clipboard:groups.hide"), move |_, cx| {
             hide_entity
                 .update(cx, |_, cx| cx.emit(GroupBarEvent::HideGroup(hide.clone())))
                 .ok();
         })
-        .icon(IconName::EyeOff)
         .into(),
         MenuEntry::Separator,
         MenuItem::new(t("clipboard:groups.delete"), move |_, cx| {
@@ -335,7 +332,6 @@ fn group_menu(group: &Group, entity: gpui::WeakEntity<GroupBar>) -> Vec<MenuEntr
                 })
                 .ok();
         })
-        .icon(IconName::Trash2)
         .danger()
         .into(),
     ]
@@ -350,14 +346,12 @@ fn create_entries(entity: gpui::WeakEntity<GroupBar>) -> Vec<MenuEntry> {
                 .update(cx, |_, cx| cx.emit(GroupBarEvent::NewGroup))
                 .ok();
         })
-        .icon(IconName::Plus)
         .into(),
         MenuItem::new(t("clipboard:groups.manage"), move |_, cx| {
             manage
                 .update(cx, |_, cx| cx.emit(GroupBarEvent::ManageGroups))
                 .ok();
         })
-        .icon(IconName::Settings2)
         .into(),
     ]
 }

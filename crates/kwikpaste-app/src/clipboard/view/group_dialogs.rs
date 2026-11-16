@@ -734,7 +734,6 @@ fn row_menu(group: &Group, manager: gpui::WeakEntity<GroupManager>) -> Vec<MenuE
                 })
                 .ok();
         })
-        .icon(IconName::Pencil)
         .into(),
         MenuItem::new(t("clipboard:groups.delete"), move |window, cx| {
             manager
@@ -743,7 +742,6 @@ fn row_menu(group: &Group, manager: gpui::WeakEntity<GroupManager>) -> Vec<MenuE
                 })
                 .ok();
         })
-        .icon(IconName::Trash2)
         .danger()
         .into(),
     ]
