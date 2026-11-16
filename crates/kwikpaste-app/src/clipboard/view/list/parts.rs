@@ -386,6 +386,14 @@ impl ClipboardList {
         let tokens = theme::semantic(cx);
         let count = self.selection.count();
         let busy = self.selection.busy();
+        let exit_label = shortcut::panel_display(
+            &self.settings.shortcuts,
+            PanelAction::ClosePreviewFilterWindow,
+        )
+        .map_or_else(
+            || t("clipboard:selection.exit"),
+            |key| t_args("clipboard:selection.exitWithKey", &[("key", &key)]),
+        );
         let status = if count > 0 {
             t_count(
                 "clipboard:selection.selected",
@@ -463,13 +471,9 @@ impl ClipboardList {
                             })),
                     )
                     .child(
-                        Button::icon(
-                            "selection-exit",
-                            IconName::Close,
-                            t("clipboard:selection.exit"),
-                        )
-                        .small()
-                        .on_click(cx.listener(|list, _, _, cx| list.exit_selection(cx))),
+                        Button::icon("selection-exit", IconName::Close, exit_label)
+                            .small()
+                            .on_click(cx.listener(|list, _, _, cx| list.exit_selection(cx))),
                     ),
             )
             .into_any_element()

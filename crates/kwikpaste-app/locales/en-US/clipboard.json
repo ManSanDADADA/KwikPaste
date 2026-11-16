@@ -149,7 +149,8 @@
   "selection": {
     "clear": "Deselect all",
     "delete": "Delete",
-    "exit": "Cancel (Esc)",
+    "exit": "Cancel",
+    "exitWithKey": "Cancel ({{key}})",
     "hint": "Click to select, Shift-click for a range",
     "paste": "Paste",
     "protected": "Favorite and pinned items are protected from deletion. You can allow it in settings.",
