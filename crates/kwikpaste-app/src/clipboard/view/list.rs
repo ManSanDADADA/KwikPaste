@@ -1605,15 +1605,9 @@ impl ClipboardList {
                 .into()
             });
         let actions = (hovered && !selecting)
-            .then(|| {
-                visible_actions(
-                    &self.settings.clipboard.content.item_actions,
-                    &item,
-                    can_delete,
-                )
-            })
+            .then(|| visible_actions(&self.settings.clipboard.content.item_actions, &item))
             .filter(|actions| !actions.is_empty())
-            .map(|actions| self.quick_actions(&item, actions, cx));
+            .map(|actions| self.quick_actions(&item, actions, can_delete, cx));
         let checkbox = selecting.then(|| self.checkbox(&item, can_delete));
         let on_snippet = (!selecting && !item.quick_snippets.is_empty()).then(|| {
             let entity = cx.entity().downgrade();
@@ -1668,6 +1662,7 @@ impl ClipboardList {
             show_original: hovered && self.settings.clipboard.content.show_original_preview,
             hint,
             checked: selecting && self.selection.is_checked(&item.id),
+            favorite: item.is_favorite && !self.filter().favorites(),
             after_highlight,
             actions,
             checkbox,
@@ -1989,6 +1984,7 @@ impl Render for ClipboardList {
                         show_original: false,
                         hint: None,
                         checked: false,
+                        favorite: false,
                         after_highlight: false,
                         actions: None,
                         checkbox: None,

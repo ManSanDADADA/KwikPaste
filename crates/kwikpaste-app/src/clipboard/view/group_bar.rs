@@ -170,8 +170,14 @@ impl GroupBar {
             let hint = self.hints && self.range.toggled() == range;
             (self.range == range, hint.then(|| SharedString::from("Q")))
         };
+        // 「全部」只在没有分类、分组生效时才高亮：否则一排里会亮起三个同样的选中块，
+        // 读不出当前到底按什么在筛。「收藏」本身就是一个筛选条件，照常高亮。
+        let highlighted = selected
+            && (self.mode == BarMode::Side
+                || range != Range::All
+                || (self.category.is_none() && self.group_id.is_none()));
 
-        icon_button(cx, id, Glyph::Icon(icon), label, hint, look(selected))
+        icon_button(cx, id, Glyph::Icon(icon), label, hint, look(highlighted))
             .role(Role::Tab)
             .aria_selected(selected)
             .on_click(cx.listener(move |_, _, _, cx| cx.emit(GroupBarEvent::SelectRange(range))))

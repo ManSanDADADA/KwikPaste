@@ -109,10 +109,14 @@ impl ClipboardList {
         &self,
         item: &Arc<ListItem>,
         actions: Vec<QuickAction>,
+        can_delete: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let tokens = theme::semantic(cx);
+        let disabled_opacity = theme::components(cx).quick_action.disabled_opacity;
         let buttons = actions.into_iter().map(|action| {
+            // 受删除保护：删除按钮留在原位置灰，提示里说明原因。
+            let protected = action == QuickAction::Delete && !can_delete;
             let copied = is_copy(action)
                 && self
                     .copied
@@ -134,9 +138,16 @@ impl ClipboardList {
                 .items_center()
                 .justify_center()
                 .rounded(radius::SM)
-                .cursor_pointer()
                 .text_color(color)
-                .hover(move |style| style.bg(tokens.fill.subtle).text_color(hover_color))
+                .map(|button| {
+                    if protected {
+                        button.cursor_default().opacity(disabled_opacity)
+                    } else {
+                        button.cursor_pointer().hover(move |style| {
+                            style.bg(tokens.fill.subtle).text_color(hover_color)
+                        })
+                    }
+                })
                 .child(
                     Icon::new(icon)
                         .size(TextSize::Sm.font_size())
@@ -148,9 +159,15 @@ impl ClipboardList {
                 .on_mouse_down(MouseButton::Middle, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |list, _, window, cx| {
                     cx.stop_propagation();
-                    list.run_quick_action(item.clone(), action, window, cx);
+                    if !protected {
+                        list.run_quick_action(item.clone(), action, window, cx);
+                    }
                 }))
-                .kp_tooltip(label)
+                .kp_tooltip(if protected {
+                    t("clipboard:selection.protected")
+                } else {
+                    label
+                })
         });
 
         div()

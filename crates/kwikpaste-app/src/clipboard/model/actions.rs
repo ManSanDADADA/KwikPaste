@@ -29,16 +29,12 @@ pub fn is_available(action: QuickAction, item: &ListItem) -> bool {
     }
 }
 
-/// 卡片上实际显示的快捷动作：设置的顺序，去掉不可用的；受删除保护时去掉删除。
-pub fn visible_actions(
-    configured: &[QuickAction],
-    item: &ListItem,
-    can_delete: bool,
-) -> Vec<QuickAction> {
+/// 卡片上实际显示的快捷动作：设置的顺序，去掉不可用的。受删除保护的记录仍留着删除那一格
+/// （由视图置灰）：整排右对齐，少一个按钮会让其余按钮换位置，习惯点右上角的人会点错。
+pub fn visible_actions(configured: &[QuickAction], item: &ListItem) -> Vec<QuickAction> {
     configured
         .iter()
         .copied()
-        .filter(|action| *action != QuickAction::Delete || can_delete)
         .filter(|action| is_available(*action, item))
         .collect()
 }
@@ -150,7 +146,7 @@ mod tests {
         let defaults = Content::default().item_actions;
 
         assert_eq!(
-            visible_actions(&defaults, &text, true),
+            visible_actions(&defaults, &text),
             vec![
                 QuickAction::Copy,
                 QuickAction::SplitWords,
@@ -159,11 +155,6 @@ mod tests {
                 QuickAction::Delete
             ]
         );
-        assert!(
-            !visible_actions(&defaults, &text, false).contains(&QuickAction::Delete),
-            "protected records lose the delete button"
-        );
-
         let image = item(ItemKind::Image, &[ItemAction::Copy]);
         assert!(!is_available(QuickAction::CopyPlain, &image));
         assert!(is_available(QuickAction::Copy, &image));

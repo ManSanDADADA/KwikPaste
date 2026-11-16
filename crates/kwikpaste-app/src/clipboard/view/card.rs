@@ -79,6 +79,8 @@ pub struct CardState {
     pub hint: Option<SharedString>,
     /// 多选时已勾上：卡片铺一层淡主色。
     pub checked: bool,
+    /// 收藏标记；在「收藏」范围里不显示（那里每一条都是收藏）。
+    pub favorite: bool,
     /// 上一行铺了底色（当前项、悬停或勾选）：这一行上方的分隔线不画，免得贴着色块多出一道线。
     pub after_highlight: bool,
     /// 悬停快捷动作（列表画好的按钮行）；有它时头部行不显示时间。
@@ -147,6 +149,7 @@ pub fn card(
         state.show_original,
         state.on_link,
     );
+    let favorite = state.favorite;
     let pinned = item.is_pinned;
     let sensitive = item.shows_sensitive_mark();
     let hint = state.hint;
@@ -168,7 +171,7 @@ pub fn card(
     // 底色。卡片风格是圆角块、行间画细分隔线；无间风格贴边，用底边线分隔。
     let lifted = state.lifted;
     let highlight = if lifted {
-        Some(tokens.surface.raised)
+        Some(tokens.surface.overlay)
     } else if state.checked {
         Some(tokens.accent.subtle)
     } else if state.active {
@@ -197,9 +200,7 @@ pub fn card(
         })
         .when_some(highlight, |frame, highlight| frame.bg(highlight))
         .when(lifted, |frame| {
-            frame
-                .rounded(radius::LG)
-                .shadow(tokens.shadow.overlay.to_vec())
+            frame.rounded(radius::LG).shadow(tokens.shadow.float())
         });
 
     frame = if layout.header_row {
@@ -214,7 +215,7 @@ pub fn card(
                 state.app_icon.clone(),
                 actions,
                 checkbox,
-                status_marks(tokens, pinned, sensitive, true),
+                status_marks(tokens, favorite, pinned, sensitive, true),
             ))
             .child(body)
             .children(snippets(env, item, 0, links, on_snippet))
@@ -240,8 +241,8 @@ pub fn card(
                     .child(body)
                     .children(snippets(env, item, 0, links, on_snippet)),
             )
-            .when(pinned || sensitive, |frame| {
-                frame.child(status_marks(tokens, pinned, sensitive, true))
+            .when(favorite || pinned || sensitive, |frame| {
+                frame.child(status_marks(tokens, favorite, pinned, sensitive, true))
             })
             .when_some(checkbox, |frame, checkbox| {
                 frame.child(
@@ -263,8 +264,8 @@ pub fn card(
                         .p(space((2.) / 4.))
                         .rounded(radius::MD)
                         .border_1()
-                        .border_color(tokens.border.subtle)
-                        .bg(tokens.surface.raised)
+                        .border_color(tokens.border.default)
+                        .bg(tokens.surface.overlay)
                         .shadow(tokens.shadow.card.to_vec())
                         .child(actions),
                 )
@@ -1083,12 +1084,25 @@ pub fn snippet_dot(color: KindTag) -> Div {
         .bg(color.foreground)
 }
 
-/// 置顶、敏感标记：有头部行时是右下角 20 px 的水印，没有时是正文右侧 16 px 的小图标。
-fn status_marks(tokens: &SemanticTokens, pinned: bool, sensitive: bool, inline: bool) -> Div {
+/// 收藏、置顶、敏感标记：有头部行时是右下角 20 px 的水印，没有时是正文右侧 16 px 的小图标。
+fn status_marks(
+    tokens: &SemanticTokens,
+    favorite: bool,
+    pinned: bool,
+    sensitive: bool,
+    inline: bool,
+) -> Div {
     let size = space((14.) / 4.);
     let marks = div()
         .flex()
         .gap(space(1.))
+        .when(favorite, |marks| {
+            marks.child(
+                Icon::new(IconName::Star)
+                    .size(size)
+                    .color(tokens.status.warning.solid),
+            )
+        })
         .when(pinned, |marks| {
             marks.child(
                 Icon::new(IconName::PushPin)

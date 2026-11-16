@@ -313,16 +313,12 @@ impl PreviewPanel {
                         .when(self.can_pick_words(), |row| row.child(self.view_switch(cx)))
                         // 有「图片 / 文字」切换时它已经说明了类型，不再放类型标签。
                         .when(self.image_text.is_none(), |row| {
+                            // 纯文字：带底色的块挤在分段控件旁边，看起来像第三个可点的选项。
                             row.child(
                                 div()
-                                    .flex()
-                                    .h(space((24.) / 4.))
-                                    .items_center()
-                                    .rounded(radius::SM)
-                                    .bg(tokens.fill.subtle)
-                                    .px(space((8.) / 4.))
+                                    .flex_none()
                                     .kp_text(TextSize::Xs)
-                                    .text_color(tokens.text.secondary)
+                                    .text_color(tokens.text.muted)
                                     .child(t(type_key(payload.kind, payload.sub_kind))),
                             )
                         }),

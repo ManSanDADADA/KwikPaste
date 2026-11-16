@@ -178,6 +178,7 @@ fn filter_menu(header: &WeakEntity<Header>, window: &mut Window, cx: &mut App) -
                     filters.toggle_app(app.clone())
                 })
                 .image(image)
+                .image_placeholder(IconName::AppWindow)
                 .into()
             })
             .collect()
@@ -200,16 +201,34 @@ fn filter_menu(header: &WeakEntity<Header>, window: &mut Window, cx: &mut App) -
     .icon(IconName::FilterX)
     .disabled(filters.is_empty());
 
+    // 一级项直接写出当前选了什么：不用逐个展开子菜单才知道哪里生效。
+    let with_value = |key: &str, value: Option<SharedString>| -> SharedString {
+        match value {
+            Some(value) => format!("{} · {value}", t(key)).into(),
+            None => t(key),
+        }
+    };
+    let count = |count: usize| (count > 0).then(|| SharedString::from(count.to_string()));
+
     vec![
-        Submenu::new(t("clipboard:filter.time"), times)
-            .icon(IconName::Clock)
-            .into(),
-        Submenu::new(t("clipboard:filter.apps"), apps)
-            .icon(IconName::AppWindow)
-            .into(),
-        Submenu::new(t("clipboard:filter.type"), kinds)
-            .icon(IconName::Shapes)
-            .into(),
+        Submenu::new(
+            with_value("clipboard:filter.time", filters.since.map(since_label)),
+            times,
+        )
+        .icon(IconName::Clock)
+        .into(),
+        Submenu::new(
+            with_value("clipboard:filter.apps", count(filters.apps.len())),
+            apps,
+        )
+        .icon(IconName::AppWindow)
+        .into(),
+        Submenu::new(
+            with_value("clipboard:filter.type", count(filters.kinds.len())),
+            kinds,
+        )
+        .icon(IconName::Shapes)
+        .into(),
         MenuEntry::Separator,
         clear.into(),
     ]

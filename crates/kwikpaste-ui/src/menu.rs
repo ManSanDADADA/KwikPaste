@@ -50,6 +50,8 @@ pub struct MenuItem {
     icon: Option<MenuIcon>,
     /// 名称前面的位图（应用图标）。与 `icon` 不同，它画在名称一侧，左侧的勾选标记照常显示。
     image: Option<Arc<RenderImage>>,
+    /// 位图还没有（解码中或应用没有图标）时占住同一格的图标，让一列名称左边对齐。
+    image_placeholder: Option<IconName>,
     shortcut: Option<SharedString>,
     danger: bool,
     checked: bool,
@@ -66,6 +68,7 @@ impl MenuItem {
             label: label.into(),
             icon: None,
             image: None,
+            image_placeholder: None,
             shortcut: None,
             danger: false,
             checked: false,
@@ -97,6 +100,11 @@ impl MenuItem {
 
     pub fn image(mut self, image: Option<Arc<RenderImage>>) -> Self {
         self.image = image;
+        self
+    }
+
+    pub fn image_placeholder(mut self, icon: IconName) -> Self {
+        self.image_placeholder = Some(icon);
         self
     }
 
@@ -205,6 +213,7 @@ fn menu_item(item: MenuItem, label_max_width: Option<Pixels>, cx: &App) -> Popup
     let tokens = theme::semantic(cx);
     let label = item.label;
     let image = item.image;
+    let image_placeholder = item.image_placeholder;
     let shortcut = item.shortcut;
     let danger = item.danger;
     let color = if danger {
@@ -230,8 +239,16 @@ fn menu_item(item: MenuItem, label_max_width: Option<Pixels>, cx: &App) -> Popup
                     .min_w_0()
                     .items_center()
                     .gap(space(2.))
-                    .when_some(image.clone(), |row, image| {
-                        row.child(img(ImageSource::Render(image)).size(space(4.)).flex_none())
+                    .map(|row| match (image.clone(), image_placeholder) {
+                        (Some(image), _) => {
+                            row.child(img(ImageSource::Render(image)).size(space(4.)).flex_none())
+                        }
+                        (None, Some(icon)) => row.child(
+                            crate::Icon::new(icon)
+                                .size(space(4.))
+                                .color(tokens.text.muted),
+                        ),
+                        (None, None) => row,
                     })
                     .child(
                         div()
