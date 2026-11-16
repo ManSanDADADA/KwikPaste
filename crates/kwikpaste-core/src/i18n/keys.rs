@@ -70,6 +70,7 @@ pub enum StartupKey {
 
 #[derive(Debug, Clone, Copy)]
 pub enum TrayKey {
+    OpenClipboard,
     Preference,
     Exit,
 }

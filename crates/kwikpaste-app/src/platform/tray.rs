@@ -1,6 +1,6 @@
 //! 托盘：tray-icon + muda（1.x 经 Tauri 用的同一系 crate），在主线程创建，由 GPUI 的消息循环派发。
 //!
-//! 与 1.x 相同：菜单是「偏好设置」「退出应用」，文案取 `kwikpaste_core::i18n::tray`，跟随
+//! 与 1.x 相同：菜单是「打开剪贴板」「偏好设置…」「退出快贴」，文案取 `kwikpaste_core::i18n::tray`，跟随
 //! `appearance.language`；显隐跟随 `general.trayIcon`；Windows 左键单击按 `general.trayClick`
 //! 打开窗口，macOS 左键弹菜单。事件经专用线程阻塞 `recv()` 转进 `async_channel`，
 //! 线程里只转发、不碰 GPUI。
@@ -12,7 +12,7 @@ use async_channel::Sender;
 use gpui::{App, AsyncApp, Global};
 use kwikpaste_core::i18n::tray::{self as tray_i18n, Key};
 use kwikpaste_core::settings::{Settings, TrayClick};
-use tray_icon::menu::{Menu, MenuEvent, MenuItem};
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use super::host::{self, HostRequest, RequestSource};
@@ -20,6 +20,7 @@ use super::panel::{PanelCommand, Trigger, TriggerSource};
 use crate::core_host;
 
 const TRAY_ID: &str = "app-tray";
+const MENU_OPEN: &str = "tray::open";
 const MENU_PREFERENCE: &str = "tray::preference";
 const MENU_EXIT: &str = "tray::exit";
 const ICON: &[u8] = include_bytes!("../../assets/tray.ico");
@@ -37,6 +38,7 @@ enum TrayAction {
         expect(dead_code, reason = "macOS 左键弹菜单，不单独处理左键")
     )]
     LeftClick,
+    OpenClipboard,
     Preference,
     Exit,
 }
@@ -76,6 +78,7 @@ pub fn create(cx: &mut App, commands: Sender<PanelCommand>) -> anyhow::Result<()
             let events = MenuEvent::receiver();
             while let Ok(event) = events.recv() {
                 let action = match event.id.as_ref() {
+                    MENU_OPEN => TrayAction::OpenClipboard,
                     MENU_PREFERENCE => TrayAction::Preference,
                     MENU_EXIT => TrayAction::Exit,
                     _ => continue,
@@ -98,6 +101,10 @@ pub fn create(cx: &mut App, commands: Sender<PanelCommand>) -> anyhow::Result<()
                         },
                     );
                 }),
+                TrayAction::OpenClipboard => {
+                    let trigger = Trigger::now(TriggerSource::Tray);
+                    let _ = commands.send(PanelCommand::Show(trigger)).await;
+                }
                 TrayAction::LeftClick => {
                     let click = cx.update(|cx| {
                         core_host::core(cx).map(|core| core.settings().general.tray_click)
@@ -150,11 +157,18 @@ fn build_menu(settings: &Settings) -> anyhow::Result<Menu> {
     let menu = Menu::new();
     menu.append_items(&[
         &MenuItem::with_id(
+            MENU_OPEN,
+            tray_i18n::label(language, Key::OpenClipboard),
+            true,
+            None,
+        ),
+        &MenuItem::with_id(
             MENU_PREFERENCE,
             tray_i18n::label(language, Key::Preference),
             true,
             None,
         ),
+        &PredefinedMenuItem::separator(),
         &MenuItem::with_id(MENU_EXIT, tray_i18n::label(language, Key::Exit), true, None),
     ])?;
 
