@@ -276,6 +276,8 @@ pub struct ClipboardList {
     pub(super) hovered_snippet: Option<(Arc<str>, Arc<str>, SnippetKind)>,
     /// 按住修饰键：显示数字角标。
     pub(super) key_hints: bool,
+    /// 页脚上一次显示的状态文案：重新加载首页期间沿用，不闪「共 0 项」。
+    footer_status: RefCell<gpui::SharedString>,
     /// 刚复制成功的快捷动作按钮，1 秒后复原。
     copied: Option<(Arc<str>, QuickAction)>,
     copied_reset: Option<Task<()>>,
@@ -370,6 +372,7 @@ impl ClipboardList {
             hovered: None,
             hovered_snippet: None,
             key_hints: false,
+            footer_status: RefCell::default(),
             copied: None,
             copied_reset: None,
             refetch_view_after_first_page: false,

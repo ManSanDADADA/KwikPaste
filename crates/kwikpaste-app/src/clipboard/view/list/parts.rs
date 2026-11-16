@@ -252,11 +252,17 @@ impl ClipboardList {
                 .map(SharedString::from)
         };
         let empty = total == 0;
-        let status = if empty {
-            t_count("clipboard:footer.total", total, &[])
+        let status = if !self.model.loaded_initial() && !self.footer_status.borrow().is_empty() {
+            self.footer_status.borrow().clone()
         } else {
-            let index = (self.controller.active_index(&self.model) + 1).to_string();
-            t_count("clipboard:footer.position", total, &[("index", &index)])
+            let status = if empty {
+                t_count("clipboard:footer.total", total, &[])
+            } else {
+                let index = (self.controller.active_index(&self.model) + 1).to_string();
+                t_count("clipboard:footer.position", total, &[("index", &index)])
+            };
+            *self.footer_status.borrow_mut() = status.clone();
+            status
         };
 
         div()
