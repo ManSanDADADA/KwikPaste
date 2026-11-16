@@ -16,7 +16,7 @@
   },
   "meta": {
     "characters": "{{count}} characters",
-    "contentViewer": "Content Viewer",
+    "contentViewer": "Content viewer",
     "unknownSize": "Unknown size"
   },
   "snippets": {
@@ -53,7 +53,7 @@
     "save": "Save as",
     "scanQrCode": "Scan QR code and copy",
     "showText": "Highlight text",
-    "title": "Image Viewer",
+    "title": "Image viewer",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out"
   },

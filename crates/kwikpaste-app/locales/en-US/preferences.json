@@ -602,7 +602,7 @@
         "title": "Appearance"
       },
       "autoGroup": {
-        "title": "Auto grouping"
+        "title": "Auto Grouping"
       },
       "backup": {
         "description": "Export or import KwikPaste backup packages.",
@@ -621,7 +621,7 @@
         "title": "Click Actions"
       },
       "customRules": {
-        "title": "Text matching rules"
+        "title": "Text Matching Rules"
       },
       "deleteProtection": {
         "title": "Delete Protection"
@@ -639,7 +639,7 @@
         "title": "Global Shortcuts"
       },
       "imageText": {
-        "title": "Text in images"
+        "title": "Text in Images"
       },
       "lanContent": {
         "title": "What to Sync"
@@ -660,7 +660,7 @@
         "title": "Overview"
       },
       "panelShortcuts": {
-        "title": "In the clipboard window"
+        "title": "In the Clipboard Window"
       },
       "permissions": {
         "title": "System Permissions"
@@ -672,7 +672,7 @@
         "title": "Privacy"
       },
       "shortcutPause": {
-        "title": "Pause rules"
+        "title": "Pause Rules"
       },
       "sort": {
         "title": "Sorting"
@@ -719,7 +719,7 @@
         },
         "deleteFavoriteItemsOnlyInFavoriteGroup": {
           "description": "Hide the delete action for favorites outside the Favorites group.",
-          "title": "Delete Favorites Only in Favorites"
+          "title": "Delete Favorites Only from Favorites"
         },
         "deletePinnedConfirm": {
           "title": "Confirm Pinned Deletes"
@@ -841,7 +841,7 @@
             "small": "Small",
             "standard": "Default"
           },
-          "title": "Text size"
+          "title": "Text Size"
         },
         "theme": {
           "options": {
@@ -854,7 +854,7 @@
       },
       "autoGroupRules": {
         "description": "Items copied from the chosen apps go into a group automatically. Items already in another group stay there. Grouped items are not removed by automatic cleanup.",
-        "title": "Group by source app"
+        "title": "Group by Source App"
       },
       "backup": {
         "export": {
@@ -884,7 +884,7 @@
         "order": {
           "controlLabel": "Manage",
           "description": "When the clipboard holds several formats, save the first one in this order.",
-          "title": "Capture Order"
+          "title": "Format Priority"
         }
       },
       "control": {
@@ -948,11 +948,11 @@
               "classic": "Classic",
               "tick": "Tick"
             },
-            "title": "Sound tone"
+            "title": "Sound Tone"
           },
           "volume": {
             "description": "Drag to adjust, release to save; 0% is silent.",
-            "title": "Sound volume"
+            "title": "Sound Volume"
           }
         },
         "updateOnReuse": {
@@ -962,7 +962,7 @@
       },
       "customRules": {
         "description": "Match copied text with a regex to show it as a quick snippet, mark it sensitive, or skip recording it. Sensitive and Don't record apply to new copies only.",
-        "title": "Text matching rules"
+        "title": "Text Matching Rules"
       },
       "diagnostics": {
         "reportProblem": {
@@ -1025,7 +1025,7 @@
           "title": "Log Directory"
         },
         "storageLimit": {
-          "description": "The storage meter in the sidebar is full at this size. What happens beyond it is set below.",
+          "description": "The storage bar on the Data page is full at this size. What happens beyond it is set below.",
           "title": "Storage Limit"
         },
         "storageLimitAction": {
@@ -1040,10 +1040,10 @@
       "ocr": {
         "enabled": {
           "description": "Find images by the text inside them and copy that text. Recognition runs on this device and nothing is uploaded.",
-          "title": "Recognize text in images"
+          "title": "Recognize Text in Images"
         },
         "status": {
-          "title": "Recognition status"
+          "title": "Recognition Status"
         }
       },
       "organizing": {
@@ -1096,7 +1096,7 @@
         },
         "quickSnippetColors": {
           "description": "Color quick info and the matching text in the preview by type.",
-          "title": "Quick info colors"
+          "title": "Quick Info Colors"
         },
         "quickSnippets": {
           "description": "List codes, numbers, and links found in text records below each item. Click one to paste or copy just that part.",
@@ -1111,14 +1111,14 @@
         "adminRestartConfirm": {
           "content": "KwikPaste needs to restart with administrator privileges for this change to take effect. Windows may show a User Account Control prompt.",
           "ok": "Restart",
-          "title": "Restart required"
+          "title": "Restart Required"
         },
         "fullDiskAccess": {
           "description": "Used to read required local data and access system-protected app resources.",
           "title": "Full Disk Access Permission"
         },
         "runAsAdministrator": {
-          "description": "Used to restart KwikPaste with administrator privileges and keep future launches elevated when needed.",
+          "description": "Turn on to paste into apps running as administrator. KwikPaste restarts elevated.",
           "statusElevated": "Currently running as administrator.",
           "statusNormal": "Currently not running as administrator.",
           "title": "Run as Administrator"
@@ -1155,7 +1155,7 @@
         "textView": {
           "description": "Show previewed text as written, or split into words to pick from.",
           "options": {
-            "plain": "Default",
+            "plain": "Original",
             "words": "Words"
           },
           "title": "Text Preview Style"
@@ -1163,10 +1163,10 @@
       },
       "search": {
         "clearOnHide": {
-          "title": "Clear Last Search"
+          "title": "Clear Search on Hide"
         },
         "defaultFocus": {
-          "title": "Focus Search Box"
+          "title": "Focus Search on Open"
         },
         "sort": {
           "options": {
@@ -1205,7 +1205,7 @@
               "shift": "Shift"
             }
           },
-          "title": "Double-tap to toggle"
+          "title": "Double-Tap to Toggle"
         },
         "doubleTapSide": {
           "options": {
@@ -1213,7 +1213,7 @@
             "left": "Left only",
             "right": "Right only"
           },
-          "title": "Key side"
+          "title": "Key Side"
         },
         "mouseTrigger": {
           "description": "Click the chosen button to open or hide the clipboard window. Its usual click action, like opening a new tab or going back, is turned off.",
@@ -1237,19 +1237,19 @@
         },
         "panel": {
           "description": "Keys inside the clipboard window, such as paste, favorite and pin.",
-          "title": "Clipboard window shortcuts"
+          "title": "Clipboard Window Shortcuts"
         },
         "pastePlain": {
           "description": "Paste what's on the clipboard without formatting, without opening the clipboard window.",
-          "title": "Paste as plain text"
+          "title": "Paste as Plain Text"
         },
         "pauseApps": {
           "description": "",
-          "title": "Pause shortcuts in these apps"
+          "title": "Pause Shortcuts in These Apps"
         },
         "pauseInFullscreen": {
           "description": "When the foreground app is full screen, such as a game, KwikPaste's shortcuts and mouse button trigger go to that app.",
-          "title": "Pause shortcuts in full-screen apps"
+          "title": "Pause Shortcuts in Full-Screen Apps"
         },
         "quickPaste": {
           "description": "Hold the modifier keys and press 1–9 or 0 to paste the first 10 items of the All list without opening the window.",
@@ -1323,7 +1323,7 @@
           "title": "Window Position"
         },
         "scrollToTopOnOpen": {
-          "title": "Scroll to Top"
+          "title": "Scroll to Top on Open"
         },
         "selectCategoryOnOpen": {
           "options": {
@@ -1334,7 +1334,7 @@
             "preserve": "Keep Last Selection",
             "text": "Text"
           },
-          "title": "Category"
+          "title": "Category on Open"
         },
         "selectGroupOnOpen": {
           "options": {
@@ -1342,7 +1342,7 @@
             "missingGroup": "Deleted Group",
             "preserve": "Keep Last Selection"
           },
-          "title": "Group"
+          "title": "Group on Open"
         },
         "selectRangeOnOpen": {
           "options": {
@@ -1350,7 +1350,7 @@
             "favorite": "Favorites",
             "preserve": "Keep Last Selection"
           },
-          "title": "Range"
+          "title": "Range on Open"
         }
       }
     },

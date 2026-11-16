@@ -1,6 +1,6 @@
 {
   "batchDeleteConfirm": {
-    "content": "The {{count}} selected records cannot be restored after deletion. Delete them?",
+    "content": "The {{count}} selected items can't be restored.",
     "title": "Delete selected records"
   },
   "clearConfirm": {
@@ -10,7 +10,7 @@
     "title": "Clear records"
   },
   "deleteConfirm": {
-    "content": "This item cannot be restored after deletion. Delete it?",
+    "content": "This can't be undone.",
     "title": "Delete item"
   },
   "error": "{{label}} failed: {{message}}",
@@ -120,7 +120,7 @@
     "itemUnpinned": "Unpinned from top",
     "lanDevicePaired": "Paired with {{name}}",
     "lanDeviceRemoved": "Unpaired from {{name}}",
-    "noteSaved": "Saved",
+    "noteSaved": "Note saved",
     "noteSavedAndFavorited": "Saved and favorited",
     "pasteBlocked": "The system blocked the paste keystroke (often a game anti-cheat). The content is copied; restart KwikPaste to restore auto-paste",
     "qrCodeCopied": "Copied the QR code content",
