@@ -684,7 +684,7 @@
       "about": {
         "checkUpdates": {
           "controlLabel": "检查更新",
-          "title": "检查更新"
+          "title": "当前版本"
         },
         "github": {
           "controlLabel": "打开",
@@ -899,7 +899,7 @@
         "reopenOnboarding": {
           "controlLabel": "打开",
           "description": "再次查看首次使用引导，不会重置当前设置或历史记录。",
-          "title": "重新打开引导"
+          "title": "首次使用引导"
         },
         "trayClick": {
           "options": {

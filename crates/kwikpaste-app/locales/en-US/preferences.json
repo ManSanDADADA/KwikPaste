@@ -694,7 +694,7 @@
       "about": {
         "checkUpdates": {
           "controlLabel": "Check",
-          "title": "Check for Updates"
+          "title": "Current Version"
         },
         "github": {
           "controlLabel": "Open",
@@ -909,7 +909,7 @@
         "reopenOnboarding": {
           "controlLabel": "Open",
           "description": "View the first-time onboarding again without resetting your current settings or history.",
-          "title": "Reopen Onboarding"
+          "title": "First-Run Guide"
         },
         "trayClick": {
           "options": {

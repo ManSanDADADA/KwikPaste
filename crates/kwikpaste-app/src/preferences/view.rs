@@ -3350,6 +3350,15 @@ impl Preferences {
             )
             .into();
         }
+        if setting.id == "about.checkUpdates" {
+            let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+            let portable = core_host::core(cx).is_some_and(|core| core.paths().is_portable());
+            description = if portable {
+                format!("{version} · {}", i18n::t("preferences:about.portable")).into()
+            } else {
+                version.into()
+            };
+        }
         let path = setting.path;
         let settings_json = values::to_json(&self.settings);
         let value = path.and_then(|path| values::get(&settings_json, path).cloned());
