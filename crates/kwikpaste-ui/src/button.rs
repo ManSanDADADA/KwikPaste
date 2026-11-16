@@ -237,7 +237,6 @@ impl Button {
                     button
                         .cursor_pointer()
                         .border_color(tokens.status.danger.solid)
-                        .bg(tokens.surface.panel)
                         .text_color(tokens.status.danger.solid)
                         .hover(|style| {
                             style

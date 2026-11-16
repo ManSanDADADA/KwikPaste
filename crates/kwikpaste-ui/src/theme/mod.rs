@@ -107,49 +107,24 @@ fn intern(appearance: Appearance, frosted: bool) -> &'static ThemeSet {
     })
 }
 
-/// 磨砂：窗口里铺开的表面（窗口、面板、淡底）统一乘上 `frosted_surface_alpha`，文字、主色不变。
+/// 磨砂：窗口里铺开的不透明表面（窗口、面板、状态淡底）统一乘上 `frosted_surface_alpha`，文字、主色不变。
 /// 浮起层（`raised` / `overlay`：下拉、提示、对话框、悬浮按钮）保持不透明：它们浮在同一窗口的内容上，
-/// 背后没有模糊，半透明会直接透出下面的字。填充和悬停色本来就是叠在表面上的半透明色，不再缩放。
-/// 不透明的中性边框换成等效的黑 / 白半透明叠加色：叠在原面板色上颜色不变，叠在模糊背景上不会变成
-/// 一圈黑边（深色）或白边（浅色）。
+/// 背后没有模糊，半透明会直接透出下面的字。中性边框、填充、悬停色和主色淡底在色板里就是叠在表面上的
+/// 半透明色，压在面板、卡片、浮层或系统材质上都保持同样的对比，不再缩放。
 fn frost(s: &mut SemanticTokens) {
     let alpha = s.materials.frosted_surface_alpha;
     if alpha >= 1. {
         return;
     }
-    let panel = s.surface.panel;
-    for border in [
-        &mut s.border.default,
-        &mut s.border.subtle,
-        &mut s.border_disabled,
-    ] {
-        *border = overlay_for(*border, panel);
-    }
     for color in [
         &mut s.surface.window,
         &mut s.surface.panel,
-        &mut s.accent.subtle,
-        &mut s.accent.subtle_hover,
         &mut s.status.success.subtle,
         &mut s.status.warning.subtle,
         &mut s.status.danger.subtle,
         &mut s.status.info.subtle,
     ] {
         color.a *= alpha;
-    }
-}
-
-/// 叠在 `base` 上恰好得到 `color` 明度的白色（更亮时）或黑色（更暗时）半透明色。
-fn overlay_for(color: Hsla, base: Hsla) -> Hsla {
-    if color.l >= base.l {
-        gpui::hsla(
-            0.,
-            0.,
-            1.,
-            (color.l - base.l) / (1. - base.l).max(f32::EPSILON),
-        )
-    } else {
-        gpui::hsla(0., 0., 0., (base.l - color.l) / base.l.max(f32::EPSILON))
     }
 }
 
@@ -314,6 +289,11 @@ fn apply(cx: &mut App) {
         // 输入框、选择器、按钮、开关聚焦时不画外圈光晕，只换边框色（见 `kit` 的 `ring`）。
         theme.focus_ring = false;
     });
+    // 菜单、子菜单、下拉的描边环与阴影：gpui-component 自带的黑 10% 在深色上看不出来。
+    gpui_component::set_popover_elevation(Some(gpui_component::PopoverElevation {
+        ring: set.semantic.shadow.overlay_ring,
+        shadows: set.semantic.shadow.overlay.to_vec(),
+    }));
 }
 
 #[cfg(test)]

@@ -147,7 +147,7 @@ impl Preferences {
                     .child(
                         div()
                             .kp_text(TextSize::Xs)
-                            .text_color(tokens.text.faint)
+                            .text_color(tokens.text.muted)
                             .child(i18n::t("preferences:ocrEngine.footnote")),
                     ),
             )

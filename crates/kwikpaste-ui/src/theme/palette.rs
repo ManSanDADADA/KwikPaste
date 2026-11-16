@@ -38,6 +38,8 @@ pub struct SurfacePalette {
     pub window: Color,
     pub panel: Color,
     pub raised: Color,
+    /// 浮层（菜单、下拉、toast）：比 `raised` 再亮一档，压在面板或系统材质上都分得开。
+    pub overlay: Color,
     pub spotlight: Color,
     pub mask: Color,
     pub white: Color,
@@ -140,6 +142,8 @@ impl ShadowSpec {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShadowPalette {
+    /// 浮层外沿 1 px 的描边环，叠在浮层下面的内容上。
+    pub overlay_ring: Color,
     pub overlay: [ShadowSpec; 3],
     pub card: [ShadowSpec; 3],
 }
@@ -199,12 +203,12 @@ const LIGHT_EXTRAS: ExtraHues = ExtraHues {
 const LIGHT_KINDS: KindPalette = KindPalette {
     link: hex(0x0958d9),
     email: hex(0x531dab),
-    color: hex(0xd46b08),
-    path: hex(0x389e0d),
+    color: hex(0xb45309),
+    path: hex(0x237804),
 };
 const DARK_KINDS: KindPalette = KindPalette {
-    link: hex(0x3c89e8),
-    email: hex(0x9a6fe0),
+    link: hex(0x5a9cf0),
+    email: hex(0xa985e8),
     color: hex(0xe89a3c),
     path: hex(0x6abe39),
 };
@@ -266,6 +270,7 @@ pub const LIGHT: Palette = Palette {
         window: hex(0xf6f6f7),
         panel: hex(0xffffff),
         raised: hex(0xffffff),
+        overlay: hex(0xffffff),
         spotlight: rgba(0x1d1d21, 0.92),
         mask: rgba(0x000000, 0.32),
         white: hex(0xffffff),
@@ -280,16 +285,16 @@ pub const LIGHT: Palette = Palette {
         on_accent: hex(0xffffff),
     },
     borders: BorderPalette {
-        default: hex(0xe6e6e9),
-        subtle: hex(0xefeff1),
-        disabled: hex(0xd6d6dc),
+        default: rgba(0x000000, 0.1),
+        subtle: rgba(0x000000, 0.06),
+        disabled: rgba(0x000000, 0.16),
         divider: rgba(0x000000, 0.055),
     },
     fills: FillPalette {
         strong: rgba(0x000000, 0.08),
         default: rgba(0x000000, 0.05),
         subtle: rgba(0x000000, 0.035),
-        faint: rgba(0x000000, 0.02),
+        faint: rgba(0x000000, 0.03),
     },
     items: ItemPalette {
         hover: rgba(0x000000, 0.04),
@@ -302,8 +307,8 @@ pub const LIGHT: Palette = Palette {
         solid: hex(0x3268ed),
         hover: hex(0x4c7ef0),
         active: hex(0x2552c9),
-        subtle: hex(0xeef2fe),
-        subtle_hover: hex(0xdfe7fd),
+        subtle: rgba(0x3268ed, 0.085),
+        subtle_hover: rgba(0x3268ed, 0.16),
         border: hex(0xb3c6f9),
         text: hex(0x3268ed),
         text_hover: hex(0x4c7ef0),
@@ -340,6 +345,7 @@ pub const LIGHT: Palette = Palette {
     extras: LIGHT_EXTRAS,
     kinds: LIGHT_KINDS,
     shadows: ShadowPalette {
+        overlay_ring: rgba(0x000000, 0.1),
         overlay: [
             shadow(1., 2., 0., rgba(0, 0.06)),
             shadow(4., 12., 0., rgba(0, 0.08)),
@@ -360,6 +366,7 @@ pub const DARK: Palette = Palette {
         window: hex(0x0f0f11),
         panel: hex(0x161618),
         raised: hex(0x1f1f23),
+        overlay: hex(0x2c2c32),
         spotlight: hex(0x2a2a2f),
         mask: rgba(0x000000, 0.5),
         white: hex(0xffffff),
@@ -367,16 +374,16 @@ pub const DARK: Palette = Palette {
     text: TextPalette {
         primary: hex(0xededef),
         secondary: hex(0xa0a0ab),
-        muted: hex(0x6e6e78),
-        faint: hex(0x4a4a52),
-        placeholder: hex(0x5f5f69),
-        disabled: hex(0x4a4a52),
+        muted: hex(0x85858f),
+        faint: hex(0x55555e),
+        placeholder: hex(0x70707a),
+        disabled: hex(0x55555e),
         on_accent: hex(0xffffff),
     },
     borders: BorderPalette {
-        default: hex(0x2a2a2f),
-        subtle: hex(0x222226),
-        disabled: hex(0x3a3a41),
+        default: rgba(0xffffff, 0.12),
+        subtle: rgba(0xffffff, 0.07),
+        disabled: rgba(0xffffff, 0.17),
         divider: rgba(0xffffff, 0.055),
     },
     fills: FillPalette {
@@ -434,6 +441,7 @@ pub const DARK: Palette = Palette {
     extras: DARK_EXTRAS,
     kinds: DARK_KINDS,
     shadows: ShadowPalette {
+        overlay_ring: rgba(0xffffff, 0.12),
         overlay: [
             shadow(1., 2., 0., rgba(0, 0.3)),
             shadow(4., 12., 0., rgba(0, 0.35)),

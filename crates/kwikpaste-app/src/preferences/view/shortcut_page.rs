@@ -346,7 +346,6 @@ fn dropdown_face(label: gpui::SharedString, tokens: &SemanticTokens) -> gpui::Di
         .rounded(theme::radius::MD)
         .border_1()
         .border_color(tokens.border.default)
-        .bg(tokens.surface.panel)
         .kp_text(TextSize::Sm)
         .cursor_pointer()
         .hover(|style| style.bg(tokens.fill.subtle))

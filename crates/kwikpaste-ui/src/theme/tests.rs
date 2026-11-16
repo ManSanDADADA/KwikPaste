@@ -123,33 +123,49 @@ fn type_scale_matches_wind4() {
 }
 
 #[test]
-fn frosted_scales_surfaces_and_keeps_borders_looking_the_same() {
+fn frosted_scales_surfaces_and_keeps_overlaid_colors() {
     for appearance in [Appearance::Light, Appearance::Dark] {
         let plain = &intern(appearance, false).semantic;
         let frosted = &intern(appearance, true).semantic;
         let alpha = plain.materials.frosted_surface_alpha;
         assert_eq!(frosted.surface.panel.a, plain.surface.panel.a * alpha);
         assert_eq!(frosted.surface.raised, plain.surface.raised);
+        assert_eq!(frosted.surface.overlay, plain.surface.overlay);
         assert_eq!(frosted.text, plain.text);
         assert_eq!(frosted.fill, plain.fill);
-        if alpha < 1. {
-            // 半透明的边框叠在原面板色上，与原来的不透明边框一样。
-            for (border, original) in [
-                (frosted.border.subtle, plain.border.subtle),
-                (frosted.border.default, plain.border.default),
-            ] {
-                assert!(border.a < 1.);
-                let shown = composite(border, plain.surface.panel);
-                let expected = rgb(original);
-                for (shown, expected) in shown.iter().zip(expected) {
-                    assert!(
-                        (shown - expected).abs() < 0.02,
-                        "{appearance:?}: {shown} vs {expected}"
-                    );
-                }
-            }
+        assert_eq!(frosted.border, plain.border);
+        assert_eq!(frosted.accent, plain.accent);
+    }
+}
+
+#[test]
+fn layers_stay_apart_on_any_backdrop() {
+    for appearance in [Appearance::Light, Appearance::Dark] {
+        let semantic = semantic_for(appearance);
+        // 中性边框和主色淡底是叠加色：压在面板、浮起层、浮层上都看得出。
+        for color in [
+            semantic.border.default,
+            semantic.border.subtle,
+            semantic.accent.subtle,
+        ] {
+            assert!(color.a < 1., "{appearance:?}: {color:?} must be an overlay");
+        }
+        for surface in [
+            semantic.surface.panel,
+            semantic.surface.raised,
+            semantic.surface.overlay,
+        ] {
+            assert!(
+                contrast(semantic.border.default, surface) >= 1.2,
+                "border contrast {appearance:?}: {}",
+                contrast(semantic.border.default, surface)
+            );
         }
     }
+    // 深色的浮层比面板和浮起层都亮得出一档；浅色靠描边环和阴影。
+    let dark = semantic_for(Appearance::Dark);
+    assert!(contrast(dark.surface.overlay, dark.surface.panel) >= 1.25);
+    assert!(contrast(dark.surface.overlay, dark.surface.raised) >= 1.15);
 }
 
 #[test]

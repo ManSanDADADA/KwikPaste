@@ -977,10 +977,8 @@ impl ImageViewer {
             .gap(space(0.5))
             .p(space(1.))
             .rounded(radius::LG)
-            .bg(tokens.surface.raised)
-            .border_1()
-            .border_color(tokens.border.default)
-            .shadow_md()
+            .bg(tokens.surface.overlay)
+            .shadow(tokens.shadow.float())
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(self.icon_button(
                 "viewer-zoom-out",
@@ -1093,9 +1091,8 @@ impl ImageViewer {
             .child(
                 div()
                     .rounded(radius::MD)
-                    .bg(tokens.surface.raised)
-                    .border_1()
-                    .border_color(tokens.border.default)
+                    .bg(tokens.surface.overlay)
+                    .shadow(tokens.shadow.float())
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(self.icon_button(
                         id,

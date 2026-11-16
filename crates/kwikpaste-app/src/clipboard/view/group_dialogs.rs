@@ -300,7 +300,6 @@ impl Render for GroupEditor {
                                     .rounded(radius::MD)
                                     .border_1()
                                     .border_color(tokens.border.default)
-                                    .bg(tokens.surface.panel)
                                     .cursor_pointer()
                                     .hover(|style| {
                                         style

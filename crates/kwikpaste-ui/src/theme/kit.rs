@@ -14,15 +14,16 @@ pub fn theme_color(p: &Palette, s: &SemanticTokens) -> ThemeColor {
     let transparent = transparent_black();
 
     ThemeColor {
-        // 菜单项、下拉选项悬停：antd `controlItemBgHover`。
-        accent: c(p.items.hover.hsla()),
+        // 菜单项、下拉选项的悬停与键盘选中：浮层上要比列表悬停重一档才看得出。
+        accent: c(p.items.selected.hsla()),
         accent_foreground: c(s.text.primary),
         accordion: c(s.surface.panel),
         background: c(s.surface.panel),
         // 浮层、对话框描边：antd 浮层本身无描边，取最浅的 `colorBorderSecondary`。
         border: c(s.border.subtle),
-        // 默认按钮：底色不变、悬停叠一层填充色（gpui-component 只能改底色，不能像 antd 那样改描边和字色）。
-        button: c(s.surface.panel),
+        // 默认按钮：只有描边、没有底色，放在面板、卡片、对话框或系统材质上都不会比背景更深；
+        // 悬停叠一层填充色（gpui-component 只能改底色，不能像 antd 那样改描边和字色）。
+        button: transparent,
         button_active: c(s.fill.default),
         button_foreground: c(s.text.primary),
         button_hover: c(s.fill.subtle),
@@ -89,7 +90,7 @@ pub fn theme_color(p: &Palette, s: &SemanticTokens) -> ThemeColor {
         muted: c(s.fill.default),
         // gpui-component 拿它画占位符、禁用字和次要说明，取居中的 `colorTextTertiary`。
         muted_foreground: c(s.text.muted),
-        popover: c(s.surface.raised),
+        popover: c(s.surface.overlay),
         popover_foreground: c(s.text.primary),
         primary: c(s.accent.solid),
         primary_active: c(s.accent.active),
