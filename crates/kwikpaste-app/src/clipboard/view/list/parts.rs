@@ -5,7 +5,7 @@ use std::sync::Arc;
 use kwikpaste_core::settings::PanelAction;
 
 use gpui::{
-    AnyElement, App, Context, ElementId, InteractiveElement as _, IntoElement, MouseButton,
+    AnyElement, Context, ElementId, InteractiveElement as _, IntoElement, MouseButton,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, div,
     prelude::FluentBuilder as _, radians,
 };
@@ -188,7 +188,7 @@ impl ClipboardList {
     }
 
     /// 空列表：按筛选条件给出 16 种提示之一。
-    pub(super) fn render_empty(&self, cx: &App) -> AnyElement {
+    pub(super) fn render_empty(&self, cx: &mut Context<Self>) -> AnyElement {
         let tokens = theme::semantic(cx);
         let filter = self.filter();
         let text = empty_text(filter);
@@ -217,6 +217,12 @@ impl ClipboardList {
         } else {
             IconName::Inbox
         };
+
+        // 右栏的分组是它的页签，不算筛选。
+        let clearable = filter.searching()
+            || !filter.search.is_empty()
+            || filter.category.is_some()
+            || (filter.group_id.is_some() && !self.side);
 
         div()
             .flex()
@@ -250,6 +256,16 @@ impl ClipboardList {
                     .text_center()
                     .child(t_args(text.key, &args)),
             )
+            .when(clearable, |column| {
+                column.child(
+                    Button::new("empty-clear-filters", t("clipboard:empty.clearFilters"))
+                        .small()
+                        .ghost()
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            cx.emit(super::ListIntent::ClearFilters);
+                        })),
+                )
+            })
             .into_any_element()
     }
 

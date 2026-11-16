@@ -181,6 +181,19 @@ impl ClipboardPanel {
             }
             ListIntent::ShowShortcuts => shortcuts::show(window, cx),
             ListIntent::OpenPreferences => self.emit_intent(PanelIntent::OpenPreferences, cx),
+            ListIntent::ClearFilters => {
+                self.clear_search(window, cx);
+                // 右栏的分组是它的页签，只清搜索。
+                if *list == self.list {
+                    self.update_filter(
+                        |filter| {
+                            filter.category = None;
+                            filter.group_id = None;
+                        },
+                        cx,
+                    );
+                }
+            }
             ListIntent::Paste { id, plain } => {
                 log::debug!("paste intent handled by panel host: {id} plain={plain}");
             }

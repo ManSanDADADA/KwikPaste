@@ -108,6 +108,8 @@ pub enum ListIntent {
     },
     ShowShortcuts,
     OpenPreferences,
+    /// 空状态的「清除筛选条件」：请面板清掉搜索词、筛选、分类和分组。
+    ClearFilters,
     /// 已交给宿主拖出（通知，自测据此核对拖的是哪一条）。
     DragOut {
         id: Arc<str>,

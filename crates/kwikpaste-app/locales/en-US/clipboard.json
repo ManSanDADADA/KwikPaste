@@ -15,6 +15,7 @@
       "text": "text"
     },
     "category": "No {{category}} items yet",
+    "clearFilters": "Clear filters",
     "favoriteCategory": "No favorite {{category}} items yet",
     "favorites": "No favorites yet",
     "filtered": "No items match the filters",
