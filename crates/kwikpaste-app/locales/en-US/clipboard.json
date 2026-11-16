@@ -149,7 +149,7 @@
   "selection": {
     "clear": "Deselect all",
     "delete": "Delete",
-    "exit": "Cancel",
+    "exit": "Cancel (Esc)",
     "hint": "Click to select, Shift-click for a range",
     "paste": "Paste",
     "protected": "Favorite and pinned items are protected from deletion. You can allow it in settings.",

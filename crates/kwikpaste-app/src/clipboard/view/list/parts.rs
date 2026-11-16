@@ -463,17 +463,13 @@ impl ClipboardList {
                             })),
                     )
                     .child(
-                        Button::new("selection-exit", t("clipboard:selection.exit"))
-                            .small()
-                            .ghost()
-                            .when_some(
-                                shortcut::panel_display(
-                                    &self.settings.shortcuts,
-                                    PanelAction::ClosePreviewFilterWindow,
-                                ),
-                                |button, hint| button.tooltip(hint),
-                            )
-                            .on_click(cx.listener(|list, _, _, cx| list.exit_selection(cx))),
+                        Button::icon(
+                            "selection-exit",
+                            IconName::Close,
+                            t("clipboard:selection.exit"),
+                        )
+                        .small()
+                        .on_click(cx.listener(|list, _, _, cx| list.exit_selection(cx))),
                     ),
             )
             .into_any_element()

@@ -149,7 +149,7 @@
   "selection": {
     "clear": "取消全选",
     "delete": "删除",
-    "exit": "取消",
+    "exit": "取消（Esc）",
     "hint": "点击选择，按住 Shift 连选",
     "paste": "粘贴",
     "protected": "收藏或置顶记录受删除保护，可在设置里允许删除",
