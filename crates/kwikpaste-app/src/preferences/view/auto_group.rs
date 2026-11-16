@@ -253,12 +253,7 @@ fn open_rule_editor(
     let icons = cx.new(|_| KpImageCache::with_capacity(128));
     let list = cx.new(|cx| {
         cx.observe(&icons, |_, _, cx| cx.notify()).detach();
-        SourceAppsDialog {
-            apps,
-            selected: base.app_ids.clone(),
-            claimed,
-            icons,
-        }
+        SourceAppsDialog::new(apps, base.app_ids.clone(), claimed, icons, window, cx)
     });
     let source: Arc<dyn ClipboardSource> = Arc::new(
         clipboard::source::core_source::CoreSource::new(core.clone()),

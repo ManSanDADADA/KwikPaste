@@ -1262,6 +1262,7 @@
           "ignoredTitle": "已忽略的应用",
           "itemsUnit": "项",
           "itemUnit": "项",
+          "notAnApp": "无法识别这个应用",
           "refreshApps": "刷新可忽略应用",
           "searchPlaceholder": "搜索应用"
         },

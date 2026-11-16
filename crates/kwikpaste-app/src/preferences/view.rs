@@ -4698,9 +4698,45 @@ struct SourceAppsDialog {
     /// 应用 id 与显示在它下面的提示（自动分组：已被别的规则收走）。
     claimed: Vec<(String, gpui::SharedString)>,
     icons: gpui::Entity<KpImageCache>,
+    search: TextInput,
+    _search_subscription: Subscription,
+}
+
+/// 应用列表的搜索过滤：按名称或路径做不区分大小写的包含匹配，空查询全部命中。
+pub(super) fn app_matches_query(app: &kwikpaste_core::ops::ClipboardAppView, query: &str) -> bool {
+    let query = query.trim().to_lowercase();
+
+    query.is_empty()
+        || app.name.to_lowercase().contains(&query)
+        || app.id.to_lowercase().contains(&query)
 }
 
 impl SourceAppsDialog {
+    pub(super) fn new(
+        apps: Vec<kwikpaste_core::ops::ClipboardAppView>,
+        selected: Vec<String>,
+        claimed: Vec<(String, gpui::SharedString)>,
+        icons: gpui::Entity<KpImageCache>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let search = TextInput::new(
+            i18n::t("preferences:schema.settings.source.appTransfer.searchPlaceholder"),
+            window,
+            cx,
+        );
+        let search_subscription = search.on_change(cx, |_, _, cx| cx.notify());
+
+        Self {
+            apps,
+            selected,
+            claimed,
+            icons,
+            search,
+            _search_subscription: search_subscription,
+        }
+    }
+
     fn set_selected(&mut self, id: &str, checked: bool, cx: &mut Context<Self>) {
         app_ids::set_app_listed(&mut self.selected, id, checked);
         cx.notify();
@@ -4950,7 +4986,14 @@ impl Render for SourceAppsDialog {
     /// 浅灰列表块里每行一个应用：勾选框、应用图标和应用名，下面一行灰色小字是路径（同引导的忽略应用）。
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tokens = theme::semantic(cx);
-        let apps = self.apps.clone();
+        let search = self.search.clone();
+        let query = search.value(cx);
+        let apps: Vec<_> = self
+            .apps
+            .iter()
+            .filter(|app| app_matches_query(app, &query))
+            .cloned()
+            .collect();
         let selected = self.selected.clone();
         let rows = apps.iter().enumerate().map(|(index, app)| {
             let id = app.id.clone();
@@ -5039,10 +5082,17 @@ impl Render for SourceAppsDialog {
                 }))
         });
         div()
-            .id("excluded-apps-list")
-            .max_h(rems(24.))
-            .overflow_y_scroll()
-            .child(list_tile(tokens).children(rows))
+            .flex()
+            .flex_col()
+            .gap(space(2.))
+            .child(Input::new(&search))
+            .child(
+                div()
+                    .id("excluded-apps-list")
+                    .max_h(rems(24.))
+                    .overflow_y_scroll()
+                    .child(list_tile(tokens).children(rows)),
+            )
     }
 }
 
@@ -5055,8 +5105,10 @@ fn add_app_button(
         "source-app-add",
         i18n::t("preferences:schema.settings.source.appTransfer.addApp"),
     )
+    .with_icon(IconName::Plus)
     .ghost()
-    .on_click(move |_, _, cx| {
+    .on_click(move |_, window, cx| {
+        let window_handle = window.window_handle();
         let prompt = clipboard::view::pin::prompt_for_paths(
             gpui::PathPromptOptions {
                 files: true,
@@ -5085,7 +5137,18 @@ fn add_app_button(
                         cx.notify();
                     });
                 }
-                Err(error) => log::warn!("could not add source app: {error:#}"),
+                Err(error) => {
+                    log::warn!("could not add source app: {error:#}");
+                    let _ = window_handle.update(cx, |_, window, cx| {
+                        toast::show(
+                            Toast::error(i18n::t(
+                                "preferences:schema.settings.source.appTransfer.notAnApp",
+                            )),
+                            window,
+                            cx,
+                        );
+                    });
+                }
             }
         })
         .detach();
@@ -5107,12 +5170,7 @@ fn open_source_apps_dialog(
     let icons = cx.new(|_| KpImageCache::with_capacity(128));
     let dialog = cx.new(|cx| {
         cx.observe(&icons, |_, _, cx| cx.notify()).detach();
-        SourceAppsDialog {
-            apps,
-            selected: excluded,
-            claimed: Vec::new(),
-            icons,
-        }
+        SourceAppsDialog::new(apps, excluded, Vec::new(), icons, window, cx)
     });
     let content = dialog.clone();
     let adder = dialog.downgrade();

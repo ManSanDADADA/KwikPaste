@@ -12,8 +12,8 @@ use gpui::{
 use kwikpaste_core::app_ids;
 use kwikpaste_core::settings::Settings;
 use kwikpaste_ui::{
-    Button, ButtonSize, Checkbox, KpStyled as _, ScrollArea, Select, SelectOption, SelectState,
-    Switch, kinsoku_wrap,
+    Button, ButtonSize, Checkbox, Input, KpStyled as _, ScrollArea, Select, SelectOption,
+    SelectState, Switch, TextInput, kinsoku_wrap,
     theme::{self, TextSize, space},
 };
 use serde_json::json;
@@ -98,6 +98,7 @@ struct Onboarding {
     _subscriptions: Vec<Subscription>,
     finishing: bool,
     icons: Entity<KpImageCache>,
+    app_search: TextInput,
 }
 
 impl Onboarding {
@@ -189,6 +190,12 @@ impl Onboarding {
         }
         let icons = cx.new(|_| KpImageCache::with_capacity(128));
         subscriptions.push(cx.observe(&icons, |_, _, cx| cx.notify()));
+        let app_search = TextInput::new(
+            i18n::t("preferences:schema.settings.source.appTransfer.searchPlaceholder"),
+            window,
+            cx,
+        );
+        subscriptions.push(app_search.on_change(cx, |_, _, cx| cx.notify()));
         // 录制时按键只送到根节点：切到别的应用或焦点移到别的控件，就结束录制、恢复全局热键。
         let focus = cx.focus_handle();
         subscriptions.push(cx.observe_window_activation(window, |this, window, cx| {
@@ -217,6 +224,7 @@ impl Onboarding {
             _subscriptions: subscriptions,
             finishing: false,
             icons,
+            app_search,
         }
     }
 
@@ -844,14 +852,19 @@ impl Onboarding {
     fn render_ignore_apps(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let entity = cx.entity().downgrade();
         let tokens = theme::semantic(cx);
-        let icon_states: Vec<_> = self
+        let query = self.app_search.value(cx);
+        let visible_apps: Vec<_> = self
             .source_apps
+            .iter()
+            .filter(|app| view::app_matches_query(app, &query))
+            .collect();
+        let icon_states: Vec<_> = visible_apps
             .iter()
             .map(|app| self.cached_app_icon(app.icon_path.as_deref(), tokens, window, cx))
             .collect();
         let rows =
-            self.source_apps
-                .iter()
+            visible_apps
+                .into_iter()
                 .zip(icon_states)
                 .enumerate()
                 .map(|(index, (app, icon))| {
@@ -942,27 +955,30 @@ impl Onboarding {
             .flex()
             .flex_col()
             .gap(space(3.))
-            .child(self.step_heading(
-                i18n::t("onboarding:ignoreApps.title"),
-                i18n::t("onboarding:ignoreApps.description"),
-                cx,
-            ))
-            .child(self.surface_card(cx).children(rows))
             .child(
-                div().flex().justify_end().child(
-                    Button::new(
-                        "onboarding-open-preferences",
-                        i18n::t("onboarding:ignoreApps.manage"),
-                    )
-                    .small()
-                    .ghost()
-                    .on_click(|_, _, cx| {
-                        if let Err(error) = crate::preferences::open(cx) {
-                            log::warn!("could not open preferences from onboarding: {error:#}");
-                        }
-                    }),
+                self.step_heading(
+                    i18n::t("onboarding:ignoreApps.title"),
+                    i18n::t("onboarding:ignoreApps.description"),
+                    cx,
+                )
+                .child(
+                    div().flex().child(
+                        Button::new(
+                            "onboarding-open-preferences",
+                            i18n::t("onboarding:ignoreApps.manage"),
+                        )
+                        .small()
+                        .ghost()
+                        .on_click(|_, _, cx| {
+                            if let Err(error) = crate::preferences::open(cx) {
+                                log::warn!("could not open preferences from onboarding: {error:#}");
+                            }
+                        }),
+                    ),
                 ),
             )
+            .child(Input::new(&self.app_search))
+            .child(self.surface_card(cx).children(rows))
             .into_any_element()
     }
 
