@@ -735,6 +735,13 @@
       },
       "appearance": {
         "fileMaxCount": {
+          "options": {
+            "1": "1",
+            "2": "2",
+            "3": "3",
+            "4": "4",
+            "5": "5"
+          },
           "title": "Maximum Files Shown"
         },
         "groupBar": {
@@ -747,6 +754,7 @@
           "title": "Show Header Row"
         },
         "imageMaxHeight": {
+          "description": "Range: 20–100 px.",
           "title": "Maximum Image Height"
         },
         "itemGap": {
@@ -817,6 +825,13 @@
           "title": "Show Original on Hover"
         },
         "textMaxLines": {
+          "options": {
+            "1": "1",
+            "2": "2",
+            "3": "3",
+            "4": "4",
+            "5": "5"
+          },
           "title": "Maximum Text Lines"
         },
         "textSize": {

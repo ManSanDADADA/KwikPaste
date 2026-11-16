@@ -283,6 +283,7 @@ const LIST_DENSITIES: &[&str] = &["comfortable", "standard", "compact", "custom"
 /// 自定义密度可选的条目间距与上下内边距（px），与列表的映射一一对应。
 const LIST_ITEM_GAPS: &[u64] = &[0, 2, 4, 6, 8, 12];
 const LIST_PADDINGS_Y: &[u64] = &[2, 4, 6, 8];
+const DISPLAY_COUNTS: &[u64] = &[1, 2, 3, 4, 5];
 const WINDOW_POSITIONS: &[&str] = &["followCursor", "center", "remember"];
 const OPEN_RANGES: &[&str] = &["preserve", "all", "favorite"];
 const OPEN_CATEGORIES: &[&str] = &["preserve", "all", "text", "image", "files", "link"];
@@ -519,8 +520,8 @@ fn shortcut_sections() -> Vec<Section> {
                     .keywords(&[
                         "shortcut",
                         "hotkey",
-                        "open",
                         "快捷键",
+                        "open",
                         "double tap",
                         "双击",
                         "mouse",
@@ -757,11 +758,7 @@ fn appearance_sections() -> Vec<Section> {
                     }),
                 Setting::new(
                     "appearance.textMaxLines",
-                    Control::Number {
-                        min: 1,
-                        max: 5,
-                        suffix: Some("lines"),
-                    },
+                    Control::Segmented(Options::Numbers(DISPLAY_COUNTS)),
                 )
                 .path("clipboard.display.textMaxLines")
                 .keywords(&["density", "text", "line", "compact"])
@@ -779,11 +776,7 @@ fn appearance_sections() -> Vec<Section> {
                 .advanced(),
                 Setting::new(
                     "appearance.fileMaxCount",
-                    Control::Number {
-                        min: 1,
-                        max: 5,
-                        suffix: Some("files"),
-                    },
+                    Control::Segmented(Options::Numbers(DISPLAY_COUNTS)),
                 )
                 .path("clipboard.display.fileMaxCount")
                 .keywords(&["density", "file", "count", "array"])

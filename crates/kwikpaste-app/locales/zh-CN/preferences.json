@@ -725,6 +725,13 @@
       },
       "appearance": {
         "fileMaxCount": {
+          "options": {
+            "1": "1",
+            "2": "2",
+            "3": "3",
+            "4": "4",
+            "5": "5"
+          },
           "title": "文件最多显示数量"
         },
         "groupBar": {
@@ -737,6 +744,7 @@
           "title": "显示头部行"
         },
         "imageMaxHeight": {
+          "description": "范围 20–100 px。",
           "title": "图片最大显示高度"
         },
         "itemGap": {
@@ -807,6 +815,13 @@
           "title": "悬停显示原始内容"
         },
         "textMaxLines": {
+          "options": {
+            "1": "1",
+            "2": "2",
+            "3": "3",
+            "4": "4",
+            "5": "5"
+          },
           "title": "文本内容最大显示行数"
         },
         "textSize": {
