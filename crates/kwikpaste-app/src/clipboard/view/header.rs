@@ -631,8 +631,9 @@ impl Render for Header {
             // macOS 的拖动会吞掉子元素点击。
             .child(
                 div()
-                    .flex_none()
+                    .flex_shrink(1.)
                     .w(space(14.))
+                    .min_w(space(2.))
                     .self_stretch()
                     .window_drag_area(),
             )
