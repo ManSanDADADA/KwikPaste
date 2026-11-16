@@ -12,32 +12,47 @@ use super::panel::ClipboardPanel;
 use crate::{clipboard::model::shortcut, core_host, i18n::t};
 use kwikpaste_core::settings::{PanelAction, Settings, effective_panel_keys};
 
-/// 说明里的显示顺序。
-const ORDER: [PanelAction; 24] = [
-    PanelAction::PasteSelected,
-    PanelAction::PasteSelectedPlain,
-    PanelAction::PasteNth,
-    PanelAction::PreviewSelected,
-    PanelAction::ViewImage,
-    PanelAction::CopySelected,
-    PanelAction::SplitSelected,
-    PanelAction::OpenSelected,
-    PanelAction::NoteSelected,
-    PanelAction::EditContent,
-    PanelAction::FavoriteSelected,
-    PanelAction::PinSelected,
-    PanelAction::DeleteSelected,
-    PanelAction::SelectAll,
-    PanelAction::Navigate,
-    PanelAction::FocusSearch,
-    PanelAction::ToggleRange,
-    PanelAction::SwitchCategory,
-    PanelAction::SwitchCustomGroup,
-    PanelAction::CreateGroup,
-    PanelAction::PinWindow,
-    PanelAction::ShowShortcuts,
-    PanelAction::OpenPreference,
-    PanelAction::ClosePreviewFilterWindow,
+/// 说明里的分段（小标题 key）与各段的显示顺序。
+const SECTIONS: [(&str, &[PanelAction]); 3] = [
+    (
+        "clipboard:shortcuts.sections.item",
+        &[
+            PanelAction::PasteSelected,
+            PanelAction::PasteSelectedPlain,
+            PanelAction::PasteNth,
+            PanelAction::PreviewSelected,
+            PanelAction::ViewImage,
+            PanelAction::CopySelected,
+            PanelAction::SplitSelected,
+            PanelAction::OpenSelected,
+            PanelAction::NoteSelected,
+            PanelAction::EditContent,
+            PanelAction::FavoriteSelected,
+            PanelAction::PinSelected,
+            PanelAction::DeleteSelected,
+        ],
+    ),
+    (
+        "clipboard:shortcuts.sections.navigation",
+        &[
+            PanelAction::SelectAll,
+            PanelAction::Navigate,
+            PanelAction::FocusSearch,
+            PanelAction::ToggleRange,
+            PanelAction::SwitchCategory,
+            PanelAction::SwitchCustomGroup,
+            PanelAction::CreateGroup,
+        ],
+    ),
+    (
+        "clipboard:shortcuts.sections.window",
+        &[
+            PanelAction::PinWindow,
+            PanelAction::ShowShortcuts,
+            PanelAction::OpenPreference,
+            PanelAction::ClosePreviewFilterWindow,
+        ],
+    ),
 ];
 
 /// 一个按键（GPUI 写法，如 `secondary-shift-b`）拆成键帽：修饰键各一个，最后是主键。
@@ -73,7 +88,7 @@ fn keycaps(keystroke: &str) -> Vec<String> {
 }
 
 /// 动作当前生效的按键：可改的只列第一个（删除默认有三个组合），固定的方向键、Tab 用「/」并列。
-/// 「粘贴前 10 项」显示成修饰键加 `1-0`。
+/// 「粘贴前 10 项」显示成修饰键加 `1…0`。
 fn keys_of(settings: &Settings, action: PanelAction) -> Vec<String> {
     let keys = effective_panel_keys(&settings.shortcuts, action);
     if action == PanelAction::PasteNth {
@@ -82,7 +97,7 @@ fn keys_of(settings: &Settings, action: PanelAction) -> Vec<String> {
         };
         let mut caps = keycaps(first);
         caps.pop();
-        caps.push("1-0".to_owned());
+        caps.push("1…0".to_owned());
         return caps;
     }
     if action.editable() {
@@ -126,37 +141,53 @@ fn content(window: &mut Window, cx: &mut App) -> AnyElement {
         .flex_col()
         .max_h(max_height)
         .overflow_y_scroll()
-        .children(ORDER.iter().enumerate().map(|(index, action)| {
-            // 用户改过的按键照设置显示，键名换成平台写法（Windows `Ctrl`、macOS `⌘`），行间细分隔线。
-            let keys = keys_of(&settings, *action);
-            let label = format!("clipboard:shortcuts.{}", action.id());
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(space(4.))
-                .min_h(rems(2.25))
-                .py(space(1.))
-                .when(index > 0, |row| {
-                    row.border_t_1().border_color(tokens.border.divider)
-                })
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_color(tokens.text.primary)
-                        .kp_text(TextSize::Sm)
-                        .child(t(&label)),
-                )
-                .when(keys.is_empty(), |row| {
-                    row.child(
+        .children(
+            SECTIONS
+                .iter()
+                .enumerate()
+                .flat_map(|(section, (title, actions))| {
+                    let heading = div()
+                        .when(section > 0, |heading| heading.mt(space(3.)))
+                        .pb(space(1.))
+                        .kp_text(TextSize::Xs)
+                        .text_color(tokens.text.muted)
+                        .child(t(title));
+                    let rows = actions.iter().enumerate().map(|(index, action)| {
+                        // 用户改过的按键照设置显示，键名换成平台写法（Windows `Ctrl`、macOS `⌘`），行间细分隔线。
+                        let keys = keys_of(&settings, *action);
+                        let label = format!("clipboard:shortcuts.{}", action.id());
                         div()
-                            .kp_text(TextSize::Xs)
-                            .text_color(tokens.text.muted)
-                            .child(t("preferences:controls.shortcutNotSet")),
-                    )
-                })
-                .when(!keys.is_empty(), |row| row.child(Shortcut::new(keys)))
-        }))
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(space(4.))
+                            .min_h(rems(2.25))
+                            .py(space(1.))
+                            .when(index > 0, |row| {
+                                row.border_t_1().border_color(tokens.border.divider)
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_color(tokens.text.primary)
+                                    .kp_text(TextSize::Sm)
+                                    .child(t(&label)),
+                            )
+                            .when(keys.is_empty(), |row| {
+                                row.child(
+                                    div()
+                                        .kp_text(TextSize::Xs)
+                                        .text_color(tokens.text.muted)
+                                        .child(t("preferences:controls.shortcutNotSet")),
+                                )
+                            })
+                            .when(!keys.is_empty(), |row| row.child(Shortcut::new(keys)))
+                    });
+                    std::iter::once(heading.into_any_element())
+                        .chain(rows.map(|row| row.into_any_element()))
+                        .collect::<Vec<_>>()
+                }),
+        )
         .into_any_element()
 }
