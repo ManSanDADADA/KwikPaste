@@ -537,7 +537,7 @@
       "keep": "Keep for",
       "keepHint": "Records matching this rule are cleaned up once they go unused for this long. Maximum Items and the storage limit still apply to all regular records.",
       "minSize": "Larger than",
-      "minSizePlaceholder": "Any size",
+      "minSizePlaceholder": "No limit",
       "preview": "{{matched}} regular records match right now; {{expired}} of them are past the retention.",
       "previewNone": "No regular records match right now.",
       "sensitiveOnly": "Only content detected as a secret or token",
@@ -998,7 +998,7 @@
           "title": "Default Retention"
         },
         "rules": {
-          "description": "Set separate retention by content type, size, source app and more. Rules match from top to bottom, and a record follows the first rule it matches.",
+          "description": "Set separate retention by content type, size and more. Rules match from top to bottom, and a record follows the first rule it matches.",
           "title": "Custom Rules"
         }
       },

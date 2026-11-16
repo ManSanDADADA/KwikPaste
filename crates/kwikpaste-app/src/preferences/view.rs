@@ -5185,10 +5185,11 @@ struct RetentionRuleEditor {
     unused_only: bool,
     keep_value: NumberInputState,
     keep_unit: SelectState,
+    _min_size_subscription: Subscription,
 }
 
 impl RetentionRuleEditor {
-    fn new(rule: &RetentionRule, window: &mut Window, cx: &mut App) -> Self {
+    fn new(rule: &RetentionRule, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let keep_value = NumberInputState::new(
             u64::from(rule.keep.value),
             0,
@@ -5202,19 +5203,22 @@ impl RetentionRuleEditor {
             window,
             cx,
         );
+        let min_size = NumberInputState::new(
+            u64::from(rule.min_size_kb),
+            0,
+            u64::from(u32::MAX),
+            window,
+            cx,
+        );
+        let min_size_subscription = min_size.on_commit(window, cx, |_, _, _, cx| cx.notify());
         Self {
             categories: rule.categories.clone(),
-            min_size: NumberInputState::new(
-                u64::from(rule.min_size_kb),
-                0,
-                u64::from(u32::MAX),
-                window,
-                cx,
-            ),
+            min_size,
             sensitive_only: rule.sensitive_only,
             unused_only: rule.unused_only,
             keep_value,
             keep_unit,
+            _min_size_subscription: min_size_subscription,
         }
     }
 
@@ -5242,6 +5246,8 @@ impl Render for RetentionRuleEditor {
             .keep_unit
             .selected_value(cx)
             .is_some_and(|value| value.as_ref() == "forever");
+        let min_size_kb = self.min_size.clamped(cx);
+        let files_no_size = min_size_kb > 0 && self.categories.contains(&ContentCategory::Files);
         let categories = ContentCategory::ALL.into_iter().map(|category| {
             let checked = self.categories.contains(&category);
             let entity = entity.clone();
@@ -5308,11 +5314,37 @@ impl Render for RetentionRuleEditor {
                 i18n::t("preferences:retentionRules.form.minSize"),
                 div()
                     .flex()
+                    .flex_col()
+                    .gap(space(2.))
                     .child(
-                        NumberInput::new(&self.min_size)
-                            .width(CONTROL_WIDTH)
-                            .suffix("KB"),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(space(2.))
+                            .child(
+                                NumberInput::new(&self.min_size)
+                                    .width(CONTROL_WIDTH)
+                                    .suffix("KB"),
+                            )
+                            .when(min_size_kb == 0, |row| {
+                                row.child(
+                                    div()
+                                        .kp_text(TextSize::Xs)
+                                        .text_color(tokens.text.muted)
+                                        .child(i18n::t(
+                                            "preferences:retentionRules.form.minSizePlaceholder",
+                                        )),
+                                )
+                            }),
                     )
+                    .when(files_no_size, |field| {
+                        field.child(
+                            div()
+                                .kp_text(TextSize::Xs)
+                                .text_color(tokens.text.muted)
+                                .child(i18n::t("preferences:retentionRules.form.filesNoSize")),
+                        )
+                    })
                     .into_any_element(),
                 tokens,
             ))
