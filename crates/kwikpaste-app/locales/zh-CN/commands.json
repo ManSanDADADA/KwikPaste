@@ -1,6 +1,6 @@
 {
   "batchDeleteConfirm": {
-    "content": "删除后无法恢复，确定删除选中的 {{count}} 条记录吗？",
+    "content": "选中的 {{count}} 条记录删除后无法恢复。",
     "title": "删除所选记录"
   },
   "clearConfirm": {
@@ -10,7 +10,7 @@
     "title": "清空记录"
   },
   "deleteConfirm": {
-    "content": "删除后无法恢复，确定删除这条记录吗？",
+    "content": "删除后无法恢复。",
     "title": "删除记录"
   },
   "error": "{{label}}失败：{{message}}",
@@ -120,7 +120,7 @@
     "itemUnpinned": "已取消置顶",
     "lanDevicePaired": "已与 {{name}} 配对",
     "lanDeviceRemoved": "已取消与 {{name}} 的配对",
-    "noteSaved": "已保存",
+    "noteSaved": "已保存备注",
     "noteSavedAndFavorited": "已保存并收藏",
     "pasteBlocked": "粘贴键被系统拦截（常见于游戏反作弊），内容已复制。重启快贴即可恢复自动粘贴",
     "qrCodeCopied": "已复制二维码内容",

@@ -18,7 +18,7 @@
     "favoriteCategory": "暂无收藏的{{category}}记录",
     "favorites": "暂无收藏记录",
     "filtered": "没有符合筛选条件的记录",
-    "group": "「{{group}}」分组暂无相关记录",
+    "group": "「{{group}}」分组暂无记录",
     "groupCategory": "「{{group}}」分组下暂无{{category}}记录",
     "groupFallback": "该分组",
     "groupFavoriteCategory": "「{{group}}」分组下暂无收藏的{{category}}记录",
@@ -85,7 +85,7 @@
   },
   "header": {
     "pin": "固定窗口",
-    "searchPlaceholder": "搜索剪贴板...",
+    "searchPlaceholder": "搜索剪贴板…",
     "unpin": "取消固定",
     "updateAvailable": "有新版本 v{{version}}，点击更新",
     "updateBadge": "新版本"
@@ -117,12 +117,12 @@
     "viewImage": "查看大图"
   },
   "note": {
-    "placeholder": "为这条记录添加备注...",
+    "placeholder": "为这条记录添加备注…",
     "title": "编辑备注"
   },
   "origin": {
     "fromDevice": "来自 {{name}}",
-    "fromWeType": "来自 微信输入法 · {{name}}"
+    "fromWeType": "来自微信输入法 · {{name}}"
   },
   "quickActions": {
     "copy": "复制",
@@ -133,7 +133,7 @@
     "openLink": "打开链接",
     "paste": "粘贴",
     "pastePath": "粘贴为路径",
-    "pastePlain": "纯文本粘贴",
+    "pastePlain": "粘贴为纯文本",
     "pinItem": "置顶",
     "pinItemActive": "取消置顶",
     "reveal": "在文件管理器中显示",
@@ -153,7 +153,7 @@
     "selected": "已选 {{count}} 项"
   },
   "shortcuts": {
-    "closePreviewFilterWindow": "关闭预览 / 筛选 / 窗口",
+    "closePreviewFilterWindow": "返回上一层 / 关闭窗口",
     "copySelected": "复制选中项",
     "createGroup": "新增分组",
     "deleteSelected": "删除选中项",
@@ -162,9 +162,9 @@
     "focusSearch": "聚焦搜索框",
     "navigate": "上下导航",
     "noteSelected": "添加 / 编辑备注",
-    "openPreference": "打开偏好设置窗口",
+    "openPreference": "打开偏好设置",
     "openSelected": "打开链接 / 邮箱 / 文件位置",
-    "pasteNth": "粘贴前 10 项",
+    "pasteNth": "粘贴第 1–10 项",
     "pasteSelected": "粘贴选中项",
     "pasteSelectedPlain": "粘贴选中项为纯文本",
     "pinSelected": "置顶 / 取消置顶",
