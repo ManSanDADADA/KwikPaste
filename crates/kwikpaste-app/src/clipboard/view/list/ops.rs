@@ -483,9 +483,10 @@ impl ClipboardList {
             let result = task.await;
             list.update_in(cx, |list, window, cx| match result {
                 Ok(()) => {
-                    Self::toast_success("commands:messages.copied", window, cx);
                     if let Some(action) = feedback {
                         list.show_copied(id, action, cx);
+                    } else {
+                        Self::toast_success("commands:messages.copied", window, cx);
                     }
                 }
                 Err(err) => Self::toast_error("commands:labels.copy", &err, window, cx),
