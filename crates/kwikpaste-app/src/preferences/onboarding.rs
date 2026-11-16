@@ -968,7 +968,7 @@ impl Onboarding {
                             i18n::t("onboarding:ignoreApps.manage"),
                         )
                         .small()
-                        .ghost()
+                        .link()
                         .on_click(|_, _, cx| {
                             if let Err(error) = crate::preferences::open(cx) {
                                 log::warn!("could not open preferences from onboarding: {error:#}");
