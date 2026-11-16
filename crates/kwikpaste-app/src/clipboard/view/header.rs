@@ -555,8 +555,10 @@ impl Render for Header {
         let chips = self.render_chips(cx);
         let filter_button = self.render_filter_button(cx);
         let tokens = theme::semantic(cx);
-        let shortcuts = crate::core_host::core(cx)
-            .map(|core| core.settings().shortcuts)
+        let shortcuts = self
+            .hints
+            .then(|| crate::core_host::core(cx).map(|core| core.settings().shortcuts))
+            .flatten()
             .unwrap_or_default();
         let hint = |action| {
             self.hints
