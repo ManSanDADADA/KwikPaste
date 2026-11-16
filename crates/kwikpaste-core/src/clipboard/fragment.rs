@@ -385,7 +385,15 @@ fn is_info_word(word: &str) -> bool {
     digits > 0 && chars >= 2 && (digits >= 2 || chars >= 3)
 }
 
-/// 按 UAX #29 切词，再从 `breaks` 里的字符处断开，断开的字符单独成词。
+/// 整段由同一个 ASCII 标点重复而成时返回该标点。
+fn punctuation_run(segment: &str) -> Option<char> {
+    let first = segment.chars().next().filter(char::is_ascii_punctuation)?;
+
+    segment.chars().all(|c| c == first).then_some(first)
+}
+
+/// 按 UAX #29 切词，再从 `breaks` 里的字符处断开，断开的字符单独成词；
+/// 连续相同的 ASCII 标点（`--`、`::`、`...`）并成一个词块。
 fn word_segments<'a>(text: &'a str, breaks: &[char]) -> Vec<(usize, &'a str)> {
     let mut segments = Vec::new();
 
@@ -408,7 +416,21 @@ fn word_segments<'a>(text: &'a str, breaks: &[char]) -> Vec<(usize, &'a str)> {
         }
     }
 
-    segments
+    let mut merged: Vec<(usize, &'a str)> = Vec::with_capacity(segments.len());
+    for (start, segment) in segments {
+        if let Some((last_start, last)) = merged.last_mut() {
+            let repeats = punctuation_run(last).is_some()
+                && punctuation_run(last) == punctuation_run(segment)
+                && *last_start + last.len() == start;
+            if repeats {
+                *last = &text[*last_start..start + segment.len()];
+                continue;
+            }
+        }
+        merged.push((start, segment));
+    }
+
+    merged
 }
 
 /// 把文本按词切开：西文单词、数字、编号各自成词，汉字逐字成词，标点单独成词，空白丢弃。
@@ -878,6 +900,16 @@ mod tests {
             ["123", "-", "456", "_", "654", "-", "321"]
         );
         assert_eq!(select_words(text, &[0, 1, 2]).as_deref(), Some("123-456"));
+    }
+
+    #[test]
+    fn merges_repeated_ascii_punctuation() {
+        assert_eq!(token_texts("a--b"), ["a", "--", "b"]);
+        assert_eq!(
+            token_texts("x == y::z..."),
+            ["x", "==", "y", "::", "z", "..."]
+        );
+        assert_eq!(token_texts("a-b"), ["a", "-", "b"]);
     }
 
     #[test]
