@@ -11,6 +11,7 @@
     "cards": {
       "open": {
         "description": "Use your shortcut to open the clipboard window anytime.",
+        "descriptionWithShortcut": "Press {{shortcut}} to open the clipboard window anytime.",
         "title": "Quick Open"
       },
       "preferences": {
@@ -27,7 +28,7 @@
     "title": "Start Using KwikPaste"
   },
   "ignoreApps": {
-    "description": "Choose source apps that should not be recorded. Password managers, key tools, or temporary windows are good candidates; content copied from checked apps will not be written to clipboard history.",
+    "description": "Content copied in the checked apps is not recorded. Good for password managers and key tools.",
     "manage": "Manage in Preferences",
     "title": "Set Ignored Apps"
   },

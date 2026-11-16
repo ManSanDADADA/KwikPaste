@@ -996,6 +996,15 @@ impl Onboarding {
 
 impl Onboarding {
     fn render_done(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let open_clipboard = &self.settings.shortcuts.open_clipboard;
+        let open_description = if open_clipboard.is_empty() {
+            i18n::t("onboarding:done.cards.open.description")
+        } else {
+            i18n::t_args(
+                "onboarding:done.cards.open.descriptionWithShortcut",
+                &[("shortcut", &text::format_shortcut(open_clipboard))],
+            )
+        };
         div()
             .flex()
             .flex_col()
@@ -1039,7 +1048,7 @@ impl Onboarding {
                         self.render_feature_card(
                             PrefIcon::ClipboardPlus,
                             i18n::t("onboarding:done.cards.open.title"),
-                            i18n::t("onboarding:done.cards.open.description"),
+                            open_description,
                             cx,
                         ),
                         self.render_feature_card(

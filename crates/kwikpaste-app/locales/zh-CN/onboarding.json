@@ -11,6 +11,7 @@
     "cards": {
       "open": {
         "description": "用快捷键随时唤起剪贴板窗口。",
+        "descriptionWithShortcut": "按 {{shortcut}} 随时唤起剪贴板窗口。",
         "title": "快速打开"
       },
       "preferences": {
@@ -27,7 +28,7 @@
     "title": "开始使用快贴"
   },
   "ignoreApps": {
-    "description": "选择不需要记录的来源应用，密码管理器、密钥工具或临时窗口都可以忽略；从勾选的应用复制的内容不会写入剪贴板历史。",
+    "description": "勾选的应用里复制的内容不会被记录，适合密码管理器、密钥工具等。",
     "manage": "在偏好设置中管理",
     "title": "设置忽略应用"
   },
