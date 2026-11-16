@@ -7,8 +7,8 @@ use std::{rc::Rc, sync::Arc};
 
 use gpui::{
     App, AppContext as _, Context, Entity, EventEmitter, Focusable as _, InteractiveElement as _,
-    IntoElement, ModifiersChangedEvent, ParentElement as _, Render, Styled as _, Subscription,
-    Window, div,
+    IntoElement, ModifiersChangedEvent, MouseDownEvent, ParentElement as _, Render, Styled as _,
+    Subscription, Window, div,
 };
 use kwikpaste_core::{
     CoreEvent,
@@ -823,6 +823,8 @@ impl ClipboardPanel {
     /// 分类、分组；设置了默认聚焦搜索框时请求编辑态。
     fn on_shown(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.apply_layout(window, cx);
+        // 左栏的列表显示时拿焦点（见 `ClipboardList::on_panel_event`），按键回到左栏。
+        self.set_side_active(false, cx);
         self.reload_filter_apps(cx);
         let settings = self.list.read(cx).settings().clipboard.clone();
         let window_settings = settings.window;
@@ -1168,7 +1170,9 @@ impl Render for ClipboardPanel {
             })))
             .child(self.header.clone());
 
-        let column = |bar: Entity<GroupBar>, list: Entity<ClipboardList>| {
+        // 按下列表区就把按键交给这一栏：Windows 面板从不激活，GPUI 不发焦点事件，`on_focus_in`
+        // 不会触发。
+        let column = |bar: Entity<GroupBar>, list: Entity<ClipboardList>, side: bool| {
             div()
                 .flex()
                 .flex_col()
@@ -1176,9 +1180,21 @@ impl Render for ClipboardPanel {
                 .min_w_0()
                 .min_h_0()
                 .child(bar)
-                .child(div().flex().flex_col().flex_1().min_h_0().child(list))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_h_0()
+                        .capture_any_mouse_down(cx.listener(
+                            move |panel, _: &MouseDownEvent, _, cx| {
+                                panel.set_side_active(side, cx);
+                            },
+                        ))
+                        .child(list),
+                )
         };
-        let left = column(self.groups.clone(), self.list.clone());
+        let left = column(self.groups.clone(), self.list.clone(), false);
         let Some(side) = &self.side else {
             return root.child(left);
         };
@@ -1191,7 +1207,7 @@ impl Render for ClipboardPanel {
                 .min_h_0()
                 .child(left)
                 .child(div().flex_none().w(gpui::px(1.)).bg(tokens.border.divider))
-                .child(column(side.bar.clone(), side.list.clone())),
+                .child(column(side.bar.clone(), side.list.clone(), true)),
         )
     }
 }
