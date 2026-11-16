@@ -1104,35 +1104,47 @@ impl Render for Onboarding {
                             .into_any_element()
                     })
                     .child(
-                        div().flex().items_center().gap(space(2.)).children([
-                            Button::new("onboarding-skip", i18n::t("onboarding:actions.skip"))
-                                .ghost()
-                                .disabled(self.finishing)
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.finish(window, cx)),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(space(2.))
+                            // 最后一步的「跳过」和「开始使用」做的是同一件事，只留主按钮。
+                            .when(!is_last, |actions| {
+                                actions.child(
+                                    Button::new(
+                                        "onboarding-skip",
+                                        i18n::t("onboarding:actions.skip"),
+                                    )
+                                    .ghost()
+                                    .disabled(self.finishing)
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.finish(window, cx)),
+                                    ),
                                 )
-                                .into_any_element(),
-                            Button::new(
-                                "onboarding-next",
-                                if is_last {
-                                    i18n::t("onboarding:actions.finish")
-                                } else if is_first {
-                                    i18n::t("onboarding:actions.start")
-                                } else {
-                                    i18n::t("onboarding:actions.next")
-                                },
-                            )
-                            .primary()
-                            .disabled(self.finishing)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                if is_last {
-                                    this.finish(window, cx);
-                                } else {
-                                    this.move_step(1, cx);
-                                }
-                            }))
-                            .into_any_element(),
-                        ]),
+                            })
+                            .child(
+                                Button::new(
+                                    "onboarding-next",
+                                    if is_last {
+                                        i18n::t("onboarding:actions.finish")
+                                    } else if is_first {
+                                        i18n::t("onboarding:actions.start")
+                                    } else {
+                                        i18n::t("onboarding:actions.next")
+                                    },
+                                )
+                                .primary()
+                                .disabled(self.finishing)
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
+                                        if is_last {
+                                            this.finish(window, cx);
+                                        } else {
+                                            this.move_step(1, cx);
+                                        }
+                                    },
+                                )),
+                            ),
                     ),
             )
     }

@@ -5483,8 +5483,8 @@ fn retention_rule_summary(rule: &RetentionRule) -> gpui::SharedString {
     parts.join(" · ").into()
 }
 
-/// 设置行里的列表块（采集顺序、清理规则）：嵌在分组卡片里，用内容底色加细边框和小圆角，
-/// 行间细分隔线由调用方画。
+/// 设置行里的列表块（采集顺序、清理规则）：嵌在分组卡片里，只有细边框和小圆角、沿用卡片的底色
+/// （铺不透明的面板色在系统材质上会比卡片更深），行间细分隔线由调用方画。
 fn list_tile(tokens: &SemanticTokens) -> gpui::Div {
     div()
         .flex()
@@ -5492,7 +5492,6 @@ fn list_tile(tokens: &SemanticTokens) -> gpui::Div {
         .w_full()
         .overflow_hidden()
         .rounded(theme::radius::LG)
-        .bg(tokens.surface.panel)
         .border_1()
         .border_color(tokens.border.subtle)
 }
@@ -5642,7 +5641,8 @@ fn section_block(
                     .child(
                         div()
                             .kp_text(TextSize::Xs)
-                            .text_color(tokens.text.muted)
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(tokens.text.secondary)
                             .child(title),
                     )
                     .children(action),
@@ -5988,15 +5988,14 @@ pub(crate) fn shortcut_recorder_button(
     let problem = shortcut_recorder_problem(id, current, settings, recording, cx);
     let label: gpui::SharedString = if recording {
         i18n::t("preferences:controls.recordShortcut")
-    } else if problem.is_some() {
-        format!("{} ⚠", text::format_shortcut(current)).into()
     } else if current.trim().is_empty() {
         i18n::t("preferences:controls.shortcutNotSet")
     } else {
         text::format_shortcut(current).into()
     };
     Button::new(format!("shortcut-{id}"), label)
-        .when(problem.is_some(), |button| button.danger())
+        // 冲突用描边提示，原因在悬停提示和行内说明里：红色实心按钮看起来像「删除」。
+        .when(problem.is_some(), |button| button.danger_outline())
         .tooltip(problem.unwrap_or_else(|| i18n::t("preferences:controls.recordShortcut")))
 }
 
