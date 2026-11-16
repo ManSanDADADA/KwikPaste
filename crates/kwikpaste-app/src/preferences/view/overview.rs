@@ -851,27 +851,26 @@ fn trend_card(daily: &[DailyCount], tokens: &SemanticTokens) -> AnyElement {
             div()
                 .flex()
                 .h(TREND_HEIGHT)
-                .child(
-                    div()
-                        .relative()
-                        .flex_none()
-                        .w(TREND_GUTTER)
-                        .h_full()
-                        .child(
-                            div()
-                                .absolute()
-                                .top(rems(-0.5))
-                                .right(space(2.))
-                                .child(format_count(axis_max)),
-                        )
-                        .child(
-                            div()
-                                .absolute()
-                                .bottom(rems(-0.5))
-                                .right(space(2.))
-                                .child("0"),
-                        ),
-                )
+                .child(div().relative().flex_none().w(TREND_GUTTER).h_full().when(
+                    peak.is_some(),
+                    |gutter| {
+                        gutter
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top(rems(-0.5))
+                                    .right(space(2.))
+                                    .child(format_count(axis_max)),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .bottom(rems(-0.5))
+                                    .right(space(2.))
+                                    .child("0"),
+                            )
+                    },
+                ))
                 .child(
                     div()
                         .relative()
@@ -879,7 +878,7 @@ fn trend_card(daily: &[DailyCount], tokens: &SemanticTokens) -> AnyElement {
                         .min_w_0()
                         .h_full()
                         .child(gridline(0.))
-                        .child(gridline(0.5))
+                        .when(peak.is_some(), |plot| plot.child(gridline(0.5)))
                         .child(gridline(1.).mt(gpui::px(-1.)))
                         .child(
                             div()
