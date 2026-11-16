@@ -7,7 +7,6 @@
   },
   "file": {
     "folder": "Folder",
-    "item": "File",
     "missingPath": "Path unavailable",
     "shownCount": "Showing first {{shown}} of {{total}} items"
   },
@@ -18,7 +17,6 @@
   "meta": {
     "characters": "{{count}} characters",
     "contentViewer": "Content Viewer",
-    "filesLoaded": "{{count}} items loaded",
     "unknownSize": "Unknown size"
   },
   "snippets": {

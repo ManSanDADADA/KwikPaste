@@ -7,7 +7,6 @@
   },
   "file": {
     "folder": "文件夹",
-    "item": "文件",
     "missingPath": "路径已失效",
     "shownCount": "仅显示前 {{shown}} 项，共 {{total}} 项"
   },
@@ -18,7 +17,6 @@
   "meta": {
     "characters": "{{count}} 字符",
     "contentViewer": "内容预览器",
-    "filesLoaded": "{{count}} 项已加载",
     "unknownSize": "未知尺寸"
   },
   "snippets": {

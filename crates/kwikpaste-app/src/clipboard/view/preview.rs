@@ -212,15 +212,21 @@ impl PreviewPanel {
                         i64::try_from(payload.total_files).unwrap_or(i64::MAX),
                         &[],
                     ),
-                    t_count(
-                        "preview:meta.filesLoaded",
-                        i64::try_from(payload.files.len()).unwrap_or(i64::MAX),
-                        &[],
-                    ),
+                    if payload.files.len() < payload.total_files {
+                        t_args(
+                            "preview:file.shownCount",
+                            &[
+                                ("shown", &payload.files.len().to_string()),
+                                ("total", &payload.total_files.to_string()),
+                            ],
+                        )
+                    } else {
+                        SharedString::default()
+                    },
                 ),
                 ClipboardKind::Image => {
                     let dimensions = match (payload.image_width, payload.image_height) {
-                        (Some(width), Some(height)) => format!("{width} x {height}"),
+                        (Some(width), Some(height)) => format!("{width} × {height}"),
                         _ => t("preview:meta.unknownSize").to_string(),
                     };
                     let size = payload
@@ -917,15 +923,11 @@ impl PreviewPanel {
             .iter()
             .zip(icon_states)
             .map(|(file, icon_state)| {
-                let kind = if file.is_dir {
-                    t("preview:file.folder")
-                } else {
-                    t("preview:file.item")
-                };
                 let size_label = file
                     .size
                     .map(|size| SharedString::from(format_bytes(size)))
-                    .unwrap_or(kind);
+                    .or_else(|| file.is_dir.then(|| t("preview:file.folder")))
+                    .unwrap_or_default();
                 let path = if file.exists {
                     SharedString::from(file.path.clone())
                 } else {
@@ -1010,22 +1012,6 @@ impl PreviewPanel {
             .track_scroll(&self.scroll)
             .py(space((8.) / 4.))
             .children(rows)
-            .when(payload.total_files > payload.files.len(), |list| {
-                list.child(
-                    div()
-                        .px(space((16.) / 4.))
-                        .py(space((8.) / 4.))
-                        .kp_text(TextSize::Xs)
-                        .text_color(tokens.text.secondary)
-                        .child(t_args(
-                            "preview:file.shownCount",
-                            &[
-                                ("shown", &payload.files.len().to_string()),
-                                ("total", &payload.total_files.to_string()),
-                            ],
-                        )),
-                )
-            })
             .into_any_element()
     }
 }
