@@ -596,6 +596,7 @@ impl ClipboardPanel {
 
     /// 隐藏分组（1.x 右键菜单“隐藏分组”）：名称和图标不变，只改显隐。
     fn hide_group(&mut self, group: Group, window: &mut Window, cx: &mut Context<Self>) {
+        let name = group.name.clone();
         let future = self.source.hide_group(group);
 
         cx.spawn_in(window, async move |panel, cx| {
@@ -604,7 +605,10 @@ impl ClipboardPanel {
                 .update_in(cx, |panel, window, cx| {
                     match result {
                         Ok(()) => toast::show(
-                            Toast::success(t("commands:messages.clipboardGroupSaved")),
+                            Toast::success(t_args(
+                                "commands:messages.clipboardGroupHidden",
+                                &[("group", &name)],
+                            )),
                             window,
                             cx,
                         ),

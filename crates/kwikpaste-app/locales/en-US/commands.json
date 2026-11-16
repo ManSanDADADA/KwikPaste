@@ -101,6 +101,7 @@
     "cacheAlreadyClean": "No cache to clean",
     "cacheCleaned": "Cleaned {{count}} cache files and freed {{size}}",
     "clipboardGroupDeleted": "Group deleted",
+    "clipboardGroupHidden": "\"{{group}}\" hidden. Restore it in Manage groups.",
     "clipboardGroupSaved": "Group saved",
     "clipboardGroupsLayoutSaved": "Group layout saved",
     "clipboardItemsCleared": "Cleared {{count}} records",

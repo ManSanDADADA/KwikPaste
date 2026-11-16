@@ -101,6 +101,7 @@
     "cacheAlreadyClean": "暂无可清理的缓存",
     "cacheCleaned": "已清理 {{count}} 个缓存文件，释放 {{size}}",
     "clipboardGroupDeleted": "已删除分组",
+    "clipboardGroupHidden": "已隐藏「{{group}}」，可在管理分组中恢复",
     "clipboardGroupSaved": "已保存分组",
     "clipboardGroupsLayoutSaved": "已保存分组布局",
     "clipboardItemsCleared": "已清空 {{count}} 条记录",
