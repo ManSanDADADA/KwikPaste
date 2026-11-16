@@ -1,5 +1,5 @@
 //! 快捷键的显示文案，移植自 1.x `utils/shortcut.ts` 的 `formatShortcutDisplay`：按 `+` 拆开，
-//! 每个键换成平台写法，再用 ` + ` 连起来（`CmdOrCtrl+Backspace` → Windows `Ctrl + ⌫`、macOS `⌘ + ⌫`）。
+//! 每个键换成平台写法，Windows 用 `+` 连起来、macOS 符号直接拼接（`CmdOrCtrl+Backspace` → Windows `Ctrl+⌫`、macOS `⌘⌫`）。
 
 use kwikpaste_core::settings::{PanelAction, Shortcuts, effective_panel_keys};
 
@@ -43,7 +43,7 @@ fn display_for(pattern: &str, mac: bool) -> String {
         .split('+')
         .map(|key| key_display(key.trim(), mac))
         .collect::<Vec<_>>()
-        .join(" + ")
+        .join(if mac { "" } else { "+" })
 }
 
 /// 1.x `KEY_DISPLAY`；不在表里的单个字符转大写，其余原样。
@@ -89,17 +89,17 @@ mod tests {
 
     #[test]
     fn windows_spells_modifiers_out() {
-        assert_eq!(display_for("CmdOrCtrl+Backspace", false), "Ctrl + ⌫");
-        assert_eq!(display_for("CmdOrCtrl+Enter", false), "Ctrl + Enter");
-        assert_eq!(display_for("CmdOrCtrl+a", false), "Ctrl + A");
+        assert_eq!(display_for("CmdOrCtrl+Backspace", false), "Ctrl+⌫");
+        assert_eq!(display_for("CmdOrCtrl+Enter", false), "Ctrl+Enter");
+        assert_eq!(display_for("CmdOrCtrl+a", false), "Ctrl+A");
         assert_eq!(display_for("Enter", false), "Enter");
         assert_eq!(display_for("Escape", false), "Esc");
     }
 
     #[test]
     fn macos_uses_symbols() {
-        assert_eq!(display_for("CmdOrCtrl+Backspace", true), "⌘ + ⌫");
-        assert_eq!(display_for("CmdOrCtrl+Enter", true), "⌘ + ⏎");
+        assert_eq!(display_for("CmdOrCtrl+Backspace", true), "⌘⌫");
+        assert_eq!(display_for("CmdOrCtrl+Enter", true), "⌘⏎");
         assert_eq!(display_for("Escape", true), "⎋");
     }
 }
