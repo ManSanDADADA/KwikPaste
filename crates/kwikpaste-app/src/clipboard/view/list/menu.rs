@@ -107,7 +107,7 @@ impl ClipboardList {
                     entry = entry.shortcut(shortcut::display_keystroke(&accelerator));
                 }
                 if action == MenuAction::Delete {
-                    entry = entry.danger();
+                    entry = entry.danger().disabled(!can_delete);
                 }
                 entries.push(entry.into());
             }

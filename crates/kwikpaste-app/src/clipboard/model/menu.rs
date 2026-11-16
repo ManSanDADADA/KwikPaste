@@ -161,15 +161,15 @@ pub fn menu_groups(item: &ListItem, can_delete: bool, has_groups: bool) -> Vec<V
                 && item.available_actions.contains(&ItemAction::SaveImage)
         }
         _ => match action.item_action() {
-            Some(ItemAction::Delete) if !can_delete => false,
             Some(wanted) => item.available_actions.contains(&wanted),
             None => has_groups,
         },
     };
-    let any_core_action = GROUPS
-        .iter()
-        .flat_map(|group| group.iter())
-        .any(|action| action.item_action().is_some() && available(*action));
+    let any_core_action = GROUPS.iter().flat_map(|group| group.iter()).any(|action| {
+        action.item_action().is_some()
+            && (can_delete || *action != MenuAction::Delete)
+            && available(*action)
+    });
     if !any_core_action {
         return Vec::new();
     }
@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn protected_records_lose_delete_and_groups_add_move() {
+    fn protected_records_keep_delete_and_groups_add_move() {
         let item = with_actions(&[ItemAction::Paste, ItemAction::Delete, ItemAction::EditNote]);
 
         assert_eq!(
@@ -236,6 +236,7 @@ mod tests {
                     MenuAction::EditNote,
                     MenuAction::EditContent
                 ],
+                vec![MenuAction::Delete],
             ]
         );
     }
