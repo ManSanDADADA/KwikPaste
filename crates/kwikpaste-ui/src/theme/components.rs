@@ -326,17 +326,17 @@ impl ComponentTokens {
                     },
                     TagStateTokens {
                         background: s.status.success.subtle,
-                        foreground: s.status.success.solid,
+                        foreground: s.status.success.text,
                         border: s.status.success.border,
                     },
                     TagStateTokens {
                         background: s.status.warning.subtle,
-                        foreground: s.status.warning.solid,
+                        foreground: s.status.warning.text,
                         border: s.status.warning.border,
                     },
                     TagStateTokens {
                         background: s.status.danger.subtle,
-                        foreground: s.status.danger.solid,
+                        foreground: s.status.danger.text,
                         border: s.status.danger.border,
                     },
                 ],

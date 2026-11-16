@@ -95,6 +95,8 @@ pub struct StatusPalette {
     pub active: Color,
     pub subtle: Color,
     pub border: Color,
+    /// 当文字用的状态色：浅色下比 `solid` 深一档，压在白底或自己的淡底上才读得清。
+    pub text: Color,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExtraHues {
@@ -320,6 +322,7 @@ pub const LIGHT: Palette = Palette {
         active: hex(0x15803d),
         subtle: hex(0xf0fdf4),
         border: hex(0xbbf7d0),
+        text: hex(0x15803d),
     },
     warning: StatusPalette {
         solid: hex(0xd97706),
@@ -327,6 +330,7 @@ pub const LIGHT: Palette = Palette {
         active: hex(0xb45309),
         subtle: hex(0xfffbeb),
         border: hex(0xfde68a),
+        text: hex(0xb45309),
     },
     danger: StatusPalette {
         solid: hex(0xe5484d),
@@ -334,6 +338,7 @@ pub const LIGHT: Palette = Palette {
         active: hex(0xc93a3f),
         subtle: hex(0xfff1f1),
         border: hex(0xfbcaca),
+        text: hex(0xc93a3f),
     },
     info: StatusPalette {
         solid: hex(0x3268ed),
@@ -341,6 +346,7 @@ pub const LIGHT: Palette = Palette {
         active: hex(0x2552c9),
         subtle: hex(0xeef2fe),
         border: hex(0xb3c6f9),
+        text: hex(0x2552c9),
     },
     extras: LIGHT_EXTRAS,
     kinds: LIGHT_KINDS,
@@ -416,6 +422,7 @@ pub const DARK: Palette = Palette {
         active: hex(0x16a34a),
         subtle: rgba(0x2fbf62, 0.14),
         border: rgba(0x2fbf62, 0.4),
+        text: hex(0x2fbf62),
     },
     warning: StatusPalette {
         solid: hex(0xf0a020),
@@ -423,6 +430,7 @@ pub const DARK: Palette = Palette {
         active: hex(0xd97706),
         subtle: rgba(0xf0a020, 0.14),
         border: rgba(0xf0a020, 0.4),
+        text: hex(0xf0a020),
     },
     danger: StatusPalette {
         solid: hex(0xf2555a),
@@ -430,6 +438,7 @@ pub const DARK: Palette = Palette {
         active: hex(0xd8434a),
         subtle: rgba(0xf2555a, 0.14),
         border: rgba(0xf2555a, 0.4),
+        text: hex(0xf2555a),
     },
     info: StatusPalette {
         solid: hex(0x5b8cf7),
@@ -437,6 +446,7 @@ pub const DARK: Palette = Palette {
         active: hex(0x4677e0),
         subtle: rgba(0x5b8cf7, 0.14),
         border: rgba(0x5b8cf7, 0.4),
+        text: hex(0x74a0f9),
     },
     extras: DARK_EXTRAS,
     kinds: DARK_KINDS,

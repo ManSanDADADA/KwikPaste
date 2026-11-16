@@ -217,7 +217,7 @@ fn menu_item(item: MenuItem, label_max_width: Option<Pixels>, cx: &App) -> Popup
     let shortcut = item.shortcut;
     let danger = item.danger;
     let color = if danger {
-        tokens.status.danger.solid
+        tokens.status.danger.text
     } else {
         tokens.text.primary
     };
@@ -277,7 +277,7 @@ fn menu_item(item: MenuItem, label_max_width: Option<Pixels>, cx: &App) -> Popup
     .when_some(item.icon, |entry, icon| {
         let icon = icon.kit_icon();
         entry.icon(if danger {
-            icon.text_color(tokens.status.danger.solid)
+            icon.text_color(tokens.status.danger.text)
         } else {
             icon
         })

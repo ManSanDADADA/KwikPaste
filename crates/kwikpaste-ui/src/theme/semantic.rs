@@ -56,7 +56,7 @@ pub struct AccentTokens {
     pub text_hover: Hsla,
     pub text_active: Hsla,
 }
-/// 一个状态的常态、悬停、按下、细微底和描边。
+/// 一个状态的常态、悬停、按下、细微底、描边和当文字用的颜色。
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StatusTokens {
     pub solid: Hsla,
@@ -64,6 +64,7 @@ pub struct StatusTokens {
     pub active: Hsla,
     pub subtle: Hsla,
     pub border: Hsla,
+    pub text: Hsla,
 }
 
 /// 单项的悬停、选中、选中悬停及文字按钮状态。
@@ -159,6 +160,7 @@ fn status(s: palette::StatusPalette) -> StatusTokens {
         active: s.active.hsla(),
         subtle: s.subtle.hsla(),
         border: s.border.hsla(),
+        text: s.text.hsla(),
     }
 }
 impl SemanticTokens {
