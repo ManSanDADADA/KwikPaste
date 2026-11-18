@@ -77,6 +77,9 @@ pub(crate) async fn store_and_emit(core: &CoreInner, item: &ClipboardItem) -> Re
         {
             core.ocr.nudge();
         }
+        if item.kind == crate::db::models::ClipboardKind::Text {
+            core.translate.on_inserted(item, &result.id);
+        }
     }
 
     core.events.emit(CoreEvent::ClipboardUpserted {

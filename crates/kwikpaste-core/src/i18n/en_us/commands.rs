@@ -26,6 +26,14 @@ pub fn label(key: Key) -> &'static str {
         Key::QrCodeNotFound => "No QR code was found in this image",
         Key::SplitTextOnly => "Only text records can be split into words",
         Key::SplitSensitiveRedacted => "Sensitive content is redacted and can't be split",
+        Key::TranslateUnavailable => "The translation extension is not enabled",
+        Key::TranslateNotTranslatable => {
+            "This item cannot be translated: only non-sensitive text up to 5,000 characters is supported"
+        }
+        Key::TranslateNotConfigured => {
+            "Fill in the AI endpoint address and model under Preferences → Extensions → Translation first"
+        }
+        Key::TranslationMissing => "This item has no translation yet",
         Key::PortableStorageFixed => {
             "KwikPaste Portable always keeps its data in the data folder next to the app"
         }

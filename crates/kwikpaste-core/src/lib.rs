@@ -32,6 +32,7 @@ pub mod settings;
 pub mod sync;
 #[cfg(test)]
 mod testing;
+pub mod translate;
 pub mod wetype;
 pub mod window_state;
 

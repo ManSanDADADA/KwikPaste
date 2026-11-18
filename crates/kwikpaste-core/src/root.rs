@@ -57,6 +57,7 @@ pub(crate) struct CoreInner {
     pub(crate) window_state: WindowStateStore,
     pub(crate) cleanup: clipboard::cleanup::CleanupScheduler,
     pub(crate) ocr: crate::ocr::Scheduler,
+    pub(crate) translate: crate::translate::TranslateService,
     pub(crate) extensions: crate::extensions::ExtensionStore,
     pub(crate) wetype: crate::wetype::WeTypeService,
     /// 来源应用缓存，监听与偏好页共用。
@@ -114,6 +115,7 @@ impl Core {
                 window_state,
                 cleanup: Default::default(),
                 ocr: Default::default(),
+                translate: Default::default(),
                 wetype,
                 extensions,
                 apps: AppsRegistry::default(),
@@ -130,6 +132,7 @@ impl Core {
 
             inner.sync.bind(Arc::downgrade(&inner));
             inner.ocr.bind(Arc::downgrade(&inner));
+            inner.translate.bind(Arc::downgrade(&inner));
             inner.ocr.startup().await;
             inner.wetype.apply(&inner).await;
             if let Err(err) = inner.apps.load_from_db(&inner).await {
@@ -157,6 +160,7 @@ impl Core {
         self.hop(async move {
             core.0.wetype.shutdown().await;
             core.0.ocr.shutdown().await;
+            let _translate = core.0.translate.stop().await;
             crate::sync::shutdown(&core.0).await;
             if let Some(task) = core.0.cleanup_task().take() {
                 task.abort();
@@ -465,6 +469,7 @@ impl Core {
             for row in rows {
                 let mut view = presenter::present_list_item(&ctx, row).await?;
                 crate::ocr::attach_view(&pool, &mut view, &query).await?;
+                crate::translate::attach_view(&core.0, &pool, &mut view).await?;
                 list.push(view);
             }
             let has_more = query.offset + (list.len() as i64) < total;
@@ -496,6 +501,7 @@ impl Core {
                 ..Default::default()
             };
             crate::ocr::attach_view(&pool, &mut view, &query).await?;
+            crate::translate::attach_view(&core.0, &pool, &mut view).await?;
             Ok(Some(view))
         })
         .await

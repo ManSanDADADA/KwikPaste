@@ -19,6 +19,12 @@ pub struct ClipboardItemView {
     /// 靠识别文字命中搜索时，命中处附近的一小段文字，卡片在缩略图下展示。
     #[serde(skip)]
     pub image_text_snippet: Option<crate::ocr::TextSnippet>,
+    /// 译文开头（最多 512 个字符，与摘要的上限一致）；没有可显示的译文时为 `None`。
+    #[serde(skip)]
+    pub translation: Option<String>,
+    /// 正在翻译：排队中或请求中。
+    #[serde(skip)]
+    pub translating: bool,
     /// 数据库行。列表查询里文本记录的 `content` / `search_text` 已置空，卡片用 `summary` 渲染；
     /// 敏感内容按设置脱敏后 `summary` 是遮罩过的。
     #[serde(flatten)]
@@ -73,6 +79,8 @@ impl ClipboardItemView {
             has_image_text: false,
             image_text_matched: false,
             image_text_snippet: None,
+            translation: None,
+            translating: false,
         }
     }
 }
@@ -104,6 +112,12 @@ pub enum ClipboardAction {
     CopyImageText,
     /// 打开拆词面板，按词挑选后粘贴或复制（`kind = text`）。
     SplitWords,
+    /// 翻译这条文本（翻译扩展启用、记录可翻译且还没有译文时）。
+    Translate,
+    /// 复制译文（有译文时）。
+    CopyTranslation,
+    /// 粘贴译文（有译文时）。
+    PasteTranslation,
     /// 在浏览器打开链接（`sub_kind = url`）。
     OpenLink,
     /// 调起邮件客户端（`sub_kind = email`）。

@@ -38,6 +38,11 @@ pub enum CoreEvent {
     WeTypeChanged,
     /// 图片文字识别状态变化；后台进度最多每秒两次，按需识别落库后立即通知。
     OcrChanged,
+    /// 一条记录的翻译开始、完成或失败了，列表和预览据此刷新这条记录；
+    /// `None` 表示不止一条（清除译文、自动队列因失败清空）。
+    TranslationChanged {
+        id: Option<String>,
+    },
     /// 一条记录入库或命中已有内容（1.x `clipboard://updated` 的 `{ id, kind, deduplicated }`）。
     ClipboardUpserted {
         id: String,

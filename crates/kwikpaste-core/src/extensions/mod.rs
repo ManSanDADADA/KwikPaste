@@ -281,6 +281,11 @@ impl Core {
             if id == "wetype" {
                 core.0.wetype.stop().await;
             }
+            let _translate = if id == "translate" {
+                Some(core.0.translate.stop().await)
+            } else {
+                None
+            };
             let result = core
                 .0
                 .extensions
@@ -321,6 +326,11 @@ impl Core {
             if id == "wetype" {
                 core.0.wetype.stop().await;
             }
+            let _translate = if id == "translate" {
+                Some(core.0.translate.stop().await)
+            } else {
+                None
+            };
             let result = core.0.extensions.uninstall(&id);
             if id == "wetype" && result.is_ok() {
                 core.0.wetype.uninstalled();
@@ -362,6 +372,11 @@ impl Core {
             if id == "wetype" {
                 core.0.wetype.stop().await;
             }
+            let _translate = if id == "translate" {
+                Some(core.0.translate.stop().await)
+            } else {
+                None
+            };
             let result = core.0.extensions.set_enabled(&id, enabled);
             if is_ocr(&id) {
                 core.0.ocr.clear_support();

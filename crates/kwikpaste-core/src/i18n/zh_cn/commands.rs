@@ -22,6 +22,12 @@ pub fn label(key: Key) -> &'static str {
         Key::QrCodeNotFound => "图片里没有识别到二维码",
         Key::SplitTextOnly => "只有文本记录可以拆词",
         Key::SplitSensitiveRedacted => "敏感内容已脱敏显示，不能拆词",
+        Key::TranslateUnavailable => "翻译扩展没有启用",
+        Key::TranslateNotTranslatable => {
+            "这条记录不能翻译：只支持 5000 个字符以内、没有标记为敏感的文本"
+        }
+        Key::TranslateNotConfigured => "请先在「偏好设置 → 扩展 → 翻译」里填写 AI 接口的地址和模型",
+        Key::TranslationMissing => "这条记录还没有译文",
         Key::PortableStorageFixed => "便携版的数据固定保存在程序文件夹的 data 目录里",
         Key::StorageInsufficientSpace => "目标磁盘的可用空间不足，无法迁移数据",
         Key::StorageSpaceUnavailable => "无法读取目标磁盘的可用空间，请检查目录权限或连接状态",
