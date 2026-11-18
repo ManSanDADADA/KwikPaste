@@ -26,6 +26,7 @@
     "closeWindow": "Close window",
     "copy": "Copy",
     "copyImageText": "Copy text in image",
+    "copyTranslation": "Copy translation",
     "delete": "Delete",
     "deleteApps": "Delete apps",
     "deleteClipboardGroup": "Delete group",
@@ -62,6 +63,7 @@
     "openWindow": "Open window",
     "pairLanDevice": "Pairing",
     "paste": "Paste",
+    "pasteTranslation": "Paste translation",
     "pinItem": "Pin item",
     "playCopySound": "Play sound",
     "previewHistoryCleanup": "Estimate cleanup",
@@ -92,6 +94,7 @@
     "splitWords": "Split words",
     "suspendGlobalShortcuts": "Suspend global shortcuts",
     "toggleFavorite": "Favorite",
+    "translate": "Translate",
     "unpinItem": "Unpin item"
   },
   "messages": {

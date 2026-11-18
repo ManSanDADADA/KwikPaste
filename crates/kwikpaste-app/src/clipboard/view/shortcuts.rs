@@ -24,6 +24,7 @@ const SECTIONS: [(&str, &[PanelAction]); 3] = [
             PanelAction::ViewImage,
             PanelAction::CopySelected,
             PanelAction::SplitSelected,
+            PanelAction::TranslateSelected,
             PanelAction::OpenSelected,
             PanelAction::NoteSelected,
             PanelAction::EditContent,
@@ -131,6 +132,7 @@ pub fn show(window: &mut Window, cx: &mut Context<ClipboardPanel>) {
 fn content(window: &mut Window, cx: &mut App) -> AnyElement {
     let tokens = theme::semantic(cx);
     let settings = core_host::core(cx).map_or_else(Settings::default, |core| core.settings());
+    let translate = core_host::core(cx).is_some_and(|core| core.translate_enabled());
     let max_height = (window.viewport_size().height - px(DIALOG_CHROME))
         .max(px(160.))
         .min(rems(30.).to_pixels(window.rem_size()));
@@ -152,7 +154,10 @@ fn content(window: &mut Window, cx: &mut App) -> AnyElement {
                         .kp_text(TextSize::Xs)
                         .text_color(tokens.text.muted)
                         .child(t(title));
-                    let rows = actions.iter().enumerate().map(|(index, action)| {
+                    let listed = actions.iter().filter(move |action| {
+                        translate || **action != PanelAction::TranslateSelected
+                    });
+                    let rows = listed.enumerate().map(|(index, action)| {
                         // 用户改过的按键照设置显示，键名换成平台写法（Windows `Ctrl`、macOS `⌘`），行间细分隔线。
                         let keys = keys_of(&settings, *action);
                         let label = format!("clipboard:shortcuts.{}", action.id());

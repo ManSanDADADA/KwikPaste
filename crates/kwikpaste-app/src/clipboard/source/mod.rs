@@ -116,6 +116,16 @@ pub trait ClipboardSource: Send + Sync + 'static {
         Box::pin(async { anyhow::bail!("image text is unavailable for this source") })
     }
 
+    /// 翻译一条记录，已有译文时是重新翻译；结果经 core 的 `TranslationChanged` 回来。夹具没有翻译。
+    fn translate(&self, _id: Arc<str>) -> BoxFuture<'static, anyhow::Result<()>> {
+        Box::pin(async { anyhow::bail!("translation is unavailable for this source") })
+    }
+
+    /// 把译文写回剪贴板。返回设置是否要求随后隐藏窗口。
+    fn copy_translation(&self, _id: Arc<str>) -> BoxFuture<'static, anyhow::Result<bool>> {
+        Box::pin(async { anyhow::bail!("translation is unavailable for this source") })
+    }
+
     /// 翻转收藏，返回新状态。
     fn toggle_favorite(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<bool>>;
 

@@ -434,6 +434,7 @@ impl ClipboardList {
                     return;
                 }
                 CoreEvent::OcrChanged => ListUpdate::ImageTextChanged,
+                CoreEvent::TranslationChanged { .. } => ListUpdate::TranslationChanged,
                 _ => return,
             };
             list.on_update(update, cx);

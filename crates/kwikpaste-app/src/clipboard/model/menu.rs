@@ -16,6 +16,9 @@ pub enum MenuAction {
     SaveImage,
     CopyImageText,
     SplitWords,
+    Translate,
+    CopyTranslation,
+    PasteTranslation,
     OpenLink,
     SendEmail,
     RevealInFinder,
@@ -42,6 +45,9 @@ const GROUPS: [&[MenuAction]; 4] = [
         MenuAction::SaveImage,
         MenuAction::CopyImageText,
         MenuAction::SplitWords,
+        MenuAction::Translate,
+        MenuAction::CopyTranslation,
+        MenuAction::PasteTranslation,
     ],
     &[
         MenuAction::OpenLink,
@@ -71,6 +77,9 @@ impl MenuAction {
             Self::SaveImage => ItemAction::SaveImage,
             Self::CopyImageText => ItemAction::CopyImageText,
             Self::SplitWords => ItemAction::SplitWords,
+            Self::Translate => ItemAction::Translate,
+            Self::CopyTranslation => ItemAction::CopyTranslation,
+            Self::PasteTranslation => ItemAction::PasteTranslation,
             Self::OpenLink => ItemAction::OpenLink,
             Self::SendEmail => ItemAction::SendEmail,
             Self::RevealInFinder => ItemAction::RevealInFinder,
@@ -95,6 +104,7 @@ impl MenuAction {
             Self::PasteAsPlainText | Self::PasteAsPath => PanelAction::PasteSelectedPlain,
             Self::Copy => PanelAction::CopySelected,
             Self::SplitWords => PanelAction::SplitSelected,
+            Self::Translate => PanelAction::TranslateSelected,
             Self::OpenLink | Self::SendEmail | Self::RevealInFinder | Self::RevealInExplorer => {
                 PanelAction::OpenSelected
             }
@@ -107,6 +117,8 @@ impl MenuAction {
             Self::PasteImageAsFile
             | Self::SaveImage
             | Self::CopyImageText
+            | Self::CopyTranslation
+            | Self::PasteTranslation
             | Self::MoveToGroup
             | Self::RestoreOriginal
             | Self::Select => {
@@ -128,6 +140,9 @@ impl MenuAction {
             Self::SaveImage => "clipboard:menu.saveImage",
             Self::CopyImageText => "clipboard:menu.copyImageText",
             Self::SplitWords => "clipboard:menu.splitWords",
+            Self::Translate => "clipboard:menu.translate",
+            Self::CopyTranslation => "clipboard:menu.copyTranslation",
+            Self::PasteTranslation => "clipboard:menu.pasteTranslation",
             Self::OpenLink => "clipboard:menu.openLink",
             Self::SendEmail => "clipboard:menu.sendEmail",
             Self::RevealInFinder => "clipboard:menu.revealInFinder",
@@ -277,6 +292,46 @@ mod tests {
                 MenuAction::PasteImageAsFile,
                 MenuAction::Copy
             ]]
+        );
+    }
+
+    #[test]
+    fn translation_actions_close_the_first_group() {
+        let item = with_actions(&[
+            ItemAction::Paste,
+            ItemAction::Copy,
+            ItemAction::SplitWords,
+            ItemAction::Translate,
+        ]);
+        assert_eq!(
+            menu_groups(&item, true, false)[0],
+            vec![
+                MenuAction::Paste,
+                MenuAction::Copy,
+                MenuAction::SplitWords,
+                MenuAction::Translate
+            ]
+        );
+        let item = with_actions(&[
+            ItemAction::Paste,
+            ItemAction::SplitWords,
+            ItemAction::CopyTranslation,
+            ItemAction::PasteTranslation,
+        ]);
+        assert_eq!(
+            menu_groups(&item, true, false)[0],
+            vec![
+                MenuAction::Paste,
+                MenuAction::SplitWords,
+                MenuAction::CopyTranslation,
+                MenuAction::PasteTranslation
+            ]
+        );
+        assert_eq!(
+            MenuAction::Translate
+                .accelerator(&kwikpaste_core::settings::Shortcuts::default())
+                .as_deref(),
+            Some("secondary-l")
         );
     }
 

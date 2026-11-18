@@ -171,6 +171,12 @@ pub struct ListItem {
     /// 搜索靠图片识别文字命中时的片段（core `ClipboardItemView::image_text_snippet`）。
     #[serde(skip)]
     pub image_text_snippet: Option<TextSnippet>,
+    /// 译文开头（core `ClipboardItemView::translation`，最多 512 个字符）：卡片在原文下面显示。
+    #[serde(skip)]
+    pub translation: Option<Arc<str>>,
+    /// 正在翻译（core `ClipboardItemView::translating`）。
+    #[serde(skip)]
+    pub translating: bool,
 }
 
 /// 识别文字里命中关键词的一小段，`matched` 是关键词在 `text` 里的字节范围（可能为空）。

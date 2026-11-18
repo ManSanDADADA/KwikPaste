@@ -188,6 +188,9 @@ impl ClipboardList {
                 save_image(self.source.image_save(id), window, cx);
             }
             MenuAction::SplitWords => self.split(&item, cx),
+            MenuAction::Translate => self.translate(id, window, cx),
+            MenuAction::CopyTranslation => self.copy_translation(id, window, cx),
+            MenuAction::PasteTranslation => self.paste_translation(id, cx),
             MenuAction::OpenLink => self.open(id, OpenTarget::Link, window, cx),
             MenuAction::SendEmail => self.open(id, OpenTarget::Email, window, cx),
             MenuAction::RevealInFinder | MenuAction::RevealInExplorer => {

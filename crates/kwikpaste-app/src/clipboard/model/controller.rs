@@ -49,6 +49,8 @@ pub enum ListUpdate {
     Reloaded,
     /// 图片文字识别有了进展或开关变了（core `OcrChanged`）：刷新搜索结果和图片能力。
     ImageTextChanged,
+    /// 文本记录的翻译状态或译文变了（core `TranslationChanged`）：刷新卡片上的译文和可用动作。
+    TranslationChanged,
 }
 
 /// 收到列表变化后要做的事。
@@ -246,6 +248,12 @@ impl ListController {
                 }
                 false
             }
+            ListUpdate::TranslationChanged => {
+                if !self.filter.may_include_existing(Some(ItemKind::Text)) {
+                    return UpdateAction::Ignore;
+                }
+                false
+            }
         };
         if reset_selection {
             self.selected = None;
@@ -262,6 +270,7 @@ impl ListController {
                     deduplicated: true,
                     ..
                 } | ListUpdate::ImageTextChanged
+                    | ListUpdate::TranslationChanged
             )
         {
             return UpdateAction::RefreshInPlace;
@@ -352,6 +361,8 @@ mod tests {
             image_display: None,
             has_image_text: false,
             image_text_snippet: None,
+            translation: None,
+            translating: false,
         })
     }
 

@@ -419,6 +419,8 @@ pub fn item(assets: &AssetSet, index: usize, options: GenerateOptions) -> ListIt
         image_display: None,
         has_image_text: false,
         image_text_snippet: None,
+        translation: None,
+        translating: false,
     }
 }
 

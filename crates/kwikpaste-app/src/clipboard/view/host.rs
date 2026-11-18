@@ -48,6 +48,12 @@ pub trait ItemHost {
     /// 把图片识别出的文字写回剪贴板，隐藏规则同 [`ItemHost::copy`]。
     fn copy_image_text(&self, id: Arc<str>, cx: &mut App) -> Task<anyhow::Result<()>>;
 
+    /// 把译文写回剪贴板，隐藏规则同 [`ItemHost::copy`]。
+    fn copy_translation(&self, id: Arc<str>, cx: &mut App) -> Task<anyhow::Result<()>>;
+
+    /// 粘贴译文，流程同 [`ItemHost::paste`]。
+    fn paste_translation(&self, id: Arc<str>, cx: &mut App) -> Task<anyhow::Result<()>>;
+
     fn copy_fragment(
         &self,
         id: Arc<str>,
@@ -125,6 +131,16 @@ impl ItemHost for PlatformHost {
 
     fn copy_image_text(&self, id: Arc<str>, cx: &mut App) -> Task<anyhow::Result<()>> {
         let task = platform::paste::copy_image_text(cx, id.to_string(), pin::pinned(cx));
+        ok_or_anyhow(task, cx)
+    }
+
+    fn copy_translation(&self, id: Arc<str>, cx: &mut App) -> Task<anyhow::Result<()>> {
+        let task = platform::paste::copy_translation(cx, id.to_string(), pin::pinned(cx));
+        ok_or_anyhow(task, cx)
+    }
+
+    fn paste_translation(&self, id: Arc<str>, cx: &mut App) -> Task<anyhow::Result<()>> {
+        let task = platform::paste::paste_translation(cx, id.to_string(), pin::pinned(cx));
         ok_or_anyhow(task, cx)
     }
 
@@ -210,6 +226,15 @@ impl ItemHost for SourceHost {
 
     fn copy_image_text(&self, id: Arc<str>, cx: &mut App) -> Task<anyhow::Result<()>> {
         self.copy_with(self.source.copy_image_text(id), cx)
+    }
+
+    fn copy_translation(&self, id: Arc<str>, cx: &mut App) -> Task<anyhow::Result<()>> {
+        self.copy_with(self.source.copy_translation(id), cx)
+    }
+
+    fn paste_translation(&self, id: Arc<str>, _: &mut App) -> Task<anyhow::Result<()>> {
+        log::info!("no paste chain for the translation of {id}: the data is not the host core's");
+        Task::ready(Ok(()))
     }
 
     fn copy_fragment(

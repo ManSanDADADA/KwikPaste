@@ -98,6 +98,7 @@
     "addNote": "添加备注",
     "copy": "复制",
     "copyImageText": "复制图中文字",
+    "copyTranslation": "复制译文",
     "delete": "删除",
     "editContent": "编辑内容",
     "editNote": "编辑备注",
@@ -108,6 +109,7 @@
     "pasteAsFile": "粘贴为文件",
     "pasteAsPath": "粘贴为路径",
     "pasteAsPlainText": "粘贴为纯文本",
+    "pasteTranslation": "粘贴译文",
     "pinItem": "置顶",
     "restoreOriginal": "恢复原文",
     "revealInExplorer": "在资源管理器中显示",
@@ -116,6 +118,7 @@
     "select": "多选",
     "sendEmail": "发送邮件",
     "splitWords": "拆词",
+    "translate": "翻译",
     "unfavorite": "取消收藏",
     "unpinItem": "取消置顶",
     "viewImage": "查看大图"
@@ -187,7 +190,15 @@
     "switchCustomGroup": "切换自定义分组",
     "title": "键盘快捷键",
     "toggleRange": "切换全部 / 收藏",
+    "translateSelected": "翻译选中项",
     "viewImage": "查看大图"
+  },
+  "translation": {
+    "pending": "翻译中…",
+    "providers": {
+      "transmart": "腾讯交互翻译",
+      "volc": "火山翻译"
+    }
   },
   "types": {
     "color": "颜色",

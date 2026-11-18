@@ -26,6 +26,7 @@
     "closeWindow": "关闭窗口",
     "copy": "复制",
     "copyImageText": "复制图中文字",
+    "copyTranslation": "复制译文",
     "delete": "删除",
     "deleteApps": "删除应用",
     "deleteClipboardGroup": "删除分组",
@@ -62,6 +63,7 @@
     "openWindow": "打开窗口",
     "pairLanDevice": "配对",
     "paste": "粘贴",
+    "pasteTranslation": "粘贴译文",
     "pinItem": "置顶",
     "playCopySound": "播放提示音",
     "previewHistoryCleanup": "预估清理范围",
@@ -92,6 +94,7 @@
     "splitWords": "拆词",
     "suspendGlobalShortcuts": "暂停全局快捷键",
     "toggleFavorite": "收藏",
+    "translate": "翻译",
     "unpinItem": "取消置顶"
   },
   "messages": {

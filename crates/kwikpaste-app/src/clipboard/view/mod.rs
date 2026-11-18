@@ -80,6 +80,8 @@ actions!(
         OpenSelected,
         /// Mod+S：拆词。
         SplitSelected,
+        /// Mod+L：翻译当前项。
+        TranslateSelected,
         /// Mod+A：进入多选并全选 / 取消全选。
         SelectAll,
         /// Mod+P：固定 / 取消固定窗口。
@@ -128,6 +130,7 @@ fn bindings(shortcuts: &Shortcuts) -> anyhow::Result<Vec<KeyBinding>> {
                 PanelAction::NoteSelected => Box::new(EditNote),
                 PanelAction::EditContent => Box::new(EditContent),
                 PanelAction::SplitSelected => Box::new(SplitSelected),
+                PanelAction::TranslateSelected => Box::new(TranslateSelected),
                 PanelAction::OpenSelected => Box::new(OpenSelected),
                 PanelAction::DeleteSelected => Box::new(DeleteSelected),
                 PanelAction::SelectAll => Box::new(SelectAll),

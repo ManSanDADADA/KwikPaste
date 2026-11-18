@@ -215,6 +215,16 @@ impl ClipboardSource for CoreSource {
         async move { Ok(core.copy_image_text(&id).await?.hide_window) }.boxed()
     }
 
+    fn translate(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<()>> {
+        let core = self.core.clone();
+        async move { Ok(core.translate_item(&id).await?) }.boxed()
+    }
+
+    fn copy_translation(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<bool>> {
+        let core = self.core.clone();
+        async move { Ok(core.copy_translation(&id).await?.hide_window) }.boxed()
+    }
+
     fn toggle_favorite(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<bool>> {
         let core = self.core.clone();
 
@@ -655,6 +665,8 @@ impl From<ClipboardItemView> for ListItem {
                 text: shared(snippet.text),
                 matched: snippet.matched,
             }),
+            translation: view.translation.map(shared),
+            translating: view.translating,
         }
     }
 }

@@ -27,7 +27,7 @@ use crate::{
             actions::{DeletePolicy, OpenTarget, QuickAction, is_available, is_copy, open_target},
             filter::ListFilter,
             freshness::Activation,
-            item::{ItemKind, ListItem, SubKind},
+            item::{ItemAction, ItemKind, ListItem, SubKind},
             layout::LayoutSpec,
         },
         source::{Group, core_source::item_query},
@@ -523,6 +523,58 @@ impl ClipboardList {
             .ok();
         }));
         cx.notify();
+    }
+
+    // ------------------------------------------------------------ 翻译
+
+    /// 翻译这一条（右键菜单、快捷键、预览窗）；已有译文时是重新翻译。译文经 core 的事件回来，
+    /// 这里只在排不上队时提示原因（扩展没启用、记录不可翻译、AI 接口没填全）。
+    pub fn translate(&mut self, id: Arc<str>, window: &mut Window, cx: &mut Context<Self>) {
+        let task = self.source.translate(id);
+        cx.spawn_in(window, async move |list, cx| {
+            if let Err(err) = task.await {
+                list.update_in(cx, |_, window, cx| {
+                    Self::toast_error("commands:labels.translate", &err, window, cx)
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// 快捷键：当前项可翻译且还没有译文时开始翻译，其余情况不做事。
+    pub fn translate_active(
+        &mut self,
+        item: &ListItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if item.available_actions.contains(&ItemAction::Translate) {
+            self.translate(item.id.clone(), window, cx);
+        }
+    }
+
+    /// 复制译文（右键菜单、预览窗），预览保持打开。
+    pub fn copy_translation(&mut self, id: Arc<str>, window: &mut Window, cx: &mut Context<Self>) {
+        let task = self.host.copy_translation(id, cx);
+
+        cx.spawn_in(window, async move |list, cx| {
+            let result = task.await;
+            list.update_in(cx, |_, window, cx| match result {
+                Ok(()) => Self::toast_success("commands:messages.copied", window, cx),
+                Err(err) => Self::toast_error("commands:labels.copyTranslation", &err, window, cx),
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// 粘贴译文：写回剪贴板、让出前台、注入粘贴键。
+    pub fn paste_translation(&mut self, id: Arc<str>, cx: &mut Context<Self>) {
+        log::info!("translation paste requested for {id}");
+        self.close_preview(cx);
+        let task = self.host.paste_translation(id, cx);
+        self.report_host_failure("commands:labels.pasteTranslation", task, cx);
     }
 
     // ------------------------------------------------------------ 收藏、置顶
