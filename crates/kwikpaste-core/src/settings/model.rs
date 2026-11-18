@@ -1104,6 +1104,45 @@ pub struct Update {
 #[serde(default, rename_all = "camelCase")]
 pub struct ExtensionSettings {
     pub wetype: WeTypeSettings,
+    pub translate: TranslateSettings,
+}
+
+/// 翻译扩展的设置。AI 接口的地址、Key、模型、提示词不在这里：`settings.json` 会进备份，
+/// 反馈上报还会带上改过的设置项，它们存在扩展的状态目录里。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TranslateSettings {
+    pub engine: TranslateEngineKind,
+    /// 首选语言（BCP 47）；空串表示跟随界面语言。
+    pub first_language: String,
+    /// 第二语言；空串表示英语，首选语言是英语时为简体中文。
+    pub second_language: String,
+    /// 在列表卡片上显示译文；关掉后只在预览里看。
+    pub show_on_cards: bool,
+    /// 自动翻译新复制的外文。
+    pub auto: bool,
+}
+
+impl Default for TranslateSettings {
+    fn default() -> Self {
+        Self {
+            engine: TranslateEngineKind::Free,
+            first_language: String::new(),
+            second_language: String::new(),
+            show_on_cards: true,
+            auto: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum TranslateEngineKind {
+    /// 免密钥的网页接口。
+    #[default]
+    Free,
+    /// 用户自己填的 OpenAI 兼容接口。
+    Ai,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

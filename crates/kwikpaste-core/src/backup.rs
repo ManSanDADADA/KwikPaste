@@ -667,10 +667,11 @@ async fn stage_scoped_source(
     Ok((staged, counts))
 }
 
-/// 部分备份不带图片识别文字：删掉派生的 OCR 正文、重建它的索引再 VACUUM，删掉的文字不留在索引段或空闲页里。
+/// 部分备份不带派生内容：删掉图片识别文字和译文、重建识别文字的索引再 VACUUM，删掉的文字不留在索引段或空闲页里。
 async fn strip_ocr_backup(pool: &SqlitePool) -> Result<()> {
     for statement in [
         "DELETE FROM image_texts",
+        "DELETE FROM item_translations",
         "INSERT INTO image_texts_fts(image_texts_fts) VALUES ('rebuild')",
         "VACUUM",
     ] {

@@ -1570,6 +1570,8 @@ fn partial_backup_strips_ocr_text_while_full_backup_keeps_it() {
             sqlx::query("INSERT INTO image_texts(item_id,status,text,lines,attempts,created_at,updated_at) SELECT id,'done','private OCR sentinel',?,1,created_at,created_at FROM clipboard_items WHERE kind='image'")
                 .bind(r#"[{"text":"private OCR sentinel","quad":[[0,0],[1,0],[1,1],[0,1]]}]"#)
                 .execute(&core.0.db.pool().await).await.unwrap();
+            sqlx::query("INSERT INTO item_translations(item_id,source_hash,text,target_lang,provider,created_at,updated_at) SELECT id,content_hash,'private translation sentinel','en','volc',created_at,created_at FROM clipboard_items WHERE kind='image'")
+                .execute(&core.0.db.pool().await).await.unwrap();
             Ok(())
         }
     })).unwrap();
@@ -1601,6 +1603,11 @@ fn partial_backup_strips_ocr_text_while_full_backup_keeps_it() {
             .await
             .unwrap();
             assert_eq!((rows, hits), (expected, expected));
+            let translations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM item_translations")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(translations, expected);
             let lines: Option<String> = sqlx::query_scalar("SELECT lines FROM image_texts")
                 .fetch_optional(&pool)
                 .await

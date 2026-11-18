@@ -540,6 +540,20 @@ mod tests {
             core.settings().extensions.wetype,
             crate::settings::WeTypeSettings::default()
         );
+        assert_eq!(
+            core.settings().extensions.translate,
+            crate::settings::TranslateSettings::default()
+        );
+        assert_eq!(
+            serde_json::to_value(crate::settings::TranslateSettings::default())?,
+            serde_json::json!({
+                "engine": "free",
+                "firstLanguage": "",
+                "secondLanguage": "",
+                "showOnCards": true,
+                "auto": false
+            })
+        );
         assert!(!core.settings().general.tray_icon);
         crate::testing::block_on(core.shutdown())?;
         Ok(())
