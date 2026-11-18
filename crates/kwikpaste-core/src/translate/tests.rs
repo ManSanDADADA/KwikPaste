@@ -61,6 +61,14 @@ fn only_plain_non_sensitive_text_within_the_limit_is_translatable() {
     )));
     assert!(!translatable(&text_item(&core, "https://example.com/path")));
     assert!(!translatable(&text_item(&core, "#ff8800")));
+    let link = ClipboardPayload::Text(TextPayload {
+        text: "https://example.com/path".into(),
+        html: Some("<a href=\"https://example.com/path\">https://example.com/path</a>".into()),
+        rtf: None,
+    });
+    let link = core.build_item(&link).unwrap().unwrap();
+    assert_eq!(link.sub_kind, Some(ClipboardSubKind::Html));
+    assert!(!translatable(&link));
     let mut sensitive = text_item(&core, "plain words");
     sensitive.is_sensitive = true;
     assert!(!translatable(&sensitive));

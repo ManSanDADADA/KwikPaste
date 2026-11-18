@@ -12,6 +12,7 @@ pub use config::TranslateAiConfig;
 pub use kwikpaste_ext_protocol::TranslateFailure;
 pub(crate) use queue::TranslateService;
 
+use crate::clipboard::{detect_text_sub_kind, SUMMARY_MAX_CHARS};
 use crate::db::items::{content_hash, find_item_by_id};
 use crate::db::models::{ClipboardItem, ClipboardKind, ClipboardSubKind};
 use crate::error::AppError;
@@ -87,17 +88,30 @@ pub fn languages(settings: &TranslateSettings, ui: Language) -> (String, String)
 
 /// 类型上能不能翻译；长度另算。
 fn eligible(item: &ClipboardItem) -> bool {
-    item.kind == ClipboardKind::Text
-        && !item.is_sensitive
-        && !matches!(
-            item.sub_kind,
-            Some(
-                ClipboardSubKind::Url
-                    | ClipboardSubKind::Email
-                    | ClipboardSubKind::Color
-                    | ClipboardSubKind::Path
-            )
+    if item.kind != ClipboardKind::Text || item.is_sensitive {
+        return false;
+    }
+    let mut sub_kind = item.sub_kind;
+    if matches!(
+        sub_kind,
+        Some(ClipboardSubKind::Html | ClipboardSubKind::Rtf)
+    ) {
+        // 和列表卡片一样：纯文本整段就是链接、邮箱等的富文本按那个类型算。
+        sub_kind = item
+            .summary
+            .as_deref()
+            .filter(|summary| summary.chars().count() < SUMMARY_MAX_CHARS)
+            .and_then(detect_text_sub_kind);
+    }
+    !matches!(
+        sub_kind,
+        Some(
+            ClipboardSubKind::Url
+                | ClipboardSubKind::Email
+                | ClipboardSubKind::Color
+                | ClipboardSubKind::Path
         )
+    )
 }
 
 /// 这条带全文的记录能不能翻译。富文本按它的纯文本算。
