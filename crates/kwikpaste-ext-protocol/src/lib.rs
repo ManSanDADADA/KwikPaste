@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 pub const OCR_PROTOCOL: u32 = 2;
 pub const WETYPE_PROTOCOL: u32 = 1;
+pub const TRANSLATE_PROTOCOL: u32 = 1;
 pub const WETYPE_MAX_TEXT_BYTES: usize = 1024 * 1024;
 pub const WETYPE_MAX_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -112,6 +113,74 @@ pub enum Outcome {
     Failed {
         reason: String,
     },
+}
+
+/// 翻译扩展的请求。语言用 BCP 47 写法（`zh-Hans`、`en`…）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "tag", deny_unknown_fields)]
+pub enum TranslateRequest {
+    Translate {
+        job_id: String,
+        text: String,
+        /// 首选语言：原文不是它时译成它。
+        first: String,
+        /// 第二语言：原文是首选语言时译成它。
+        second: String,
+        /// 自动模式：原文是首选语言或语种拿不准时返回 `Skipped`，不联网。
+        auto: bool,
+        engine: TranslateEngine,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "tag", deny_unknown_fields)]
+pub enum TranslateEngine {
+    /// 免密钥的网页接口，具体用哪几家由扩展决定。
+    Free,
+    /// OpenAI Chat Completions 格式；`prompt` 为空时用扩展内置的提示词。
+    OpenAi {
+        base_url: String,
+        api_key: String,
+        model: String,
+        prompt: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "tag", deny_unknown_fields)]
+pub enum TranslateResponse {
+    Translate {
+        job_id: String,
+        outcome: TranslateOutcome,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "tag", deny_unknown_fields)]
+pub enum TranslateOutcome {
+    Done {
+        text: String,
+        /// 服务报告的原文语种；AI 接口没有。
+        source: Option<String>,
+        target: String,
+        /// 稳定的短 id：`volc`、`transmart`；AI 接口是模型名。
+        provider: String,
+    },
+    /// 只在 `auto` 为真时返回。
+    Skipped,
+    Failed {
+        kind: TranslateFailure,
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TranslateFailure {
+    Network,
+    Auth,
+    RateLimited,
+    Unsupported,
+    Other,
 }
 
 /// 复用调用方缓冲区；仅帧边界上的 EOF 正常，半帧或未知 tag 必须拒绝。
@@ -290,6 +359,46 @@ mod tests {
                 WETYPE_MAX_FRAME_BYTES
             )
             .is_err()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn translate_frames_roundtrip() -> io::Result<()> {
+        let request = TranslateRequest::Translate {
+            job_id: "id".into(),
+            text: "第一行\nsecond line".into(),
+            first: "zh-Hans".into(),
+            second: "en".into(),
+            auto: false,
+            engine: TranslateEngine::OpenAi {
+                base_url: "http://localhost:11434/v1".into(),
+                api_key: String::new(),
+                model: "translategemma".into(),
+                prompt: None,
+            },
+        };
+        let response = TranslateResponse::Translate {
+            job_id: "id".into(),
+            outcome: TranslateOutcome::Done {
+                text: "first line\n第二行".into(),
+                source: Some("zh".into()),
+                target: "en".into(),
+                provider: "volc".into(),
+            },
+        };
+        let mut wire = Vec::new();
+        let mut buffer = Vec::new();
+        write_frame(&mut wire, &request, &mut buffer)?;
+        write_frame(&mut wire, &response, &mut buffer)?;
+        let mut reader = Cursor::new(wire);
+        assert_eq!(
+            read_frame::<TranslateRequest>(&mut reader, &mut buffer)?,
+            Some(request)
+        );
+        assert_eq!(
+            read_frame::<TranslateResponse>(&mut reader, &mut buffer)?,
+            Some(response)
         );
         Ok(())
     }

@@ -4,7 +4,7 @@ pub mod process;
 mod tests;
 
 use crate::{Core, CoreEvent, Result};
-pub use kwikpaste_ext_protocol::{OCR_PROTOCOL, WETYPE_PROTOCOL};
+pub use kwikpaste_ext_protocol::{OCR_PROTOCOL, TRANSLATE_PROTOCOL, WETYPE_PROTOCOL};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -53,6 +53,7 @@ fn known(id: &str) -> anyhow::Result<u32> {
         "ocr" => Ok(OCR_PROTOCOL),
         id if is_ocr_tier(id) => Ok(OCR_PROTOCOL),
         "wetype" => Ok(WETYPE_PROTOCOL),
+        "translate" => Ok(TRANSLATE_PROTOCOL),
         _ => anyhow::bail!("unknown extension: {id}"),
     }
 }

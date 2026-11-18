@@ -55,7 +55,7 @@ jobs:
           if not dry_run and os.environ["GITHUB_REF"] != f"refs/tags/{tag}":
               raise SystemExit("Real publication must run on the matching tag ref")
           ppocr = id == "ppocr"
-          if id not in {"ocr", "wetype"} and not ppocr:
+          if id not in {"ocr", "wetype", "translate"} and not ppocr:
               raise SystemExit("Unknown extension")
           ids = ["ocr-tiny", "ocr-small", "ocr-medium"] if ppocr else [id]
           manifest = "extensions/ppocr/Cargo.toml" if ppocr else "extensions/wetype/Cargo.toml" if id == "wetype" else f"crates/kwikpaste-ext-{id}/Cargo.toml"
