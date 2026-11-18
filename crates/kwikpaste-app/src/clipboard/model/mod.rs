@@ -13,6 +13,7 @@
 //! - [`selection`]：多选；
 //! - [`layout`]：密度换算、图片显示尺寸预测；
 //! - [`time_label`]：卡片时间标签；
+//! - [`translation`]：翻译相关的显示名；
 //! - [`viewer`]：大图预览的缩放、平移与解码尺寸；
 //! - [`viewer_text`]：大图预览的文字层（识别行的位置、命中与选区）。
 
@@ -29,5 +30,6 @@ pub mod preview;
 pub mod selection;
 pub mod shortcut;
 pub mod time_label;
+pub mod translation;
 pub mod viewer;
 pub mod viewer_text;

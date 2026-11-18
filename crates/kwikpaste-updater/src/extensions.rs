@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use kwikpaste_core::extensions::InstalledExtension;
 use kwikpaste_core::runtime::hop;
 use kwikpaste_core::{Core, Result};
-use kwikpaste_ext_protocol::{OCR_PROTOCOL, WETYPE_PROTOCOL};
+use kwikpaste_ext_protocol::{OCR_PROTOCOL, TRANSLATE_PROTOCOL, WETYPE_PROTOCOL};
 use serde::{Deserialize, Serialize};
 
 use crate::{DownloadProgress, UpdaterUi, lock, other};
@@ -14,6 +14,7 @@ use crate::{DownloadProgress, UpdaterUi, lock, other};
 const KNOWN: &[(&str, u32)] = &[
     ("ocr", OCR_PROTOCOL),
     ("wetype", WETYPE_PROTOCOL),
+    ("translate", TRANSLATE_PROTOCOL),
     #[cfg(target_os = "windows")]
     ("ocr-tiny", OCR_PROTOCOL),
     #[cfg(target_os = "windows")]

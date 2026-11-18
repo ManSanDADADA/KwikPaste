@@ -64,6 +64,7 @@ mod image_text;
 mod ocr_engine;
 mod overview;
 mod shortcut_page;
+mod translate;
 mod wetype;
 
 const WINDOW_MIN_SIZE: gpui::Size<gpui::Pixels> = size(px(640.), px(480.));
@@ -291,6 +292,8 @@ struct Preferences {
     /// 系统的识别能力；只在开着识别时探测。
     ocr_support: Option<kwikpaste_core::OcrSupport>,
     lan_name: TextInput,
+    /// 扩展页里翻译设置的控件。
+    translate: translate::TranslateControls,
     lan_max_image: NumberInputState,
     icons: gpui::Entity<KpImageCache>,
     /// 全部分组：启动分组下拉与自动归组规则共用，分组变化时刷新。
@@ -560,6 +563,8 @@ impl Preferences {
             .detach();
         }
         let lan_state = core_host::core(cx).map(|core| core.lan_sync_state());
+        let (translate, translate_subscriptions) =
+            translate::TranslateControls::new(&settings, window, cx);
         let subscriptions: Vec<Subscription> = core_events(cx)
             .map(|events| {
                 cx.subscribe_in(&events, window, |this, _, event: &CoreEvent, window, cx| {
@@ -587,6 +592,7 @@ impl Preferences {
                     if matches!(event, CoreEvent::ExtensionsChanged) {
                         this.ocr_support = None;
                         this.ocr_refresh = this.ocr_refresh.wrapping_add(1);
+                        this.translate.reload_ai(window, cx);
                         cx.notify();
                     }
                     if this.tab == TabId::Extensions
@@ -626,6 +632,7 @@ impl Preferences {
                 hotkey_status_subscription,
             ])
             .chain(setting_subscriptions)
+            .chain(translate_subscriptions)
             .collect();
         let mut subscriptions = subscriptions;
         subscriptions.push(cx.observe(&icons, |_, _, cx| cx.notify()));
@@ -688,6 +695,7 @@ impl Preferences {
             ocr_refresh: 0,
             ocr_support: None,
             lan_name,
+            translate,
             lan_max_image,
             icons,
             groups: Vec::new(),
@@ -772,6 +780,7 @@ impl Preferences {
             window,
             cx,
         );
+        self.translate.relabel(&self.settings, window, cx);
     }
 
     /// 导入或其它入口更新设置后，同步快照及独立持有状态的控件；下拉、数字框和滑块只同步这次改到的。
@@ -828,6 +837,9 @@ impl Preferences {
         self.sidebar_collapsed = self.settings.appearance.preferences_sidebar_collapsed;
         if delta.touches("clipboard.history.retention") {
             self.sync_retention(window, cx);
+        }
+        if delta.touches("extensions.translate") {
+            self.translate.sync(&self.settings, window, cx);
         }
         cx.notify();
     }
@@ -995,12 +1007,14 @@ impl Preferences {
         cx.notify();
     }
 
-    /// 关窗前提交正在编辑的数字框和设备名：它们只在失焦或回车时保存，移除窗口不会再发失焦。
+    /// 关窗前提交正在编辑的数字框、设备名和翻译的 AI 接口：它们只在失焦或回车时保存，
+    /// 移除窗口不会再发失焦。
     fn commit_focused_input(&self, window: &Window, cx: &mut App) {
         for state in self.number_inputs.values().chain([&self.lan_max_image]) {
             state.commit_if_focused(window, cx);
         }
         self.lan_name.commit_if_focused(window, cx);
+        self.translate.commit_if_focused(window, cx);
     }
 
     /// 结束正在进行的全局快捷键或窗口内按键录制。

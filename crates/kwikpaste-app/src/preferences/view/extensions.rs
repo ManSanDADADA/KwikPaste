@@ -72,12 +72,20 @@ impl Preferences {
             );
             return;
         };
-        // 卸载都要确认；微信输入法同步在安装前先说明它是非官方实现。
+        // 卸载都要确认；微信输入法同步和翻译在安装前先说明它们用的是非官方接口。
         let confirm = match action {
-            Action::Uninstall => Some(("uninstallTitle", "uninstallContent", "uninstall", true)),
-            Action::Install if id == "wetype" => {
-                Some(("wetype.installTitle", "installContent", "install", false))
-            }
+            Action::Uninstall => Some((
+                "uninstallTitle".to_owned(),
+                "uninstallContent",
+                "uninstall",
+                true,
+            )),
+            Action::Install if matches!(id.as_str(), "wetype" | "translate") => Some((
+                format!("{id}.installTitle"),
+                "installContent",
+                "install",
+                false,
+            )),
             _ => None,
         };
         let answer = confirm.map(|(title, content, ok, danger)| {
@@ -296,6 +304,7 @@ impl Preferences {
                         }
                     }
                     "wetype" if enabled => rows.extend(self.render_wetype(cx)),
+                    "translate" if enabled => rows.extend(self.render_translate(cx)),
                     id => rows.push(details(id, tokens)),
                 }
             }

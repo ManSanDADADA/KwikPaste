@@ -138,6 +138,53 @@
       "uninstallContent": "New images will no longer be recognized; recognized text is kept."
     },
     "retry": "Retry",
+    "translate": {
+      "ai": {
+        "apiKey": "API key",
+        "baseUrl": "Endpoint address",
+        "baseUrlDescription": "The address of an OpenAI-compatible endpoint, without /chat/completions.",
+        "model": "Model",
+        "modelDescription": "Fast models such as flash or lite variants work best. Reasoning models are slower.",
+        "preset": "Preset",
+        "presetDescription": "Choosing one fills in the address and a suggested model. You can change both afterwards.",
+        "presets": {
+          "bailian": "Alibaba Cloud Bailian",
+          "custom": "Custom",
+          "deepseek": "DeepSeek",
+          "ollama": "Ollama (this computer)",
+          "siliconflow": "SiliconFlow",
+          "zhipu": "Zhipu"
+        },
+        "prompt": "Prompt",
+        "promptDescription": "Leave empty to use the built-in prompt. {to} is replaced with the English name of the target language."
+      },
+      "auto": "Translate newly copied foreign text automatically",
+      "autoDescription": "Only text copied after you turn this on is translated. Text in your first language, or text whose language is unclear, is not translated and is not sent anywhere.",
+      "clear": "Clear translations",
+      "clearConfirm": "Clear",
+      "clearContent": "This deletes all saved translations. The original text is not affected. To see a translation again you need to translate the item again.",
+      "clearDescription": "Delete all saved translations.",
+      "cleared": "Translations cleared",
+      "description": "Translate text items and show the original and the translation together in the list and the preview.",
+      "engine": "Translation engine",
+      "engines": {
+        "ai": "AI endpoint",
+        "free": "Free translation"
+      },
+      "feature": "Choose Translate in the context menu or press the shortcut. The translation appears under the original and can be copied or pasted on its own. You can also turn on automatic translation, which translates newly copied foreign text into your first language.",
+      "firstLanguage": "First language",
+      "firstLanguageDescription": "Other languages are translated into it. Text already in it is translated into the second language.",
+      "followInterface": "Follow the interface language",
+      "how": "Translation runs in a separate background process that starts when there is work and exits after a minute of inactivity. Free translation uses the web endpoints of Volcano Translate and Tencent TranSmart and needs no account. The AI endpoint works with OpenAI-compatible services, including Ollama on this computer.",
+      "installContent": "Translation sends the text to be translated to a third-party translation service. Free translation currently uses the web endpoints of Volcano Translate and Tencent TranSmart. These are unofficial endpoints and may stop working at any time. The AI endpoint sends text to the address you enter. Items marked as sensitive are never sent. Install it?",
+      "installTitle": "Install translation",
+      "name": "Translation",
+      "privacy": "The text to be translated is sent to the translation service you choose. Items marked as sensitive, and links, email addresses, colors and paths, are never sent. The AI endpoint address and key are stored only on this computer and are not included in backups.",
+      "secondLanguage": "Second language",
+      "showOnCards": "Show translations on cards",
+      "showOnCardsDescription": "When off, translations appear only in the preview.",
+      "uninstallContent": "After uninstalling, nothing is translated. Existing translations are kept but hidden. The AI endpoint address and key are deleted."
+    },
     "unavailable": "Temporarily unavailable. Please try again later.",
     "uninstall": "Uninstall",
     "uninstallTitle": "Uninstall extension",
