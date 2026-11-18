@@ -55,6 +55,7 @@ pub use kwikpaste_core::presenter::{
     ClipboardPreviewPayload as PreviewPayload, PreviewContentMetrics,
 };
 pub use kwikpaste_core::settings::PreviewTextView;
+pub use kwikpaste_core::translate::TranslationView;
 
 /// 预览窗的数据（core `preview_payload`）与定尺寸用的内容度量（core `preview_metrics`）。
 #[derive(Clone, Debug)]
@@ -124,6 +125,11 @@ pub trait ClipboardSource: Send + Sync + 'static {
     /// 把译文写回剪贴板。返回设置是否要求随后隐藏窗口。
     fn copy_translation(&self, _id: Arc<str>) -> BoxFuture<'static, anyhow::Result<bool>> {
         Box::pin(async { anyhow::bail!("translation is unavailable for this source") })
+    }
+
+    /// 预览窗用的译文全文和翻译状态。夹具没有翻译。
+    fn translation(&self, _id: Arc<str>) -> BoxFuture<'static, anyhow::Result<TranslationView>> {
+        Box::pin(async { Ok(TranslationView::default()) })
     }
 
     /// 翻转收藏，返回新状态。

@@ -8,6 +8,7 @@ use gpui::{App, FontWeight, TextRun, Window, font, px};
 use kwikpaste_core::{
     clipboard::WordSpan,
     presenter::{PreviewContentMetrics, PreviewWordChip},
+    translate::{TranslationState, TranslationView},
 };
 use kwikpaste_ui::theme::{TextSize, fonts};
 
@@ -56,6 +57,12 @@ pub const SNIPPET_LINE_HEIGHT: f64 = 16.;
 /// 片段再多也给正文留出位置。
 pub const SNIPPETS_MAX_HEIGHT: f64 =
     1. + SNIPPETS_PADDING_Y + 3.5 * SNIPPET_CHIP_HEIGHT + 3. * WORD_GAP;
+/// 预览窗译文区工具栏的高度（来源标签和小号按钮）。
+pub const TRANSLATION_BAR_HEIGHT: f64 = 40.;
+/// 译文正文最多显示的行数，超出在区内滚动。
+pub const TRANSLATION_MAX_ROWS: usize = 8;
+/// 译文正文下方的内边距。
+pub const TRANSLATION_PADDING_BOTTOM: f64 = 12.;
 
 /// 逻辑像素的矩形。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -153,6 +160,7 @@ impl Geometry {
 /// 算预览窗的位置：`card` 是卡片、`window` 是卡片所在的主窗口、`monitor` 是显示器工作区（同一坐标系的
 /// 逻辑像素），`metrics` 为 `None` 表示记录已经不在了（只剩空状态）。`prefer_left`：指针在主窗口左半边。
 /// `gap` 是面板与卡片的距离。`scale` 是文本缩放，面板内容随它放大，尺寸上下限和间距也跟着放大。
+/// `translation` 是正文下方译文区的高度。
 #[allow(clippy::too_many_arguments)]
 pub fn geometry(
     card: RectF,
@@ -160,6 +168,7 @@ pub fn geometry(
     monitor: RectF,
     metrics: Option<&PreviewContentMetrics>,
     snippets: f64,
+    translation: f64,
     prefer_left: bool,
     gap: f64,
     scale: f64,
@@ -168,7 +177,7 @@ pub fn geometry(
     let source = card
         .intersect(&monitor)
         .unwrap_or_else(|| card.clamp_into(&monitor));
-    let size = panel_size(metrics, snippets, &available, scale);
+    let size = panel_size(metrics, snippets, translation, &available, scale);
     let gap = gap * scale;
     let placement = placement(&source, &window, &available, size, prefer_left, gap);
     let panel = raw_panel(&anchor(&source, &window, placement), placement, size, gap)
@@ -242,10 +251,12 @@ pub fn words_metrics(text: &str, words: &[WordSpan]) -> PreviewContentMetrics {
     PreviewContentMetrics::Words { chips }
 }
 
-/// 按内容度量算面板尺寸，规则与面板的渲染一一对应。`snippets` 是纯文本下方快捷信息区的高度。
+/// 按内容度量算面板尺寸，规则与面板的渲染一一对应。`snippets` 是纯文本下方快捷信息区的高度，
+/// `translation` 是正文下方译文区的高度。
 fn panel_size(
     metrics: Option<&PreviewContentMetrics>,
     snippets: f64,
+    translation: f64,
     available: &RectF,
     scale: f64,
 ) -> (f64, f64) {
@@ -257,9 +268,10 @@ fn panel_size(
 
     let (width, height) = match metrics {
         None => (max_width, header + EMPTY_HEIGHT * scale),
-        Some(PreviewContentMetrics::Text { rows }) => {
-            (max_width, header + (text_height(*rows) + snippets) * scale)
-        }
+        Some(PreviewContentMetrics::Text { rows }) => (
+            max_width,
+            header + (text_height(*rows) + snippets + translation) * scale,
+        ),
         Some(PreviewContentMetrics::Words { chips }) => {
             let widths: Vec<(f64, bool)> = chips
                 .iter()
@@ -268,7 +280,7 @@ fn panel_size(
             let content = max_width / scale - WORDS_PADDING * 2. - WORDS_EDGE;
             (
                 max_width,
-                header + (words_height(&widths, content) + WORDS_BAR_HEIGHT) * scale,
+                header + (words_height(&widths, content) + WORDS_BAR_HEIGHT + translation) * scale,
             )
         }
         Some(PreviewContentMetrics::Files { shown, total }) => {
@@ -365,6 +377,20 @@ pub fn snippets_height(chips: &[(f64, usize)], content_width: f64) -> f64 {
         + f64::from(rows - 1) * WORD_GAP
         + extra_lines as f64 * SNIPPET_LINE_HEIGHT)
         .min(SNIPPETS_MAX_HEIGHT)
+}
+
+/// 译文区的高度（含顶部 1px 分隔线）。`rows` 是译文按面板宽度折出的行数。
+/// 没有译文、也不在翻译中或失败时没有译文区，高度为 0。
+pub fn translation_height(view: &TranslationView, rows: usize) -> f64 {
+    if view.translation.is_none() && view.state == TranslationState::Idle {
+        return 0.;
+    }
+    let body = if view.translation.is_some() {
+        rows.clamp(1, TRANSLATION_MAX_ROWS) as f64 * TEXT_ROW_HEIGHT + TRANSLATION_PADDING_BOTTOM
+    } else {
+        0.
+    };
+    1. + TRANSLATION_BAR_HEIGHT + body
 }
 
 fn text_height(rows: u32) -> f64 {
@@ -671,6 +697,7 @@ mod tests {
             MONITOR,
             Some(&PreviewContentMetrics::Text { rows: 3 }),
             0.,
+            0.,
             false,
             GAP,
             1.,
@@ -690,6 +717,7 @@ mod tests {
             MONITOR,
             Some(&PreviewContentMetrics::Text { rows: 3 }),
             snippets,
+            0.,
             false,
             GAP,
             1.,
@@ -721,6 +749,7 @@ mod tests {
             MONITOR,
             text,
             0.,
+            0.,
             true,
             GAP,
             1.,
@@ -730,6 +759,7 @@ mod tests {
             window(card(800.)),
             MONITOR,
             image,
+            0.,
             0.,
             true,
             GAP,
@@ -751,6 +781,7 @@ mod tests {
             MONITOR,
             None,
             0.,
+            0.,
             true,
             GAP,
             1.,
@@ -763,6 +794,7 @@ mod tests {
             window(card(1500.)),
             MONITOR,
             None,
+            0.,
             0.,
             false,
             GAP,
@@ -793,7 +825,7 @@ mod tests {
             height: 100.,
         };
         let text = Some(&PreviewContentMetrics::Text { rows: 12 });
-        let below = geometry(card, main, portrait, text, 0., false, GAP, 1.);
+        let below = geometry(card, main, portrait, text, 0., 0., false, GAP, 1.);
         assert_eq!(below.placement, Placement::Bottom);
         assert_eq!(below.panel.top, main.top + main.height + GAP);
         assert!(below.panel.intersect(&main).is_none());
@@ -804,7 +836,7 @@ mod tests {
             height: 1872.,
             ..main
         };
-        let edge = geometry(card, tall, portrait, text, 0., false, GAP, 1.);
+        let edge = geometry(card, tall, portrait, text, 0., 0., false, GAP, 1.);
         assert_eq!(edge.placement, Placement::Right);
         assert_eq!(edge.panel.right(), portrait.width - MARGIN);
     }
@@ -820,6 +852,7 @@ mod tests {
                 height: Some(1000.),
             }),
             0.,
+            0.,
             false,
             GAP,
             1.,
@@ -832,6 +865,7 @@ mod tests {
                 width: Some(10.),
                 height: Some(10.),
             }),
+            0.,
             0.,
             &MONITOR.inset(MARGIN),
             1.,
@@ -851,6 +885,7 @@ mod tests {
         // 内容宽 448：一行放 4 个（4×100 + 3×4 = 412），9 个占 3 行。
         let height = panel_size(
             Some(&PreviewContentMetrics::Words { chips }),
+            0.,
             0.,
             &MONITOR.inset(MARGIN),
             1.,
@@ -896,8 +931,47 @@ mod tests {
     }
 
     #[test]
+    fn translation_zone_height_follows_its_state() {
+        use kwikpaste_core::translate::{
+            ItemTranslation, TranslateFailure, TranslationState, TranslationView,
+        };
+
+        let mut view = TranslationView {
+            translatable: true,
+            ..TranslationView::default()
+        };
+        // 可翻译但还没翻：没有译文区。
+        assert_eq!(translation_height(&view, 0), 0.);
+        // 翻译中、失败：分隔线加一行工具栏。
+        view.state = TranslationState::Pending;
+        assert_eq!(translation_height(&view, 0), 1. + TRANSLATION_BAR_HEIGHT);
+        view.state = TranslationState::Failed {
+            kind: TranslateFailure::Network,
+            message: String::new(),
+        };
+        assert_eq!(translation_height(&view, 0), 1. + TRANSLATION_BAR_HEIGHT);
+        // 有译文：再加正文，最多 8 行。
+        view.state = TranslationState::Idle;
+        view.translation = Some(ItemTranslation {
+            text: "译文".into(),
+            source_lang: Some("en".into()),
+            target_lang: "zh-Hans".into(),
+            provider: "volc".into(),
+        });
+        let body = |rows: f64| rows * TEXT_ROW_HEIGHT + TRANSLATION_PADDING_BOTTOM;
+        assert_eq!(
+            translation_height(&view, 3),
+            1. + TRANSLATION_BAR_HEIGHT + body(3.)
+        );
+        assert_eq!(
+            translation_height(&view, 40),
+            1. + TRANSLATION_BAR_HEIGHT + body(TRANSLATION_MAX_ROWS as f64)
+        );
+    }
+
+    #[test]
     fn panels_scale_with_text_size() {
-        let size = panel_size(None, 0., &MONITOR.inset(MARGIN), 1.25);
+        let size = panel_size(None, 0., 0., &MONITOR.inset(MARGIN), 1.25);
         assert_eq!(size, (600., (48. + 96.) * 1.25));
     }
 
@@ -905,6 +979,7 @@ mod tests {
     fn long_text_fills_the_panel_and_scrolls() {
         let (width, height) = panel_size(
             Some(&PreviewContentMetrics::Text { rows: 40 }),
+            0.,
             0.,
             &MONITOR.inset(MARGIN),
             1.,

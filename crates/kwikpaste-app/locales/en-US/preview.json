@@ -36,6 +36,23 @@
     "loading": "Loading",
     "text": "Text preview"
   },
+  "translation": {
+    "copy": "Copy",
+    "failed": {
+      "auth": "The key is invalid or lacks permission",
+      "network": "Network unavailable",
+      "other": "Translation failed: {{message}}",
+      "rateLimited": "Too many requests, try again later",
+      "unsupported": "This language is not supported"
+    },
+    "paste": "Paste",
+    "pending": "Translating…",
+    "retranslate": "Translate again",
+    "retry": "Retry",
+    "source": "{{provider}} · {{from}} → {{to}}",
+    "sourceUnknown": "{{provider}} · {{to}}",
+    "translate": "Translate"
+  },
   "view": {
     "image": "Image",
     "plain": "Original",

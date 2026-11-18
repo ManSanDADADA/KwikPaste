@@ -21,6 +21,7 @@ use kwikpaste_core::{
 
 use super::{
     ClipboardSource, Group, GroupInput, ImageSave, ListQuery, NoteSaved, Preview, PreviewTextView,
+    TranslationView,
     synthetic::{self, AssetSet, GenerateOptions},
 };
 use crate::clipboard::model::{
@@ -223,6 +224,11 @@ impl ClipboardSource for CoreSource {
     fn copy_translation(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<bool>> {
         let core = self.core.clone();
         async move { Ok(core.copy_translation(&id).await?.hide_window) }.boxed()
+    }
+
+    fn translation(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<TranslationView>> {
+        let core = self.core.clone();
+        async move { Ok(core.translation_view(&id).await?) }.boxed()
     }
 
     fn toggle_favorite(&self, id: Arc<str>) -> BoxFuture<'static, anyhow::Result<bool>> {

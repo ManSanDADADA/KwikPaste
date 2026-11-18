@@ -1,4 +1,8 @@
-//! 翻译相关的显示名：语言用它自己的写法。
+//! 翻译相关的显示名：语言用它自己的写法，翻译服务按界面语言。
+
+use gpui::SharedString;
+
+use crate::i18n::t;
 
 /// 语言的本名。服务报告的原文语种可能不在设置的 11 种里，不认识的代码原样显示。
 pub fn language_name(code: &str) -> &str {
@@ -16,6 +20,15 @@ pub fn language_name(code: &str) -> &str {
         "pt" => "Português",
         "it" => "Italiano",
         other => other,
+    }
+}
+
+/// 翻译服务的名称；AI 接口的 `provider` 是模型名，原样显示。
+pub fn provider_name(provider: &str) -> SharedString {
+    match provider {
+        "volc" => t("clipboard:translation.providers.volc"),
+        "transmart" => t("clipboard:translation.providers.transmart"),
+        other => SharedString::from(other.to_owned()),
     }
 }
 

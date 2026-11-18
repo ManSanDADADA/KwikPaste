@@ -36,6 +36,23 @@
     "loading": "正在加载",
     "text": "文本预览"
   },
+  "translation": {
+    "copy": "复制",
+    "failed": {
+      "auth": "Key 无效或没有权限",
+      "network": "网络不通",
+      "other": "翻译失败：{{message}}",
+      "rateLimited": "请求太频繁，稍后再试",
+      "unsupported": "不支持这个语言"
+    },
+    "paste": "粘贴",
+    "pending": "翻译中…",
+    "retranslate": "重新翻译",
+    "retry": "重试",
+    "source": "{{provider}} · {{from}} → {{to}}",
+    "sourceUnknown": "{{provider}} · {{to}}",
+    "translate": "翻译"
+  },
   "view": {
     "image": "图片",
     "plain": "原文",

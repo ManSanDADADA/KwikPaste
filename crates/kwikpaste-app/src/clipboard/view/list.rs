@@ -434,7 +434,10 @@ impl ClipboardList {
                     return;
                 }
                 CoreEvent::OcrChanged => ListUpdate::ImageTextChanged,
-                CoreEvent::TranslationChanged { .. } => ListUpdate::TranslationChanged,
+                CoreEvent::TranslationChanged { id } => {
+                    list.refresh_preview_translation(id.as_deref(), cx);
+                    ListUpdate::TranslationChanged
+                }
                 _ => return,
             };
             list.on_update(update, cx);

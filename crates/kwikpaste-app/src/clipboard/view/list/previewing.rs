@@ -26,9 +26,9 @@ use crate::{
             actions::OpenTarget,
             preview::{self, HEADER_HEIGHT, RectF},
         },
-        source::{Preview, PreviewContentMetrics, PreviewTextView},
+        source::{Preview, PreviewContentMetrics, PreviewTextView, TranslationView},
         view::preview::{
-            ImageTextView, PreviewEvent, PreviewWindow,
+            ImageTextView, PreviewEvent, PreviewWindow, TranslationZone,
             native::{self, NativePreview},
             snippet_label,
         },
@@ -254,6 +254,17 @@ impl ClipboardList {
                 cx.reveal_path(Path::new(path.as_ref()));
             }
             PreviewEvent::EditText => self.edit_preview_text(cx),
+            PreviewEvent::Translate => {
+                self.act_on_previewed(cx, |list, id, window, cx| list.translate(id, window, cx))
+            }
+            PreviewEvent::CopyTranslation => self.act_on_previewed(cx, |list, id, window, cx| {
+                list.copy_translation(id, window, cx)
+            }),
+            PreviewEvent::PasteTranslation => {
+                if let Some((id, _)) = self.previewing.session.clone() {
+                    self.paste_translation(id, cx);
+                }
+            }
         }
     }
 
@@ -271,6 +282,35 @@ impl ClipboardList {
                 .ok();
         })
         .detach();
+    }
+
+    /// 对正在预览的记录执行一个要用面板窗口的操作（提示显示在面板上）。
+    fn act_on_previewed(
+        &mut self,
+        cx: &mut Context<Self>,
+        action: impl FnOnce(&mut Self, Arc<str>, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        let Some((id, _)) = self.previewing.session.clone() else {
+            return;
+        };
+        let window = self.window;
+        cx.spawn(async move |list, cx| {
+            window
+                .update(cx, |_, window, cx| {
+                    list.update(cx, |list, cx| action(list, id, window, cx))
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// 正在预览的记录的翻译有了变化：按新状态重开预览，尺寸跟着变，位置沿用上一次的顶边。
+    pub(super) fn refresh_preview_translation(&mut self, id: Option<&str>, cx: &mut Context<Self>) {
+        if let Some((current, trigger)) = self.previewing.session.clone()
+            && id.is_none_or(|id| *current == *id)
+        {
+            self.open_preview(current, trigger, cx);
+        }
     }
 
     /// 点了预览里的链接 / 邮箱：关掉预览，交给浏览器或邮件客户端。
@@ -451,6 +491,7 @@ impl ClipboardList {
         } else {
             (self.source.preview(id.clone()), None)
         };
+        let translation = self.source.translation(id.clone());
         let window = self.window;
 
         cx.spawn(async move |list, cx| {
@@ -470,6 +511,15 @@ impl ClipboardList {
                     None
                 });
             }
+            // 图片记录（包括正在看图中文字时）没有翻译。
+            let translation = match translation.await {
+                Ok(view) if image_text.is_none() => view,
+                Ok(_) => TranslationView::default(),
+                Err(err) => {
+                    log::warn!("translation of {id} is unavailable: {err:#}");
+                    TranslationView::default()
+                }
+            };
             // 指针刚换到这张卡片时，它的位置要等面板画完下一帧才记下；数据往往先到。
             let anchored = list
                 .read_with(cx, |list, _| list.previewing.anchor(&id).is_some())
@@ -486,7 +536,15 @@ impl ClipboardList {
                         if image_text != Some(ImageTextView::Text) {
                             list.previewing.image_text = None;
                         }
-                        list.place_preview(&id, trigger, preview, image_text, window, cx)
+                        list.place_preview(
+                            &id,
+                            trigger,
+                            preview,
+                            image_text,
+                            translation,
+                            window,
+                            cx,
+                        )
                     })
                     .ok()
                     .flatten()
@@ -712,12 +770,14 @@ impl ClipboardList {
     }
 
     /// 按卡片位置算出预览窗在屏幕上的位置，换好内容，返回要显示的原生窗口与位置。
+    #[allow(clippy::too_many_arguments)]
     fn place_preview(
         &mut self,
         id: &Arc<str>,
         trigger: PreviewTrigger,
         preview: Option<Preview>,
         image_text: Option<ImageTextView>,
+        translation: TranslationView,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<(Rc<NativePreview>, kwikpaste_os::geometry::Rect, u32)> {
@@ -794,12 +854,28 @@ impl ClipboardList {
             }
             _ => 0.,
         };
+        // 译文和正文同宽、同字号，折行用同一个函数；高度按面板实际收到的译文区算，两边一致。
+        let zone = (translation.translatable || translation.translation.is_some()).then(|| {
+            let rows = translation
+                .translation
+                .as_ref()
+                .map(|done| preview::text_rows(&done.text, wrap_width, text_scale, cx))
+                .unwrap_or_default();
+            TranslationZone {
+                view: translation,
+                rows,
+            }
+        });
+        let translation_height = zone.as_ref().map_or(0., |zone| {
+            preview::translation_height(&zone.view, zone.rows.len())
+        });
         let geometry = preview::geometry(
             place.card,
             place.window,
             place.monitor,
             measured_metrics.as_ref(),
             snippets_height,
+            translation_height,
             prefer_left,
             f64::from(self.settings.clipboard.preview.gap),
             text_scale,
@@ -817,7 +893,7 @@ impl ClipboardList {
         preview_window.panel.update(cx, |panel, cx| {
             panel.snippet_colors = snippet_colors;
             panel.links = links;
-            panel.set(preview, rows, text_view, image_box, image_text, cx)
+            panel.set(preview, rows, text_view, image_box, image_text, zone, cx)
         });
 
         Some((
