@@ -130,6 +130,12 @@ impl ClipboardList {
         let layout = LayoutSpec::from_settings(&new.display);
         let relayout = layout != self.layout;
         self.delete_policy = DeletePolicy::from_settings(&settings.clipboard.content);
+        // 卡片上的译文开关改变带译文卡片的高度：视口外缓存的行高也要作废。
+        if self.settings.extensions.translate.show_on_cards
+            != settings.extensions.translate.show_on_cards
+        {
+            self.state.remeasure();
+        }
         self.settings = settings;
         self.layout = layout;
         if preview_changed {

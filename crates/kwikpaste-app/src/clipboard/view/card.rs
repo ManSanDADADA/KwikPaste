@@ -51,6 +51,8 @@ pub struct CardEnv<'a> {
     pub layout: &'a LayoutSpec,
     pub now: DateTime<Local>,
     pub reduce_motion: bool,
+    /// 「在卡片上显示译文」开着（设置 `extensions.translate.showOnCards`）。
+    pub translations: bool,
 }
 
 /// 图片区的状态（缩略图或单图文件）。
@@ -640,7 +642,19 @@ fn content(
     }
 
     match item.kind {
-        ItemKind::Text => text_body(env, item, on_link),
+        ItemKind::Text => {
+            let body = text_body(env, item, on_link);
+            match translation_block(env, item) {
+                Some(block) => div()
+                    .flex()
+                    .flex_col()
+                    .gap(space(1.5))
+                    .child(body)
+                    .child(block)
+                    .into_any_element(),
+                None => body,
+            }
+        }
         ItemKind::Image => {
             let body = image_body(env, item, index, image);
             match &item.image_text_snippet {
@@ -725,6 +739,45 @@ fn text_body(env: &CardEnv<'_>, item: &ListItem, on_link: Option<LinkHandler>) -
         })
         .child(summary)
         .into_any_element()
+}
+
+/// 原文下面的译文：次级文字色，前面一个小图标，最多两行；翻译中时是一行淡色的提示。
+/// 备注盖住正文时走不到这里，所以显示备注的卡片没有译文块。
+fn translation_block(env: &CardEnv<'_>, item: &ListItem) -> Option<AnyElement> {
+    if !env.translations {
+        return None;
+    }
+    let tokens = env.tokens;
+    let (text, color) = match &item.translation {
+        Some(text) => (shared(text), tokens.text.secondary),
+        None if item.translating => (t("clipboard:translation.pending"), tokens.text.faint),
+        None => return None,
+    };
+
+    Some(
+        div()
+            .flex()
+            .items_start()
+            .gap(space(1.))
+            .kp_text(TextSize::Sm)
+            .text_color(color)
+            .child(
+                div().flex_none().pt(space((3.) / 4.)).child(
+                    Icon::new(IconName::Languages)
+                        .size(space((14.) / 4.))
+                        .color(tokens.text.muted),
+                ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .line_clamp(env.layout.text_max_lines.min(2))
+                    .text_ellipsis()
+                    .child(text),
+            )
+            .into_any_element(),
+    )
 }
 
 fn note_annotation(env: &CardEnv<'_>, note: &Arc<str>) -> AnyElement {

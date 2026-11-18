@@ -69,6 +69,8 @@ pub enum IconName {
     KeyRound,
     /// 1.x `i-lucide:keyboard`：快捷键列表。
     Keyboard,
+    /// `lucide:languages`：译文、翻译按钮。
+    Languages,
     /// 1.x `i-lucide:laptop`：来自 macOS 设备的同步记录。
     Laptop,
     /// `lucide:link`：链接类型。
@@ -170,6 +172,7 @@ impl IconName {
             Self::ImageOff => "lucide-image-off.svg",
             Self::KeyRound => "lucide-key-round.svg",
             Self::Keyboard => "lucide-keyboard.svg",
+            Self::Languages => "lucide-languages.svg",
             Self::Laptop => "lucide-laptop.svg",
             Self::ListChecks => "lucide-list-checks.svg",
             Self::Mail => "lucide-mail.svg",
@@ -305,6 +308,7 @@ mod tests {
             IconName::GroupImage,
             IconName::GroupText,
             IconName::Keyboard,
+            IconName::Languages,
             IconName::ListChecks,
             IconName::Mail,
             IconName::Pencil,

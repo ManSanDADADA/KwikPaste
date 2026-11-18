@@ -25,6 +25,7 @@ const ICONS = [
   "lucide:image-off",
   "lucide:key-round",
   "lucide:keyboard",
+  "lucide:languages",
   "lucide:laptop",
   "lucide:list-checks",
   "lucide:mail",

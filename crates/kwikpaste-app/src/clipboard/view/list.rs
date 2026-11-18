@@ -1771,6 +1771,7 @@ impl ClipboardList {
             layout: &layout,
             now: self.now,
             reduce_motion: self.reduce_motion(cx),
+            translations: self.settings.extensions.translate.show_on_cards,
         };
         let index = ix;
         let placeholder = self.model.get(index).is_none();
@@ -1864,6 +1865,7 @@ impl Render for ClipboardList {
             layout: &layout,
             now: self.now,
             reduce_motion: self.reduce_motion(cx),
+            translations: self.settings.extensions.translate.show_on_cards,
         };
 
         let empty = self.model.loaded_initial() && self.model.total() == 0;
