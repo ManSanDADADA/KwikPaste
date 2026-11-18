@@ -3561,6 +3561,8 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.1.5",
 ]
 
@@ -4363,6 +4365,16 @@ version = "2.0.9"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "kwikpaste-ext-translate"
+version = "1.0.0"
+dependencies = [
+ "kwikpaste-ext-protocol",
+ "reqwest",
+ "serde_json",
+ "whatlang",
 ]
 
 [[package]]
@@ -6754,7 +6766,9 @@ checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64 0.22.1",
  "bytes",
+ "futures-channel",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",
@@ -6767,6 +6781,8 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-native-tls",
@@ -9367,6 +9383,15 @@ dependencies = [
  "log",
  "raw-window-handle",
  "web-sys",
+]
+
+[[package]]
+name = "whatlang"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5e8f38b596e2a359b755342473520a99421e43658548c79489ee221b728c107"
+dependencies = [
+ "hashbrown 0.15.5",
 ]
 
 [[package]]
