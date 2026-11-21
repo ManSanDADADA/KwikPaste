@@ -33,6 +33,7 @@ kwikpaste-core = { path = "crates/kwikpaste-core" }
 blake3 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 dirs = "6"
+fancy-regex = "0.20"
 log = "0.4"
 regex = "1"
 semver = "1"

@@ -326,14 +326,11 @@ impl RuleEditor {
         match compile_pattern(&self.pattern.value(cx)) {
             Ok(regex) => {
                 self.pattern_error = None;
-                for found in regex
-                    .find_iter(&self.test.value(cx))
-                    .filter(|found| !found.is_empty())
-                {
+                let test = self.test.value(cx);
+                for range in regex.find_iter(&test) {
                     self.match_count += 1;
                     if self.matches.len() < 32 {
-                        self.matches
-                            .push(found.as_str().chars().take(200).collect());
+                        self.matches.push(test[range].chars().take(200).collect());
                     }
                 }
             }

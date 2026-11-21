@@ -52,19 +52,62 @@ impl RuleError {
     }
 }
 
+const SIZE_LIMIT: usize = 1024 * 1024;
+
+/// `regex` 能编译的表达式照旧走线性引擎；只有它拒绝的断言、反向引用、`\K` 才交给 fancy-regex。
+/// fancy-regex 不接受 `(?-u:…)`，模板和存量规则都在用，所以不能整体换掉。
+#[derive(Debug, Clone)]
+pub enum RulePattern {
+    Plain(Regex),
+    Fancy(fancy_regex::Regex),
+}
+impl RulePattern {
+    /// 回溯超限等运行期错误按未命中处理。
+    pub fn is_match(&self, text: &str) -> bool {
+        match self {
+            Self::Plain(regex) => regex.is_match(text),
+            Self::Fancy(regex) => regex.is_match(text).unwrap_or(false),
+        }
+    }
+
+    /// 非空匹配区间；fancy 遇到运行期错误时停止迭代。
+    pub fn find_iter<'a>(&'a self, text: &'a str) -> Box<dyn Iterator<Item = Range<usize>> + 'a> {
+        let ranges: Box<dyn Iterator<Item = Range<usize>> + 'a> = match self {
+            Self::Plain(regex) => Box::new(regex.find_iter(text).map(|found| found.range())),
+            Self::Fancy(regex) => Box::new(
+                regex
+                    .find_iter(text)
+                    .map_while(Result::ok)
+                    .map(|found| found.range()),
+            ),
+        };
+        Box::new(ranges.filter(|range| !range.is_empty()))
+    }
+}
+
 /// 限制源码长度与编译内存；禁止空串规则命中所有剪贴板。
-pub fn compile_pattern(pattern: &str) -> Result<Regex, RuleError> {
+pub fn compile_pattern(pattern: &str) -> Result<RulePattern, RuleError> {
     if pattern.chars().count() > MAX_PATTERN_CHARS {
         return Err(RuleError::TooLong);
     }
-    let regex = RegexBuilder::new(pattern)
-        .size_limit(1024 * 1024)
-        .build()
-        .map_err(|_| RuleError::Invalid)?;
-    if regex.is_match("") {
+    let compiled = match RegexBuilder::new(pattern).size_limit(SIZE_LIMIT).build() {
+        Ok(regex) => RulePattern::Plain(regex),
+        Err(_) => fancy_regex::RegexBuilder::new(pattern)
+            .delegate_size_limit(SIZE_LIMIT)
+            // 默认 100 万次回溯在 4 MB 文本上连普通后行断言都会超限。
+            .backtrack_limit(10_000_000)
+            .build()
+            .map(RulePattern::Fancy)
+            .map_err(|_| RuleError::Invalid)?,
+    };
+    let empty = match &compiled {
+        RulePattern::Plain(regex) => regex.is_match(""),
+        RulePattern::Fancy(regex) => regex.is_match("").unwrap_or(true),
+    };
+    if empty {
         return Err(RuleError::Empty);
     }
-    Ok(regex)
+    Ok(compiled)
 }
 
 /// 写盘前校验整份规则，包含停用规则。
@@ -102,7 +145,7 @@ impl RuleCache {
 
 #[derive(Debug, Clone, Default)]
 pub struct CompiledRules {
-    rules: Vec<(CustomRule, Regex)>,
+    rules: Vec<(CustomRule, RulePattern)>,
 }
 impl CompiledRules {
     /// 读盘损坏的表达式不参与执行，不影响其余规则。
@@ -141,8 +184,7 @@ impl CompiledRules {
             .flat_map(move |(rule, regex)| {
                 regex
                     .find_iter(text)
-                    .filter(|found| !found.is_empty())
-                    .map(move |found| (found.range(), rule.name.as_str()))
+                    .map(move |range| (range, rule.name.as_str()))
             })
     }
 }
@@ -211,6 +253,23 @@ pub(crate) mod tests {
         );
         assert_eq!(validate_rules(&vec![value; 51]), Err(RuleError::TooMany));
     }
+    fn first<'a>(regex: &RulePattern, text: &'a str) -> Option<&'a str> {
+        regex.find_iter(text).next().map(|range| &text[range])
+    }
+    #[test]
+    fn advanced_syntax_compiles_and_matches() {
+        let keep = compile_pattern(r"(?i)(?:https?://)?\K[^/:?#]+").unwrap();
+        assert_eq!(
+            first(&keep, "https://www.example.com/path"),
+            Some("www.example.com")
+        );
+        let behind = compile_pattern(r"(?<=单号)[0-9]+").unwrap();
+        assert_eq!(first(&behind, "单号123456已发出"), Some("123456"));
+        let backref = compile_pattern(r"(\w+) \1").unwrap();
+        assert!(backref.is_match("hello hello"));
+        assert!(!backref.is_match("hello world"));
+        assert_eq!(compile_pattern(r"(a*)\1").unwrap_err(), RuleError::Empty);
+    }
     #[test]
     fn disabled_rules_do_not_execute() {
         let mut value = rule("abc", RuleAction::Ignore);
@@ -229,9 +288,10 @@ pub(crate) mod tests {
         ];
         for ((_, _, pattern), sample) in TEMPLATES.iter().zip(samples) {
             let regex = compile_pattern(pattern).unwrap();
-            assert_eq!(regex.find(sample).map(|m| m.as_str()), Some(sample));
+            assert!(matches!(regex, RulePattern::Plain(_)));
+            assert_eq!(first(&regex, sample), Some(sample));
             let chinese = format!("单号{sample}已发出");
-            assert_eq!(regex.find(&chinese).map(|m| m.as_str()), Some(sample));
+            assert_eq!(first(&regex, &chinese), Some(sample));
             assert!(!regex.is_match(&format!("A{sample}Z")));
         }
         let tracking = compile_pattern(TEMPLATES[0].2).unwrap();
