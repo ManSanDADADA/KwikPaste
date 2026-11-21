@@ -60,6 +60,16 @@ pub fn set_window_cloaked(hwnd: isize, cloaked: bool) -> io::Result<()> {
     .map_err(|error| io::Error::other(error.to_string()))
 }
 
+/// 把本进程的工作集交还给系统。页面进待机 / 修改列表，物理内存不会马上被别人拿走，
+/// 再次访问是软缺页；任务管理器的「内存」列（专用工作集）随之降下来。
+pub fn trim_working_set() -> io::Result<()> {
+    use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
+
+    // (-1, -1) 表示尽量清空工作集。
+    unsafe { SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX) }
+        .map_err(|error| io::Error::other(error.to_string()))
+}
+
 fn rect_from_win32(rect: RECT) -> Rect {
     Rect {
         left: rect.left,

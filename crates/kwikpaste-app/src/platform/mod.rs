@@ -50,6 +50,8 @@ mod settings;
 mod system;
 mod tray;
 mod trigger_pause;
+#[cfg(target_os = "windows")]
+mod trim;
 pub(crate) mod updater;
 mod watchdog;
 pub mod window_drag;
@@ -367,6 +369,8 @@ pub fn start<V: Render>(
         log::error!("global hotkey is unavailable: {err:#}");
     }
     trigger_pause::serve(cx);
+    #[cfg(target_os = "windows")]
+    trim::serve(cx);
     // 演示实例保留托盘，便于核对原生菜单；跑分和自动交互自测仍不创建托盘。
     if (!crate::selftest::list_selftest() || selftest::enabled(selftest::LIST_DEMO))
         && let Err(err) = tray::create(cx, commands.clone())

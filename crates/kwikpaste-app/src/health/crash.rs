@@ -452,6 +452,10 @@ fn wait_for_process(pid: u32) {
         // SAFETY: The helper receives a PID from its parent and requests only synchronization.
         let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
         if !handle.is_null() {
+            // 之后一直阻塞在等待上，启动时碰过的页都用不到了；任务管理器把这个进程算进应用的内存。
+            if let Err(err) = kwikpaste_os::win::trim_working_set() {
+                log::warn!("could not trim the watchdog working set: {err}");
+            }
             unsafe {
                 WaitForSingleObject(handle, INFINITE);
                 CloseHandle(handle);

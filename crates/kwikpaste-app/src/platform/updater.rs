@@ -637,7 +637,7 @@ fn serve_ui(request: UiRequest, cx: &mut App) {
 
 /// 枚举本进程的原生顶层窗口，覆盖 GPUI 窗口以及后台线程打开的系统对话框。
 #[cfg(target_os = "windows")]
-fn any_app_window_visible() -> bool {
+pub(super) fn any_app_window_visible() -> bool {
     use windows_sys::Win32::Foundation::{HWND, LPARAM};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetWindowThreadProcessId, IsWindowVisible,
