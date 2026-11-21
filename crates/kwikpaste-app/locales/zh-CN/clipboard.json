@@ -192,7 +192,7 @@
     "title": "键盘快捷键",
     "toggleRange": "切换全部 / 收藏",
     "translateSelected": "翻译选中项",
-    "viewImage": "查看大图"
+    "viewItem": "查看大图 / 编辑文本"
   },
   "translation": {
     "pending": "翻译中…",

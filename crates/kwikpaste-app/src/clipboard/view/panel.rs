@@ -27,7 +27,7 @@ use super::{
     NewGroup, NextCategory, NextGroup, OpenPreferences, OpenSelected, PasteSelected,
     PasteSelectedPlain, PinWindow, PreviousCategory, PreviousGroup, QuickPaste, SelectAll,
     SelectNext, SelectPrevious, ShowShortcuts, SplitSelected, ToggleFavorite, TogglePinned,
-    ToggleRange, TranslateSelected,
+    ToggleRange, TranslateSelected, ViewSelected,
     editing::{self, EditTarget},
     group_bar::{BarMode, GroupBar, GroupBarEvent},
     group_dialogs,
@@ -1132,6 +1132,11 @@ impl Render for ClipboardPanel {
                     panel.with_active(cx, |list, item, cx| {
                         list.edit_content(item.id.clone(), window, cx)
                     });
+                })),
+            )
+            .on_action(
+                cx.listener(unless_menu(|panel, _: &ViewSelected, window, cx| {
+                    panel.with_active(cx, |list, item, cx| list.view_item(&item, window, cx));
                 })),
             )
             .on_action(

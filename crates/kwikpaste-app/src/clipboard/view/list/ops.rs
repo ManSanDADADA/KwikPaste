@@ -443,6 +443,15 @@ impl ClipboardList {
 
     // ------------------------------------------------------------ 大图
 
+    /// 「查看」：图片看大图，文本打开内容编辑窗，文件不响应；快捷键与“双击查看”共用。
+    pub fn view_item(&mut self, item: &ListItem, window: &mut Window, cx: &mut Context<Self>) {
+        match item.kind {
+            ItemKind::Image => self.view_image(item.id.clone(), cx),
+            ItemKind::Text => self.edit_content(item.id.clone(), window, cx),
+            ItemKind::Files => {}
+        }
+    }
+
     /// 在大图预览窗里看这张图：已加载的图片记录按列表顺序做快照，面板按点外部处理（固定时留着）。
     pub fn view_image(&mut self, id: Arc<str>, cx: &mut Context<Self>) {
         let images: Vec<ViewerImage> = self

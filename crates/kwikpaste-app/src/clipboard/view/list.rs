@@ -1431,6 +1431,7 @@ impl ClipboardList {
             AutoPaste::SingleClickCopy if armed => self.copy(id, false, None, window, cx),
             AutoPaste::DoubleClickPaste if double => self.paste_item(id, false, cx),
             AutoPaste::DoubleClickCopy if double => self.copy(id, false, None, window, cx),
+            AutoPaste::DoubleClickView if double => self.view_item(&item, window, cx),
             _ => {}
         }
     }
@@ -2218,8 +2219,8 @@ impl Render for ClipboardList {
                     }
                 }),
             )
-            // 按住空格预览当前项、Shift+空格看大图（钩子转来的空格按下、松开）。
-            .on_key_down(cx.listener(|list, event: &KeyDownEvent, _, cx| {
+            // 按住空格预览当前项；「查看」仍是默认 Shift+空格时也在这里处理（钩子转来的空格按下、松开）。
+            .on_key_down(cx.listener(|list, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.key == "escape" && list.reorder.is_some() {
                     list.cancel_reorder(cx);
                     cx.stop_propagation();
@@ -2232,12 +2233,13 @@ impl Render for ClipboardList {
                 if !modifiers.modified() {
                     list.preview_space(true, cx);
                     cx.stop_propagation();
-                } else if modifiers == gpui::Modifiers::shift() {
-                    if let Some(item) = list
-                        .active_item()
-                        .filter(|item| item.kind == ItemKind::Image)
-                    {
-                        list.view_image(item.id.clone(), cx);
+                } else if modifiers == gpui::Modifiers::shift()
+                    && effective_panel_keys(&list.settings.shortcuts, PanelAction::ViewImage)
+                        .iter()
+                        .any(|key| key == "shift-space")
+                {
+                    if let Some(item) = list.active_item() {
+                        list.view_item(&item, window, cx);
                     }
                     cx.stop_propagation();
                 }

@@ -404,6 +404,18 @@ mod tests {
     }
 
     #[test]
+    fn double_click_view_is_read_strictly() {
+        let (settings, report) =
+            parse(r#"{"clipboard": {"content": {"autoPaste": "doubleClickView"}}}"#);
+
+        assert_eq!(
+            settings.clipboard.content.auto_paste,
+            crate::settings::AutoPaste::DoubleClickView
+        );
+        assert_eq!(report, SettingsLoadReport::default());
+    }
+
+    #[test]
     fn unknown_fields_are_ignored() {
         let (settings, report) = parse(
             r#"{

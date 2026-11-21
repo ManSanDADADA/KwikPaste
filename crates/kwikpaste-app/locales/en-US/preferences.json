@@ -1118,6 +1118,7 @@
             "disabled": "Disabled",
             "doubleClickCopy": "Double-click to copy",
             "doubleClickPaste": "Double-click to paste",
+            "doubleClickView": "Double-click to view image / edit text",
             "singleClickCopy": "Single-click to copy",
             "singleClickPaste": "Single-click to paste"
           },

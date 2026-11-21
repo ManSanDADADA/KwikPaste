@@ -192,7 +192,7 @@
     "title": "Keyboard shortcuts",
     "toggleRange": "Toggle all / favorites",
     "translateSelected": "Translate selected item",
-    "viewImage": "View image full size"
+    "viewItem": "View image / edit text"
   },
   "translation": {
     "pending": "Translating…",

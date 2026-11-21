@@ -260,6 +260,7 @@ const CLICK_ACTIONS: &[&str] = &[
     "doubleClickPaste",
     "singleClickCopy",
     "doubleClickCopy",
+    "doubleClickView",
 ];
 const COPY_SOUND_TONES: &[&str] = &["classic", "chirp", "bubble", "chime", "tick"];
 const MIDDLE_CLICK_ACTIONS: &[&str] = &[

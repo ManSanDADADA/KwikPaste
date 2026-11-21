@@ -688,6 +688,8 @@ pub enum AutoPaste {
     DoubleClickPaste,
     SingleClickCopy,
     DoubleClickCopy,
+    /// 双击查看：图片看大图，文本打开内容编辑窗。
+    DoubleClickView,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]

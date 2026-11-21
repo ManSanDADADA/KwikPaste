@@ -26,7 +26,7 @@ pub enum PanelAction {
     ToggleRange,
     CreateGroup,
     PreviewSelected,
-    /// 当前图片在独立窗口里看大图。
+    /// 查看当前项：图片在独立窗口里看大图，文本打开内容编辑窗。
     ViewImage,
     PinWindow,
     ShowShortcuts,
@@ -85,7 +85,7 @@ impl PanelAction {
             Self::ToggleRange => "toggleRange",
             Self::CreateGroup => "createGroup",
             Self::PreviewSelected => "previewSelected",
-            Self::ViewImage => "viewImage",
+            Self::ViewImage => "viewItem",
             Self::PinWindow => "pinWindow",
             Self::ShowShortcuts => "showShortcuts",
             Self::OpenPreference => "openPreference",
@@ -104,7 +104,6 @@ impl PanelAction {
                 | Self::SwitchCategory
                 | Self::SwitchCustomGroup
                 | Self::PreviewSelected
-                | Self::ViewImage
                 | Self::ClosePreviewFilterWindow
         )
     }
@@ -141,7 +140,7 @@ impl PanelAction {
             Self::ToggleRange => &["secondary-q"],
             Self::CreateGroup => &["secondary-n"],
             Self::PreviewSelected => &["space"],
-            // 固定键：可改键位只能是 Mod 组合或 Enter / Delete / F 键，用户覆盖不会与它重复。
+            // 默认键不在可录入集合里（由列表的按下监听处理），用户覆盖不会与它重复。
             Self::ViewImage => &["shift-space"],
             Self::PinWindow => &["secondary-p"],
             Self::ShowShortcuts => &["secondary-k"],
@@ -429,6 +428,26 @@ mod tests {
             effective_panel_keys(&shortcuts, PanelAction::Navigate),
             ["up", "down"]
         );
+    }
+
+    #[test]
+    fn view_image_can_be_rebound_and_unbound() {
+        let mut shortcuts = Shortcuts::default();
+        assert_eq!(
+            effective_panel_keys(&shortcuts, PanelAction::ViewImage),
+            ["shift-space"]
+        );
+        shortcuts
+            .panel
+            .insert("viewItem".into(), "secondary-shift-v".into());
+        assert_eq!(
+            effective_panel_keys(&shortcuts, PanelAction::ViewImage),
+            ["secondary-shift-v"]
+        );
+        assert!(validate_panel_shortcuts(&shortcuts).is_ok());
+        shortcuts.panel.insert("viewItem".into(), String::new());
+        assert!(effective_panel_keys(&shortcuts, PanelAction::ViewImage).is_empty());
+        assert!(validate_panel_shortcuts(&shortcuts).is_ok());
     }
 
     #[test]
