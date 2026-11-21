@@ -1,11 +1,13 @@
-//! 贴到屏幕：把一张图片钉成置顶的无边框小窗，可以同时钉多张。
+//! 贴到屏幕：把一条图片或文字记录钉成置顶的无边框小窗，可以同时钉多张。
 //!
-//! - 打开时以光标为中心，按原图 1:1 的设备像素显示（截图贴回去和原来一样大），放不下就缩到光标所在
-//!   显示器的工作区里；
+//! - 图片按原图 1:1 的设备像素显示（截图贴回去和原来一样大）；文字用正文字体排版，最宽
+//!   [`TEXT_MAX_WIDTH`] 个 rem，太长时高度到工作区的 [`TEXT_MAX_HEIGHT`] 为止、末尾省略。打开时以光标为
+//!   中心，放不下就缩到光标所在显示器的工作区里；
 //! - 窗口从不激活，点它、拖它都不抢目标应用的前台和输入法；层级在普通窗口之上，面板、预览显示时
 //!   压在它上面；
 //! - 按住任意处拖动移动，滚轮以指针为锚点缩放（不超过工作区，最小边 [`MIN_SIDE`]），双击关闭；
-//!   悬停时右上角出现缩放比例（点了回到原始大小）、复制和关闭；
+//!   悬停时右上角出现缩放比例（点了回到原始大小）、复制和关闭。文字缩放时字号、边距和窗口一起变，
+//!   折行位置不变；
 //! - 窗口可能只有几十像素，放不下窗口内的右键菜单，原生菜单又要抢前台，所以不做右键菜单。
 //!
 //! 几何都用「屏幕单位」：Windows 是物理像素，macOS 是 point（y 向下）。原生移动、缩放在任务体里、
@@ -15,15 +17,16 @@ use std::{path::PathBuf, rc::Rc, sync::Arc, time::Duration};
 
 use futures::future::BoxFuture;
 use gpui::{
-    App, AppContext as _, AsyncApp, Bounds, Context, ImageSource, InteractiveElement as _,
-    IntoElement, MouseButton, MouseDownEvent, ParentElement as _, Render, RenderImage, ScrollDelta,
-    ScrollWheelEvent, StatefulInteractiveElement as _, Styled as _, Task, Window, WindowBounds,
-    WindowKind, WindowOptions, div, img, point, prelude::FluentBuilder as _, px, size,
+    AnyElement, App, AppContext as _, AsyncApp, Bounds, Context, FontWeight, ImageSource,
+    InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, ParentElement as _, Render,
+    RenderImage, ScrollDelta, ScrollWheelEvent, SharedString, StatefulInteractiveElement as _,
+    Styled as _, Task, TextRun, Window, WindowBounds, WindowKind, WindowOptions, div, font, img,
+    point, prelude::FluentBuilder as _, px, size,
 };
 use kwikpaste_os::geometry::{Point, Rect, Size, follow_cursor};
 use kwikpaste_ui::{
     Button, IconName,
-    theme::{self, radius, space},
+    theme::{self, TextSize, fonts, radius, space},
 };
 
 use super::{host::ItemHost, image_cache::decode_rotated, list::error_toast};
@@ -46,6 +49,14 @@ const MAX_ZOOM: f64 = 8.;
 const BAR_ROOM: (f32, f32) = (132., 44.);
 /// 复制成功后对勾显示多久。
 const COPIED_FOR: Duration = Duration::from_secs(1);
+/// 文字最宽这么多 rem（正文字号下约 34 个汉字）。
+const TEXT_MAX_WIDTH: f32 = 30.;
+/// 文字窗口最高占工作区的比例，再长就省略。
+const TEXT_MAX_HEIGHT: f32 = 0.6;
+/// 只排前这么多个字符：再多也显示不下。
+const TEXT_MAX_CHARS: usize = 20_000;
+/// 文字宽度多留的逻辑像素：缩放后窗口按整像素取整，不留余量最长的一行可能被折到下一行。
+const TEXT_SLACK: f32 = 2.;
 
 /// 光标和它所在显示器的几何。
 #[derive(Clone, Copy, Debug)]
@@ -66,24 +77,50 @@ impl Spot {
 }
 
 /// 把这条图片记录钉到屏幕上。失败只记日志：入口只在原图还在时出现。
-pub fn open(source: Arc<dyn ClipboardSource>, host: Rc<dyn ItemHost>, id: Arc<str>, cx: &mut App) {
+pub fn open_image(
+    source: Arc<dyn ClipboardSource>,
+    host: Rc<dyn ItemHost>,
+    id: Arc<str>,
+    cx: &mut App,
+) {
     let save = source.image_save(id.clone());
     cx.spawn(async move |cx| {
-        if let Err(err) = open_pin(save, host, id, cx).await {
+        if let Err(err) = pin_image(save, host, id, cx).await {
             log::warn!("could not pin the image to the screen: {err:#}");
         }
     })
     .detach();
 }
 
-async fn open_pin(
+/// 把这条文字记录（富文本取它的纯文本）钉到屏幕上。
+pub fn open_text(
+    source: Arc<dyn ClipboardSource>,
+    host: Rc<dyn ItemHost>,
+    id: Arc<str>,
+    cx: &mut App,
+) {
+    let text = source.text_content(id.clone());
+    cx.spawn(async move |cx| {
+        let pinned = async {
+            let spot = native::spot().ok_or_else(|| anyhow::anyhow!("no screen to pin on"))?;
+            let text = Pending::Text(pin_text(&text.await?));
+            open_window(text, spot, host, id, cx)
+        };
+        if let Err(err) = pinned.await {
+            log::warn!("could not pin the text to the screen: {err:#}");
+        }
+    })
+    .detach();
+}
+
+async fn pin_image(
     save: BoxFuture<'static, anyhow::Result<ImageSave>>,
     host: Rc<dyn ItemHost>,
     id: Arc<str>,
     cx: &mut AsyncApp,
 ) -> anyhow::Result<()> {
     let path = save.await?.source;
-    let spot = native::spot().ok_or_else(|| anyhow::anyhow!("no screen to pin the image on"))?;
+    let spot = native::spot().ok_or_else(|| anyhow::anyhow!("no screen to pin on"))?;
     let decoding = path.clone();
     let (pixels, bitmap) = cx
         .background_executor()
@@ -101,55 +138,105 @@ async fn open_pin(
             ))
         })
         .await?;
+    open_window(
+        Pending::Image {
+            path,
+            pixels,
+            bitmap,
+        },
+        spot,
+        host,
+        id,
+        cx,
+    )
+}
 
+/// 建窗时才排得出的内容：文字要窗口的字体系统量尺寸。
+enum Pending {
+    Image {
+        path: PathBuf,
+        pixels: (u32, u32),
+        bitmap: Bitmap,
+    },
+    Text(SharedString),
+}
+
+/// 建好隐藏的窗口、排好内容，再以光标为中心不激活地显示。
+fn open_window(
+    pending: Pending,
+    spot: Spot,
+    host: Rc<dyn ItemHost>,
+    id: Arc<str>,
+    cx: &mut AsyncApp,
+) -> anyhow::Result<()> {
+    let (native, pixels) = cx.update(
+        |cx| -> anyhow::Result<(Rc<native::NativePin>, (u32, u32))> {
+            let options = WindowOptions {
+                // 显示前会按内容原生地定位、改大小。
+                window_bounds: Some(WindowBounds::Windowed(Bounds::new(
+                    point(px(0.), px(0.)),
+                    size(px(320.), px(180.)),
+                ))),
+                titlebar: None,
+                focus: false,
+                show: false,
+                kind: WindowKind::PopUp,
+                is_resizable: false,
+                is_minimizable: false,
+                inactive_frame_interval: None,
+                window_background: gpui::WindowBackgroundAppearance::Opaque,
+                ..Default::default()
+            };
+            let mut built = None;
+            kwikpaste_ui::open_window(options, cx, |window, cx| {
+                let native = native::NativePin::attach(window).map(Rc::new);
+                let kept = native.as_ref().ok().cloned();
+                let (content, pixels) = match pending {
+                    Pending::Image {
+                        path,
+                        pixels,
+                        bitmap,
+                    } => (
+                        Content::Image {
+                            path,
+                            bitmap,
+                            wanted: None,
+                            decoding: None,
+                        },
+                        pixels,
+                    ),
+                    Pending::Text(text) => {
+                        let layout = text_layout(&text, &spot, window);
+                        let device =
+                            |side: f32| ((f64::from(side) * spot.device).round() as u32).max(1);
+                        let pixels = (device(layout.size.0), device(layout.size.1));
+                        (Content::Text { text, layout }, pixels)
+                    }
+                };
+                built = Some(native.map(|native| (native, pixels)));
+                crate::platform::reveal_after_first_frame(window, cx, |_, _| {});
+                cx.new(|_| ScreenPin {
+                    id,
+                    host,
+                    pixels,
+                    content,
+                    native: kept,
+                    pending: None,
+                    hovered: false,
+                    copied: false,
+                    copied_reset: None,
+                    #[cfg(target_os = "windows")]
+                    drag: None,
+                })
+            })?;
+            built.ok_or_else(|| anyhow::anyhow!("the pin window was not built"))?
+        },
+    )?;
     let zoom = initial_zoom(pixels, &spot);
-    let rect = centered_at(spot.cursor, spot.work_area, frame_size(pixels, zoom, &spot));
-    let logical = size(
-        px((f64::from(rect.width()) / spot.scale) as f32),
-        px((f64::from(rect.height()) / spot.scale) as f32),
+    native.show(
+        centered_at(spot.cursor, spot.work_area, frame_size(pixels, zoom, &spot)),
+        &spot,
     );
-    let native = cx.update(|cx| -> anyhow::Result<Rc<native::NativePin>> {
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-                point(px(0.), px(0.)),
-                logical,
-            ))),
-            titlebar: None,
-            focus: false,
-            show: false,
-            kind: WindowKind::PopUp,
-            is_resizable: false,
-            is_minimizable: false,
-            inactive_frame_interval: None,
-            window_background: gpui::WindowBackgroundAppearance::Opaque,
-            ..Default::default()
-        };
-        let mut built = None;
-        kwikpaste_ui::open_window(options, cx, |window, cx| {
-            let native = native::NativePin::attach(window).map(Rc::new);
-            let kept = native.as_ref().ok().cloned();
-            built = Some(native);
-            crate::platform::reveal_after_first_frame(window, cx, |_, _| {});
-            cx.new(|_| ScreenPin {
-                id,
-                host,
-                path,
-                pixels,
-                bitmap,
-                native: kept,
-                pending: None,
-                wanted: None,
-                decoding: None,
-                hovered: false,
-                copied: false,
-                copied_reset: None,
-                #[cfg(target_os = "windows")]
-                drag: None,
-            })
-        })?;
-        built.ok_or_else(|| anyhow::anyhow!("the pin window was not built"))?
-    })?;
-    native.show(rect, &spot);
     Ok(())
 }
 
@@ -159,19 +246,41 @@ struct Bitmap {
     decoded: (u32, u32),
 }
 
+/// 打开时按 1 倍排好的文字（逻辑像素）；缩放时各项一起乘倍数。
+#[derive(Clone, Copy, Debug)]
+struct TextLayout {
+    /// 整个窗口的宽高。
+    size: (f32, f32),
+    font_size: f32,
+    line_height: f32,
+    padding: f32,
+    /// 超出高度上限时显示的行数。
+    max_lines: Option<usize>,
+}
+
+enum Content {
+    Image {
+        path: PathBuf,
+        bitmap: Bitmap,
+        /// 正在等着重解码的尺寸。
+        wanted: Option<(u32, u32)>,
+        decoding: Option<Task<()>>,
+    },
+    Text {
+        text: SharedString,
+        layout: TextLayout,
+    },
+}
+
 struct ScreenPin {
     id: Arc<str>,
     host: Rc<dyn ItemHost>,
-    path: PathBuf,
-    /// 原图像素尺寸。
+    /// 1 倍时的设备像素尺寸：图片是原图像素，文字是排好的窗口。
     pixels: (u32, u32),
-    bitmap: Bitmap,
+    content: Content,
     native: Option<Rc<native::NativePin>>,
     /// 还没交给原生窗口的目标矩形：连续的拖动、滚轮只留最新的一个。
     pending: Option<Rect>,
-    /// 正在等着重解码的尺寸。
-    wanted: Option<(u32, u32)>,
-    decoding: Option<Task<()>>,
     hovered: bool,
     copied: bool,
     copied_reset: Option<Task<()>>,
@@ -307,27 +416,41 @@ impl ScreenPin {
 
     /// 显示尺寸变了：等缩放停下再按新尺寸解码，失败时留着旧位图。
     fn redecode(&mut self, needed: (u32, u32), window: &mut Window, cx: &mut Context<Self>) {
-        self.wanted = Some(needed);
-        let path = self.path.clone();
-        self.decoding = Some(cx.spawn_in(window, async move |pin, cx| {
+        let Content::Image {
+            path,
+            wanted,
+            decoding,
+            ..
+        } = &mut self.content
+        else {
+            return;
+        };
+        *wanted = Some(needed);
+        let path = path.clone();
+        *decoding = Some(cx.spawn_in(window, async move |pin, cx| {
             cx.background_executor().timer(SETTLE).await;
             let result = cx
                 .background_executor()
                 .spawn(async move { decode_rotated(&path, needed.0, needed.1, 0) })
                 .await;
-            pin.update_in(cx, |pin, window, cx| match result {
-                Ok((image, _)) => {
-                    let old = std::mem::replace(
-                        &mut pin.bitmap,
-                        Bitmap {
-                            image: Arc::new(image),
-                            decoded: needed,
-                        },
-                    );
-                    cx.drop_image(old.image, Some(window));
-                    cx.notify();
+            pin.update_in(cx, |pin, window, cx| {
+                let Content::Image { bitmap, .. } = &mut pin.content else {
+                    return;
+                };
+                match result {
+                    Ok((image, _)) => {
+                        let old = std::mem::replace(
+                            bitmap,
+                            Bitmap {
+                                image: Arc::new(image),
+                                decoded: needed,
+                            },
+                        );
+                        cx.drop_image(old.image, Some(window));
+                        cx.notify();
+                    }
+                    Err(err) => log::warn!("pinned image could not be decoded again: {err:#}"),
                 }
-                Err(err) => log::warn!("pinned image could not be decoded again: {err:#}"),
             })
             .ok();
         }));
@@ -386,13 +509,31 @@ impl ScreenPin {
 impl Render for ScreenPin {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let viewport = window.viewport_size();
-        let zoom = viewport.width.as_f32() * window.scale_factor() / self.pixels.0.max(1) as f32;
-        let needed = decode_size(self.pixels, zoom);
-        if !decoded_fits(self.bitmap.decoded, needed) && self.wanted != Some(needed) {
-            self.redecode(needed, window, cx);
-        }
-
         let tokens = theme::semantic(cx);
+        let (zoom, content, background) = match &self.content {
+            Content::Image { bitmap, wanted, .. } => {
+                let zoom =
+                    viewport.width.as_f32() * window.scale_factor() / self.pixels.0.max(1) as f32;
+                let needed = decode_size(self.pixels, zoom);
+                let stale = !decoded_fits(bitmap.decoded, needed) && *wanted != Some(needed);
+                let picture = img(ImageSource::Render(bitmap.image.clone()))
+                    .size_full()
+                    .into_any_element();
+                if stale {
+                    self.redecode(needed, window, cx);
+                }
+                (zoom, picture, tokens.surface.window)
+            }
+            Content::Text { text, layout } => {
+                let zoom = viewport.width.as_f32() / layout.size.0.max(1.);
+                (
+                    zoom,
+                    text_body(text.clone(), layout, zoom),
+                    tokens.surface.raised,
+                )
+            }
+        };
+
         let bar = self.hovered
             && viewport.width.as_f32() >= BAR_ROOM.0
             && viewport.height.as_f32() >= BAR_ROOM.1;
@@ -401,7 +542,7 @@ impl Render for ScreenPin {
             .relative()
             .size_full()
             .overflow_hidden()
-            .bg(tokens.surface.window)
+            .bg(background)
             .text_color(tokens.text.primary)
             .on_hover(cx.listener(|pin, hovered: &bool, _, cx| {
                 pin.hovered = *hovered;
@@ -421,8 +562,8 @@ impl Render for ScreenPin {
                 cx.listener(|pin, _, _, _| pin.drag = None),
             );
 
-        pin.child(img(ImageSource::Render(self.bitmap.image.clone())).size_full())
-            // 细描边盖在图片边缘上，不占位置：1:1 时位图正好对齐设备像素。
+        pin.child(content)
+            // 细描边盖在内容边缘上，不占位置：1:1 时位图正好对齐设备像素。
             .child(
                 div()
                     .absolute()
@@ -434,6 +575,95 @@ impl Render for ScreenPin {
             )
             .when(bar, |pin| pin.child(self.toolbar(zoom, cx)))
     }
+}
+
+/// 显示用的文字：去掉末尾空白，制表符换成空格，最多 [`TEXT_MAX_CHARS`] 个字符。
+fn pin_text(text: &str) -> SharedString {
+    let text = text.trim_end();
+    let end = text
+        .char_indices()
+        .nth(TEXT_MAX_CHARS)
+        .map_or(text.len(), |(index, _)| index);
+    text.get(..end).unwrap_or(text).replace('\t', "    ").into()
+}
+
+/// 按正文字体排出 1 倍时的文字窗口：最宽 [`TEXT_MAX_WIDTH`] rem，最高工作区的 [`TEXT_MAX_HEIGHT`]。
+fn text_layout(text: &SharedString, spot: &Spot, window: &mut Window) -> TextLayout {
+    let rem = window.rem_size();
+    let font_size = TextSize::Sm.font_size().to_pixels(rem);
+    let line_height = TextSize::Sm.line_height().to_pixels(rem).as_f32();
+    let padding = rem.as_f32() * 0.75;
+    let max_width = rem * TEXT_MAX_WIDTH;
+    let run = TextRun {
+        len: text.len(),
+        font: body_font(),
+        ..TextRun::default()
+    };
+    let (width, height) = match window.text_system().shape_text(
+        text.clone(),
+        font_size,
+        &[run],
+        Some(max_width),
+        None,
+    ) {
+        Ok(lines) => lines.iter().fold((0_f32, 0_f32), |(width, height), line| {
+            (
+                width.max(line.width().as_f32()),
+                height + line.size(px(line_height)).height.as_f32(),
+            )
+        }),
+        Err(err) => {
+            log::warn!("pinned text could not be laid out: {err:#}");
+            (max_width.as_f32(), line_height)
+        }
+    };
+    let lines = ((height / line_height).round() as usize).max(1);
+    let room =
+        (spot.work_area.height() as f32 / spot.scale as f32) * TEXT_MAX_HEIGHT - padding * 2.;
+    let fit = ((room / line_height).floor() as usize).max(1);
+    let shown = lines.min(fit);
+    TextLayout {
+        size: (
+            width + padding * 2. + TEXT_SLACK,
+            shown as f32 * line_height + padding * 2.,
+        ),
+        font_size: font_size.as_f32(),
+        line_height,
+        padding,
+        max_lines: (lines > fit).then_some(fit),
+    }
+}
+
+/// 正文字体（与 [`text_layout`] 量尺寸用的一致）。
+fn body_font() -> gpui::Font {
+    let mut body = font(fonts::UI_FAMILY);
+    body.fallbacks = Some(fonts::ui_fallbacks());
+    body.weight = FontWeight::NORMAL;
+    body
+}
+
+/// `zoom` 倍时的文字内容。
+fn text_body(text: SharedString, layout: &TextLayout, zoom: f32) -> AnyElement {
+    let body_font = body_font();
+    let mut body = div()
+        .size_full()
+        .overflow_hidden()
+        .text_size(px(layout.font_size * zoom))
+        .line_height(px(layout.line_height * zoom))
+        .child(text);
+    let style = body.text_style();
+    style.font_family = Some(body_font.family);
+    style.font_fallbacks = body_font.fallbacks;
+    style.font_weight = Some(body_font.weight);
+    let body = match layout.max_lines {
+        Some(lines) => body.line_clamp(lines).text_ellipsis(),
+        None => body,
+    };
+    div()
+        .size_full()
+        .p(px(layout.padding * zoom))
+        .child(body)
+        .into_any_element()
 }
 
 /// 允许的缩放范围（设备像素 / 原图像素）：短边不小于 [`MIN_SIDE`]，整张不超过工作区，

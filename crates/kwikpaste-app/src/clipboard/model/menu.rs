@@ -179,10 +179,15 @@ pub fn menu_groups(item: &ListItem, can_delete: bool, has_groups: bool) -> Vec<V
                 && item.available_actions.contains(&ItemAction::Paste)
         }
         // 原图还在才能另存，也才能看大图、贴到屏幕。
-        MenuAction::ViewImage | MenuAction::PinToScreen => {
+        MenuAction::ViewImage => {
             item.kind == super::item::ItemKind::Image
                 && item.available_actions.contains(&ItemAction::SaveImage)
         }
+        MenuAction::PinToScreen => match item.kind {
+            super::item::ItemKind::Text => true,
+            super::item::ItemKind::Image => item.available_actions.contains(&ItemAction::SaveImage),
+            super::item::ItemKind::Files => false,
+        },
         _ => match action.item_action() {
             Some(wanted) => item.available_actions.contains(&wanted),
             None => has_groups,
@@ -238,7 +243,7 @@ mod tests {
         assert_eq!(
             menu_groups(&item, true, false),
             vec![
-                vec![MenuAction::Paste, MenuAction::Copy],
+                vec![MenuAction::Paste, MenuAction::Copy, MenuAction::PinToScreen],
                 vec![MenuAction::OpenLink],
                 vec![MenuAction::ToggleFavorite, MenuAction::EditContent],
                 vec![MenuAction::Select, MenuAction::Delete],
@@ -253,7 +258,7 @@ mod tests {
         assert_eq!(
             menu_groups(&item, false, true),
             vec![
-                vec![MenuAction::Paste],
+                vec![MenuAction::Paste, MenuAction::PinToScreen],
                 vec![
                     MenuAction::MoveToGroup,
                     MenuAction::EditNote,
@@ -269,7 +274,10 @@ mod tests {
         let mut item = with_actions(&[ItemAction::EditNote]);
         assert_eq!(
             menu_groups(&item, true, false),
-            vec![vec![MenuAction::EditNote, MenuAction::EditContent]]
+            vec![
+                vec![MenuAction::PinToScreen],
+                vec![MenuAction::EditNote, MenuAction::EditContent]
+            ]
         );
         assert_eq!(
             MenuAction::EditContent
@@ -331,6 +339,7 @@ mod tests {
             vec![
                 MenuAction::Paste,
                 MenuAction::Copy,
+                MenuAction::PinToScreen,
                 MenuAction::SplitWords,
                 MenuAction::Translate
             ]
@@ -345,6 +354,7 @@ mod tests {
             menu_groups(&item, true, false)[0],
             vec![
                 MenuAction::Paste,
+                MenuAction::PinToScreen,
                 MenuAction::SplitWords,
                 MenuAction::CopyTranslation,
                 MenuAction::PasteTranslation

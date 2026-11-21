@@ -469,14 +469,19 @@ impl ClipboardList {
         }
     }
 
-    /// 把这张图钉到屏幕上；面板与看大图时一样按点外部处理（固定时留着）。
-    pub fn pin_to_screen(&mut self, id: Arc<str>, cx: &mut Context<Self>) {
+    /// 把这张图或这段文字钉到屏幕上；面板与看大图时一样按点外部处理（固定时留着）。
+    pub fn pin_to_screen(&mut self, item: &ListItem, cx: &mut Context<Self>) {
+        let open = match item.kind {
+            ItemKind::Image => screen_pin::open_image,
+            ItemKind::Text => screen_pin::open_text,
+            ItemKind::Files => return,
+        };
         self.close_preview(cx);
         editing::request_panel(
             cx,
             PanelCommand::Hide(Trigger::now(TriggerSource::OutsideClick)),
         );
-        screen_pin::open(self.source.clone(), self.host.clone(), id, cx);
+        open(self.source.clone(), self.host.clone(), item.id.clone(), cx);
     }
 
     // ------------------------------------------------------------ 复制

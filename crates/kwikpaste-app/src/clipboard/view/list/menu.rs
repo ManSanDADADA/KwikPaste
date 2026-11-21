@@ -183,7 +183,7 @@ impl ClipboardList {
             MenuAction::Copy => self.copy(id, false, None, window, cx),
             MenuAction::CopyImageText => self.copy_image_text(id, window, cx),
             MenuAction::ViewImage => self.view_image(id, cx),
-            MenuAction::PinToScreen => self.pin_to_screen(id, cx),
+            MenuAction::PinToScreen => self.pin_to_screen(&item, cx),
             MenuAction::SaveImage => {
                 self.close_preview_of(&id, cx);
                 save_image(self.source.image_save(id), window, cx);

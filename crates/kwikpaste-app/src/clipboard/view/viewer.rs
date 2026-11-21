@@ -592,7 +592,7 @@ impl ImageViewer {
 
     fn pin_to_screen(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(id) = self.current_id() {
-            super::screen_pin::open(self.source.clone(), self.host.clone(), id, cx);
+            super::screen_pin::open_image(self.source.clone(), self.host.clone(), id, cx);
         }
     }
 

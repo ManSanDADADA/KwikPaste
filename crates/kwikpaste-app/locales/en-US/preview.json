@@ -21,7 +21,7 @@
   },
   "pin": {
     "close": "Close (or double-click the image)",
-    "copy": "Copy image",
+    "copy": "Copy",
     "resetZoom": "Back to actual size"
   },
   "snippets": {

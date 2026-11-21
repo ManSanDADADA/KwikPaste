@@ -21,7 +21,7 @@
   },
   "pin": {
     "close": "关闭（也可双击图片）",
-    "copy": "复制图片",
+    "copy": "复制",
     "resetZoom": "恢复原始大小"
   },
   "snippets": {
