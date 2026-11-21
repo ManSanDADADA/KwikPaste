@@ -93,6 +93,8 @@ pub enum IconName {
     Pencil,
     /// 1.x `i-lets-icons:pin`：固定窗口。
     PinWindow,
+    /// `lucide:picture-in-picture-2`：贴到屏幕。
+    PictureInPicture,
     /// 1.x `i-ph:push-pin-bold`：置顶标记。
     PushPin,
     Plus,
@@ -181,6 +183,7 @@ impl IconName {
             Self::NotebookPen => "lucide-notebook-pen.svg",
             Self::Pencil => "lucide-pencil.svg",
             Self::PinWindow => "lets-icons-pin.svg",
+            Self::PictureInPicture => "lucide-picture-in-picture-2.svg",
             Self::PushPin => "ph-push-pin-bold.svg",
             Self::ScanText => "lucide-scan-text.svg",
             Self::Settings2 => "lucide-settings-2.svg",
@@ -313,6 +316,7 @@ mod tests {
             IconName::Mail,
             IconName::Pencil,
             IconName::PinWindow,
+            IconName::PictureInPicture,
             IconName::Settings2,
             IconName::SettingLine,
             IconName::Smartphone,

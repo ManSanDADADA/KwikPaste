@@ -19,6 +19,11 @@
     "contentViewer": "内容预览器",
     "unknownSize": "未知尺寸"
   },
+  "pin": {
+    "close": "关闭（也可双击图片）",
+    "copy": "复制图片",
+    "resetZoom": "恢复原始大小"
+  },
   "snippets": {
     "kinds": {
       "custom": "自定义",
@@ -65,6 +70,7 @@
     "fit": "适应窗口",
     "next": "下一张",
     "openExternal": "用默认应用打开",
+    "pinToScreen": "贴到屏幕",
     "previous": "上一张",
     "rotate": "向右旋转",
     "save": "另存为",

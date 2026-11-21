@@ -590,6 +590,12 @@ impl ImageViewer {
         }
     }
 
+    fn pin_to_screen(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(id) = self.current_id() {
+            super::screen_pin::open(self.source.clone(), self.host.clone(), id, cx);
+        }
+    }
+
     fn open_external(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(original) = &self.original {
             cx.open_with_system(&original.path);
@@ -1051,6 +1057,14 @@ impl ImageViewer {
                 "preview:viewer.save",
                 Some("secondary-s"),
                 Self::save,
+                cx,
+            ))
+            .child(self.icon_button(
+                "viewer-pin",
+                IconName::PictureInPicture,
+                "preview:viewer.pinToScreen",
+                None,
+                Self::pin_to_screen,
                 cx,
             ))
             .child(self.icon_button(

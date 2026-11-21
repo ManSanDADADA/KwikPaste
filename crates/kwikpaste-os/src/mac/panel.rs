@@ -192,6 +192,47 @@ impl Panel {
         Ok(())
     }
 
+    /// 配置贴图窗：浮动层级（普通窗口之上、面板和预览之下），应用失活时也不隐藏。
+    pub fn install_pin(&self) -> io::Result<()> {
+        let window = self
+            .window()
+            .ok_or_else(|| io::Error::other("the pin view has no window"))?;
+        hide_window_buttons(&window);
+        window.setLevel(3);
+        window.setHidesOnDeactivate(false);
+        Ok(())
+    }
+
+    /// 窗口外框，换成以主屏左上角为原点、向下为正的 point（见 [`cursor_screen`]）。
+    pub fn flipped_frame(&self) -> Option<Rect> {
+        self.window().map(|window| flip(window.frame()))
+    }
+
+    /// 把外框放到 `rect`（[`Panel::flipped_frame`] 的坐标），不激活。
+    pub fn set_flipped_frame(&self, rect: Rect) -> io::Result<()> {
+        let window = self
+            .window()
+            .ok_or_else(|| io::Error::other("the panel view has no window"))?;
+        window.setFrame_display(
+            NSRect::new(
+                NSPoint::new(f64::from(rect.left), -f64::from(rect.bottom)),
+                NSSize::new(
+                    f64::from(rect.width().max(1)),
+                    f64::from(rect.height().max(1)),
+                ),
+            ),
+            true,
+        );
+        Ok(())
+    }
+
+    /// 放到最前但不激活应用、也不成为 key window。
+    pub fn order_front_without_key(&self) {
+        if let Some(window) = self.window() {
+            window.orderFrontRegardless();
+        }
+    }
+
     pub fn is_visible(&self) -> bool {
         self.window().is_some_and(|window| window.isVisible())
     }
@@ -452,6 +493,37 @@ impl Panel {
         let previous = previous.as_ref()?.processIdentifier();
         let current = NSWorkspace::sharedWorkspace().frontmostApplication();
         Some(current.is_some_and(|application| application.processIdentifier() == previous))
+    }
+}
+
+/// 光标位置、它所在屏幕的可见工作区和这块屏幕的 backing scale。坐标是以主屏左上角为原点、
+/// 向下为正的 point（AppKit 的 y 取反）。
+pub fn cursor_screen() -> io::Result<(Point, Rect, f64)> {
+    let main_thread = main_thread()?;
+    let mouse = NSEvent::mouseLocation();
+    let screen = NSScreen::screens(main_thread)
+        .iter()
+        .find(|screen| contains(screen.frame(), mouse))
+        .or_else(|| NSScreen::mainScreen(main_thread))
+        .ok_or_else(|| io::Error::other("no screen under the cursor"))?;
+    let cursor = Point {
+        x: mouse.x.round() as i32,
+        y: (-mouse.y).round() as i32,
+    };
+    Ok((
+        cursor,
+        flip(screen.visibleFrame()),
+        screen.backingScaleFactor(),
+    ))
+}
+
+/// AppKit 矩形（左下角原点、向上为正）换成向下为正的整数 point。
+fn flip(rect: NSRect) -> Rect {
+    Rect {
+        left: rect.origin.x.round() as i32,
+        top: (-(rect.origin.y + rect.size.height)).round() as i32,
+        right: (rect.origin.x + rect.size.width).round() as i32,
+        bottom: (-rect.origin.y).round() as i32,
     }
 }
 

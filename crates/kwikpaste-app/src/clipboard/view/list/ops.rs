@@ -35,6 +35,7 @@ use crate::{
             card,
             editing::{self, EditTarget},
             editor::{self, EditItem},
+            screen_pin,
             viewer::{self, ViewerImage},
         },
     },
@@ -466,6 +467,16 @@ impl ClipboardList {
         if let Err(err) = viewer::open(self.source.clone(), self.host.clone(), images, index, cx) {
             log::error!("could not open the image viewer: {err:#}");
         }
+    }
+
+    /// 把这张图钉到屏幕上；面板与看大图时一样按点外部处理（固定时留着）。
+    pub fn pin_to_screen(&mut self, id: Arc<str>, cx: &mut Context<Self>) {
+        self.close_preview(cx);
+        editing::request_panel(
+            cx,
+            PanelCommand::Hide(Trigger::now(TriggerSource::OutsideClick)),
+        );
+        screen_pin::open(self.source.clone(), self.host.clone(), id, cx);
     }
 
     // ------------------------------------------------------------ 复制

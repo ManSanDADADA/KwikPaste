@@ -19,6 +19,7 @@ mod list;
 mod panel;
 pub mod pin;
 mod preview;
+mod screen_pin;
 pub mod selftest;
 mod shortcuts;
 mod viewer;

@@ -58,6 +58,8 @@ const ICONS = [
   "lucide:shrink",
   "lucide:zoom-in",
   "lucide:zoom-out",
+  // 贴到屏幕。
+  "lucide:picture-in-picture-2",
   // 主窗口头部与分组栏。
   "lets-icons:file-dock",
   "lets-icons:folder-file-alt",

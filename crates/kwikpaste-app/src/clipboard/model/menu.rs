@@ -13,6 +13,7 @@ pub enum MenuAction {
     PasteAsPath,
     Copy,
     ViewImage,
+    PinToScreen,
     SaveImage,
     CopyImageText,
     SplitWords,
@@ -42,6 +43,7 @@ const GROUPS: [&[MenuAction]; 4] = [
         MenuAction::PasteAsPath,
         MenuAction::Copy,
         MenuAction::ViewImage,
+        MenuAction::PinToScreen,
         MenuAction::SaveImage,
         MenuAction::CopyImageText,
         MenuAction::SplitWords,
@@ -90,7 +92,11 @@ impl MenuAction {
             Self::RestoreOriginal => ItemAction::RestoreOriginal,
             Self::Select => ItemAction::Select,
             Self::Delete => ItemAction::Delete,
-            Self::PasteImageAsFile | Self::MoveToGroup | Self::EditContent | Self::ViewImage => {
+            Self::PasteImageAsFile
+            | Self::MoveToGroup
+            | Self::EditContent
+            | Self::ViewImage
+            | Self::PinToScreen => {
                 return None;
             }
         })
@@ -115,6 +121,7 @@ impl MenuAction {
             Self::ViewImage => PanelAction::ViewImage,
             Self::Delete => PanelAction::DeleteSelected,
             Self::PasteImageAsFile
+            | Self::PinToScreen
             | Self::SaveImage
             | Self::CopyImageText
             | Self::CopyTranslation
@@ -137,6 +144,7 @@ impl MenuAction {
             Self::PasteAsPath => "clipboard:menu.pasteAsPath",
             Self::Copy => "clipboard:menu.copy",
             Self::ViewImage => "clipboard:menu.viewImage",
+            Self::PinToScreen => "clipboard:menu.pinToScreen",
             Self::SaveImage => "clipboard:menu.saveImage",
             Self::CopyImageText => "clipboard:menu.copyImageText",
             Self::SplitWords => "clipboard:menu.splitWords",
@@ -170,8 +178,8 @@ pub fn menu_groups(item: &ListItem, can_delete: bool, has_groups: bool) -> Vec<V
             item.kind == super::item::ItemKind::Image
                 && item.available_actions.contains(&ItemAction::Paste)
         }
-        // 原图还在才能另存，也才能看大图。
-        MenuAction::ViewImage => {
+        // 原图还在才能另存，也才能看大图、贴到屏幕。
+        MenuAction::ViewImage | MenuAction::PinToScreen => {
             item.kind == super::item::ItemKind::Image
                 && item.available_actions.contains(&ItemAction::SaveImage)
         }
@@ -291,6 +299,21 @@ mod tests {
                 MenuAction::Paste,
                 MenuAction::PasteImageAsFile,
                 MenuAction::Copy
+            ]]
+        );
+    }
+
+    #[test]
+    fn images_with_an_original_can_be_viewed_and_pinned_to_the_screen() {
+        let mut item = with_actions(&[ItemAction::Copy, ItemAction::SaveImage]);
+        item.kind = super::super::item::ItemKind::Image;
+        assert_eq!(
+            menu_groups(&item, true, false),
+            vec![vec![
+                MenuAction::Copy,
+                MenuAction::ViewImage,
+                MenuAction::PinToScreen,
+                MenuAction::SaveImage
             ]]
         );
     }
