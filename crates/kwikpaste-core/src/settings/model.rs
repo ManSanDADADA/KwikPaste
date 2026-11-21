@@ -335,6 +335,8 @@ pub struct Capture {
     pub max_image_mb: u32,
     /// 剪贴板同时提供多种表示时的采集优先级。
     pub order: Vec<CaptureKind>,
+    /// 从这些应用复制的文字入库时合并段落内的换行（PDF 阅读器的硬折行）。
+    pub merge_lines_app_ids: Vec<String>,
 }
 
 impl Default for Capture {
@@ -348,6 +350,7 @@ impl Default for Capture {
             max_text_mb: 4,
             max_image_mb: 100,
             order: CaptureKind::default_order(),
+            merge_lines_app_ids: Vec::new(),
         }
     }
 }

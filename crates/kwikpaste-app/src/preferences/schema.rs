@@ -1051,6 +1051,10 @@ fn capture_sections() -> Vec<Section> {
                 .path("clipboard.capture.maxImageMb")
                 .keywords(&["image", "picture", "size", "limit", "mb"])
                 .advanced(),
+                Setting::new("capture.mergeLinesApps", Control::AppExclusion)
+                    .path("clipboard.capture.mergeLinesAppIds")
+                    .keywords(&["pdf", "line break", "newline", "换行", "回车", "app"])
+                    .advanced(),
             ],
         },
         Section {

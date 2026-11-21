@@ -200,6 +200,12 @@ pub(crate) fn capture_change<B: ClipboardBackend>(
         return None;
     }
 
+    let payload = super::merge_lines_for_app(
+        payload,
+        &settings.clipboard.capture.merge_lines_app_ids,
+        source.as_ref().map(|src| src.id.as_str()),
+    );
+
     let publication = core.rt.block_on(core.cleanup.image_publication());
     let mut item = match build_item_with_settings(
         &core.images,

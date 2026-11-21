@@ -928,6 +928,10 @@
           "description": "Includes HTML and RTF. 0 means no limit.",
           "title": "Maximum Text Capture Size"
         },
+        "mergeLinesApps": {
+          "description": "Line breaks inside paragraphs are joined in text copied from these apps, handy for PDF readers. Paragraphs separated by blank lines are kept.",
+          "title": "Join Line Breaks for These Apps"
+        },
         "order": {
           "controlLabel": "Manage",
           "description": "When the clipboard holds several formats, save the first one in this order.",

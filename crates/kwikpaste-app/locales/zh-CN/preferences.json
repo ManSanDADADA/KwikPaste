@@ -918,6 +918,10 @@
           "description": "包含 HTML 和 RTF；0 表示不限制。",
           "title": "文本最大收录大小"
         },
+        "mergeLinesApps": {
+          "description": "从这些应用复制的文字，段落内的换行会自动合并，适合 PDF 阅读器。空行分隔的段落会保留。",
+          "title": "合并换行的应用"
+        },
         "order": {
           "controlLabel": "管理",
           "description": "同时有多种格式时，按这个顺序决定保存哪一种。",

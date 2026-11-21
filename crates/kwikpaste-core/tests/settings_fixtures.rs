@@ -231,6 +231,7 @@ fn customized_settings_round_trip_exactly() {
     expected["clipboard"]["display"]["quickSnippetColors"] = Value::Bool(true);
     expected["clipboard"]["customRules"] = Value::Array(Vec::new());
     expected["clipboard"]["autoGroupRules"] = Value::Array(Vec::new());
+    expected["clipboard"]["capture"]["mergeLinesAppIds"] = Value::Array(Vec::new());
     expected["clipboard"]["preview"]["gap"] = Value::from(28);
     expected["clipboard"]["window"]["groupBar"] =
         serde_json::json!(["favorite", "text", "image", "files", "link"]);

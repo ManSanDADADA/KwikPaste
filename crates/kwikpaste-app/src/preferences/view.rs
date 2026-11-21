@@ -1656,6 +1656,9 @@ impl Preferences {
                     "shortcuts.pauseApps" => {
                         this.open_source_apps_for("shortcuts.pauseApps", window, cx)
                     }
+                    "capture.mergeLinesApps" => {
+                        this.open_source_apps_for("capture.mergeLinesApps", window, cx)
+                    }
                     "actions.visible" => this.open_action_visibility(window, cx),
                     "appearance.groupBar" => this.open_group_bar(window, cx),
                     "control.reopenOnboarding" => {
@@ -3020,18 +3023,22 @@ impl Preferences {
         let Some(core) = core_host::core(cx).cloned() else {
             return;
         };
-        let (title_key, settings_path, excluded) = if setting_id == "shortcuts.pauseApps" {
-            (
+        let (title_key, settings_path, excluded) = match setting_id {
+            "shortcuts.pauseApps" => (
                 "preferences:schema.settings.shortcuts.pauseApps.title",
                 "shortcuts.pauseAppIds",
                 self.settings.shortcuts.pause_app_ids.clone(),
-            )
-        } else {
-            (
+            ),
+            "capture.mergeLinesApps" => (
+                "preferences:schema.settings.capture.mergeLinesApps.title",
+                "clipboard.capture.mergeLinesAppIds",
+                self.settings.clipboard.capture.merge_lines_app_ids.clone(),
+            ),
+            _ => (
                 "preferences:schema.settings.source.excludedApps.title",
                 "clipboard.filters.excludedAppIds",
                 self.settings.clipboard.filters.excluded_app_ids.clone(),
-            )
+            ),
         };
         let entity = cx.entity().downgrade();
         window

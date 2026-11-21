@@ -737,7 +737,11 @@ impl Core {
                 match payload {
                     Some(payload) => build_item_with_settings(
                         &core.0.images,
-                        &payload,
+                        &clipboard::merge_lines_for_app(
+                            payload,
+                            &settings.clipboard.capture.merge_lines_app_ids,
+                            source.as_ref().map(|src| src.id.as_str()),
+                        ),
                         &settings.clipboard.capture,
                         &settings.clipboard.sensitive,
                         settings.clipboard.content.copy_plain,
