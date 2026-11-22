@@ -1,4 +1,4 @@
-//! 扩展页里微信输入法同步的设置：配对状态、同组设备和三个收发开关。
+//! 微信输入法同步那一页的设置：配对状态、同组设备和三个收发开关。
 //!
 //! 状态来自 core 的 `wetype_state`（扩展进程上报的快照），`WeTypeChanged` 时整页重绘。
 
@@ -16,7 +16,7 @@ use super::{Preferences, note_row, setting_row};
 use crate::{core_host, i18n};
 
 impl Preferences {
-    /// 启用中的微信输入法扩展的设置行，接在扩展卡片标题行下面。
+    /// 启用中的微信输入法扩展的设置行，是它那一页的第二块；第一行不画分隔线。
     pub(super) fn render_wetype(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let tokens = theme::semantic(cx);
         let state = core_host::core(cx)
@@ -27,7 +27,7 @@ impl Preferences {
 
         if !state.running {
             rows.push(note_row(
-                false,
+                true,
                 i18n::t("preferences:extensions.wetype.starting"),
                 tokens.text.muted,
                 tokens,
@@ -46,7 +46,7 @@ impl Preferences {
                 })
             };
             rows.push(setting_row(
-                false,
+                true,
                 i18n::t("preferences:extensions.wetype.paired"),
                 i18n::t_args(
                     "preferences:extensions.wetype.pairedDescription",
@@ -81,7 +81,7 @@ impl Preferences {
                     }
                 });
             rows.push(setting_row(
-                false,
+                true,
                 i18n::t("preferences:extensions.wetype.notPaired"),
                 i18n::t("preferences:extensions.wetype.notPairedDescription"),
                 Some(pair.into_any_element()),

@@ -1,4 +1,4 @@
-//! 扩展页里翻译的设置：引擎、两种语言、两个开关、AI 接口和清除译文。
+//! 翻译那一页的设置：引擎、两种语言、两个开关、AI 接口和清除译文。
 //!
 //! AI 接口的四项存在 core 的扩展状态文件里（不进 settings.json）：单行输入框失焦或回车时保存，
 //! 提示词改了就保存。
@@ -305,7 +305,7 @@ impl Preferences {
         .detach();
     }
 
-    /// 启用中的翻译扩展的设置行，接在扩展卡片标题行下面。
+    /// 启用中的翻译扩展的设置行，是翻译页的第二块。
     pub(super) fn render_translate(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let tokens = theme::semantic(cx);
         let controls = &self.translate;
@@ -326,7 +326,7 @@ impl Preferences {
 
         let mut rows = vec![
             setting_row(
-                false,
+                true,
                 key("engine"),
                 none(),
                 Some(select(&controls.engine, key("engine"))),

@@ -78,6 +78,10 @@ const ICONS = [
   "lucide:mouse-pointer-2",
   "lucide:chevron-right",
   "lucide:arrow-left",
+  // 侧栏「扩展」下的二级菜单：图片文字识别、微信输入法同步、翻译。
+  "lucide:scan-text",
+  "lucide:smartphone",
+  "lucide:languages",
 ];
 
 /** 取图标数据；别名取它指向的图标，带变换的别名不支持。 */

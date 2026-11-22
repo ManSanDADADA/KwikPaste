@@ -65,6 +65,9 @@ pub enum PrefIcon {
     MousePointer,
     ChevronRight,
     ArrowLeft,
+    ScanText,
+    Smartphone,
+    Languages,
 }
 
 impl PrefIcon {
@@ -127,6 +130,9 @@ impl PrefIcon {
             Self::MousePointer => include_str!("icons/lucide-mouse-pointer-2.svg"),
             Self::ChevronRight => include_str!("icons/lucide-chevron-right.svg"),
             Self::ArrowLeft => include_str!("icons/lucide-arrow-left.svg"),
+            Self::ScanText => include_str!("icons/lucide-scan-text.svg"),
+            Self::Smartphone => include_str!("icons/lucide-smartphone.svg"),
+            Self::Languages => include_str!("icons/lucide-languages.svg"),
         }
     }
 

@@ -1,4 +1,5 @@
-//! 官方扩展页：沿用同步页的设置行与分组，状态由更新器宿主推送。
+//! 官方扩展：列表页只管介绍和安装卸载；装好的扩展在侧栏二级菜单里各有一页，放启用开关和设置。
+//! 状态由更新器宿主推送。
 
 use gpui::{
     App, Context, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
@@ -12,8 +13,8 @@ use kwikpaste_ui::{
 };
 use kwikpaste_updater::extensions::{ExtensionStatus, OperationState};
 
-use super::ocr_engine::TIERS;
-use super::{Preferences, row_frame, section_block, setting_row, text};
+use super::ocr_engine::{TIERS, busy};
+use super::{PrefIcon, Preferences, row_frame, section_block, setting_row, text};
 use crate::{i18n, platform::updater};
 
 #[derive(Clone, Copy)]
@@ -51,7 +52,37 @@ pub(super) fn ocr_installed(cx: &App) -> bool {
         .any(|status| status.id == "ocr" && status.installed.is_some())
 }
 
+/// 侧栏二级菜单的条目：已安装的扩展，顺序同列表页；PP-OCRv6 各档归在图片文字识别里。
+pub(super) fn installed_pages(cx: &App) -> Vec<String> {
+    statuses(cx)
+        .into_iter()
+        .filter(|status| status.installed.is_some() && !TIERS.contains(&status.id.as_str()))
+        .map(|status| status.id)
+        .collect()
+}
+
+pub(super) fn name(id: &str) -> SharedString {
+    i18n::t(&format!("preferences:extensions.{id}.name"))
+}
+
+pub(super) fn icon(id: &str) -> PrefIcon {
+    match id {
+        "ocr" => PrefIcon::ScanText,
+        "wetype" => PrefIcon::Smartphone,
+        "translate" => PrefIcon::Languages,
+        _ => PrefIcon::Puzzle,
+    }
+}
+
 impl Preferences {
+    /// 侧栏二级菜单当前打开的扩展；它被卸载后没有自己的页面，回到列表。
+    pub(super) fn open_extension(&self, cx: &App) -> Option<ExtensionStatus> {
+        let id = self.extension_page.as_deref()?;
+        statuses(cx)
+            .into_iter()
+            .find(|status| status.id == id && status.installed.is_some())
+    }
+
     pub(super) fn refresh_extensions(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.run_extension_action(String::new(), Action::Refresh, window, cx);
     }
@@ -128,22 +159,86 @@ impl Preferences {
             .detach();
     }
 
-    /// 每个已知扩展一张卡片，操作中的按钮和开关不可用。
+    /// 一个已安装扩展自己的页面：第一块是启用开关，启用后下面是它的设置。
+    pub(super) fn render_extension_page(
+        &self,
+        status: &ExtensionStatus,
+        cx: &mut Context<Self>,
+    ) -> Vec<gpui::AnyElement> {
+        let tokens = theme::semantic(cx);
+        let enabled = status
+            .installed
+            .as_ref()
+            .is_some_and(|installed| installed.enabled);
+        let title = i18n::t_args(
+            "preferences:extensions.enable",
+            &[("name", &name(&status.id))],
+        );
+        let toggle = {
+            let entity = cx.entity().downgrade();
+            let id = status.id.clone();
+            Switch::new(format!("extension-{id}-enabled"))
+                .accessibility_label(title.clone())
+                .checked(enabled)
+                .disabled(busy(status))
+                .on_change(move |enabled, window, cx| {
+                    if let Some(entity) = entity.upgrade() {
+                        entity.update(cx, |this, cx| {
+                            this.run_extension_action(
+                                id.clone(),
+                                Action::Enable(enabled),
+                                window,
+                                cx,
+                            );
+                        });
+                    }
+                })
+        };
+        let mut blocks = vec![section_block(
+            None,
+            None,
+            vec![setting_row(
+                true,
+                title,
+                i18n::t(&format!("preferences:extensions.{}.description", status.id)),
+                Some(toggle.into_any_element()),
+                tokens,
+            )],
+            tokens,
+        )];
+        let rows = match status.id.as_str() {
+            "ocr" => {
+                let mut rows = Vec::new();
+                // 停用后留下的识别文字也在这一行删。
+                if enabled || self.image_text_row_visible() {
+                    rows.push(self.render_image_text_status(true, cx));
+                }
+                if enabled && cfg!(target_os = "windows") {
+                    rows.push(self.render_ocr_engines(rows.is_empty(), &statuses(cx), cx));
+                }
+                rows
+            }
+            "wetype" if enabled => self.render_wetype(cx),
+            "translate" if enabled => self.render_translate(cx),
+            _ => Vec::new(),
+        };
+        if !rows.is_empty() {
+            blocks.push(section_block(None, None, rows, tokens));
+        }
+        blocks
+    }
+
+    /// 每个已知扩展一张卡片，操作中的按钮不可用。
     pub(super) fn render_extensions(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let tokens = theme::semantic(cx);
         let entity = cx.entity().downgrade();
         let mut cards = Vec::new();
-        let all = statuses(cx);
-        // PP-OCRv6 各档不单独成卡，在图片文字识别的设置里选。
-        for status in all
-            .iter()
+        // PP-OCRv6 各档不单独成卡，在图片文字识别的页面里选。
+        for status in statuses(cx)
+            .into_iter()
             .filter(|status| !TIERS.contains(&status.id.as_str()))
         {
-            let status = status.clone();
-            let busy = matches!(
-                status.operation,
-                OperationState::Downloading { .. } | OperationState::Installing
-            );
+            let busy = busy(&status);
             let mut controls = div().flex().items_center().gap(space(2.));
             let button = |key: &'static str, action: Action| {
                 let entity = entity.clone();
@@ -156,10 +251,6 @@ impl Preferences {
                 .on_click(move |_, window, cx| {
                     if let Some(entity) = entity.upgrade() {
                         entity.update(cx, |this, cx| {
-                            // 装好后直接展开，显示这个扩展的设置。
-                            if matches!(action, Action::Install) {
-                                this.extensions_expanded.insert(id.clone());
-                            }
                             this.run_extension_action(id.clone(), action, window, cx);
                         });
                     }
@@ -171,44 +262,14 @@ impl Preferences {
             {
                 controls = controls.child(button("install", Action::Install));
             }
-            if let Some(installed) = &status.installed {
-                let entity = entity.clone();
-                let id = status.id.clone();
-                controls = controls
-                    .child(
-                        Switch::new(format!("extension-{}-enabled", status.id))
-                            .accessibility_label(i18n::t_args(
-                                "preferences:extensions.enable",
-                                &[(
-                                    "name",
-                                    &i18n::t(&format!("preferences:extensions.{}.name", status.id)),
-                                )],
-                            ))
-                            .checked(installed.enabled)
-                            .disabled(busy)
-                            .on_change(move |enabled, window, cx| {
-                                if let Some(entity) = entity.upgrade() {
-                                    entity.update(cx, |this, cx| {
-                                        this.run_extension_action(
-                                            id.clone(),
-                                            Action::Enable(enabled),
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                }
-                            }),
-                    )
-                    .child(button("uninstall", Action::Uninstall));
+            if status.installed.is_some() {
+                controls = controls.child(button("uninstall", Action::Uninstall));
             }
             let title = div()
                 .flex()
                 .items_baseline()
                 .gap(space(2.))
-                .child(div().kp_text(TextSize::Sm).child(i18n::t(&format!(
-                    "preferences:extensions.{}.name",
-                    status.id
-                ))))
+                .child(div().kp_text(TextSize::Sm).child(name(&status.id)))
                 .children(metadata(&status).map(|metadata| {
                     div()
                         .kp_text(TextSize::Xs)
@@ -285,27 +346,13 @@ impl Preferences {
                     tokens,
                 ));
             }
-            // 展开后：启用中的扩展显示它的设置，没装或停用时显示功能介绍。
+            // 展开后是功能介绍，装没装都能看。
             if expanded {
-                let enabled = status
-                    .installed
-                    .as_ref()
-                    .is_some_and(|installed| installed.enabled);
-                match status.id.as_str() {
-                    "ocr" => {
-                        if !enabled {
-                            rows.push(details("ocr", tokens));
-                        }
-                        if enabled || self.image_text_row_visible() {
-                            rows.push(self.render_image_text_status(false, cx));
-                        }
-                        if enabled && cfg!(target_os = "windows") {
-                            rows.push(self.render_ocr_engines(&all, cx));
-                        }
-                    }
-                    "wetype" if enabled => rows.extend(self.render_wetype(cx)),
-                    "translate" if enabled => rows.extend(self.render_translate(cx)),
-                    id => rows.push(details(id, tokens)),
+                rows.push(details(&status.id, tokens));
+                // 卸载后留下的识别文字在这里删。
+                if status.id == "ocr" && status.installed.is_none() && self.image_text_row_visible()
+                {
+                    rows.push(self.render_image_text_status(false, cx));
                 }
             }
             cards.push(section_block(None, None, rows, tokens));

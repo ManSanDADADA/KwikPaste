@@ -72,6 +72,8 @@ const WINDOW_MIN_SIZE: gpui::Size<gpui::Pixels> = size(px(640.), px(480.));
 const SIDEBAR_WIDTH: f32 = 14.;
 const SIDEBAR_COLLAPSED_WIDTH: f32 = 4.25;
 const SIDEBAR_TRANSITION: Duration = Duration::from_millis(200);
+/// 侧栏二级项比一级项多缩进的量（间距单位）。
+const NESTED_NAV_INDENT: f32 = 3.5;
 
 struct PreferencesWindow {
     handle: AnyWindowHandle,
@@ -284,8 +286,10 @@ struct Preferences {
     storage_migrating: bool,
     lan_state: Option<LanSyncState>,
     lan_code_hidden: bool,
-    /// 扩展页里展开了详情的扩展 id。
+    /// 扩展列表里展开了介绍的扩展 id。
     extensions_expanded: std::collections::HashSet<String>,
+    /// 侧栏二级菜单打开的扩展页（扩展 id）；只在扩展分类下有值。
+    extension_page: Option<String>,
     /// 图片文字识别的计数（采集页状态行），打开窗口和收到 `OcrChanged` 时刷新。
     ocr_status: Option<kwikpaste_core::OcrStatus>,
     ocr_refresh: u64,
@@ -691,6 +695,7 @@ impl Preferences {
             lan_state,
             lan_code_hidden: false,
             extensions_expanded: Default::default(),
+            extension_page: None,
             ocr_status: None,
             ocr_refresh: 0,
             ocr_support: None,
@@ -3102,6 +3107,64 @@ impl Preferences {
                 (progress * 2. - 1.).max(0.)
             }
         });
+        // 二级项的缩进跟着侧栏宽度一起过渡，收起后和一级图标对齐。
+        let nested_indent = NESTED_NAV_INDENT
+            * match (collapsed, progress) {
+                (true, Some(progress)) => 1. - progress,
+                (true, None) => 0.,
+                (false, Some(progress)) => progress,
+                (false, None) => 1.,
+            };
+        let nav_item = |key: gpui::ElementId,
+                        title: gpui::SharedString,
+                        icon: PrefIcon,
+                        selected: bool,
+                        nested: bool| {
+            div()
+                .id(key)
+                .role(Role::Tab)
+                .aria_label(title.clone())
+                .flex()
+                .items_center()
+                .gap(space(2.))
+                .w_full()
+                .h(rems(2.25))
+                .px(space(2.5))
+                .when(nested, |item| item.pl(space(2.5 + nested_indent)))
+                .rounded(theme::radius::MD)
+                .kp_text(TextSize::Sm)
+                // 选中项是中性灰底（同剪贴板面板的当前项），悬停浅一档。
+                .when(selected, |item| {
+                    item.bg(component_tokens.nav_selected)
+                        .text_color(tokens.text.primary)
+                })
+                .when(!selected, |item| {
+                    item.text_color(tokens.text.secondary)
+                        .hover(|style| style.bg(component_tokens.nav_hover))
+                })
+                .cursor_pointer()
+                .child(icon.view(
+                    rems(1.),
+                    if selected {
+                        tokens.text.primary
+                    } else {
+                        tokens.text.secondary
+                    },
+                ))
+                // 收起时只留图标，名称放进提示。
+                .when(collapsed && progress.is_none(), |item| {
+                    item.kp_tooltip(title.clone())
+                })
+                .when(show_labels, |item| {
+                    item.child(
+                        div()
+                            .whitespace_nowrap()
+                            .opacity(label_opacity)
+                            .child(title),
+                    )
+                })
+        };
+        let open_extension = self.open_extension(cx).map(|status| status.id);
         let mut nav = div().flex().flex_col().gap(space(0.5));
         let mut group = None;
         for tab in tabs {
@@ -3109,56 +3172,40 @@ impl Preferences {
                 nav = nav.child(div().h(px(1.)).my(space(1.)).bg(tokens.border.divider));
             }
             group = Some(tab.group);
-            let selected = tab.id == self.tab;
             let id = tab.id;
-            let title = text::tab_title_of(tab);
+            let extensions = id == TabId::Extensions;
+            let selected = id == self.tab && !(extensions && open_extension.is_some());
             nav = nav.child(
-                div()
-                    .id(id.key())
-                    .role(Role::Tab)
-                    .aria_label(title.clone())
-                    .flex()
-                    .items_center()
-                    .gap(space(2.))
-                    .w_full()
-                    .h(rems(2.25))
-                    .px(space(2.5))
-                    .rounded(theme::radius::MD)
-                    .kp_text(TextSize::Sm)
-                    // 选中项是中性灰底（同剪贴板面板的当前项），悬停浅一档。
-                    .when(selected, |item| {
-                        item.bg(component_tokens.nav_selected)
-                            .text_color(tokens.text.primary)
-                    })
-                    .when(!selected, |item| {
-                        item.text_color(tokens.text.secondary)
-                            .hover(|style| style.bg(component_tokens.nav_hover))
-                    })
-                    .cursor_pointer()
-                    .child(tab.icon.view(
-                        rems(1.),
-                        if selected {
-                            tokens.text.primary
-                        } else {
-                            tokens.text.secondary
-                        },
-                    ))
-                    // 收起时只留图标，名称放进提示。
-                    .when(collapsed && progress.is_none(), |item| {
-                        item.kp_tooltip(title.clone())
-                    })
-                    .when(show_labels, |item| {
-                        item.child(
-                            div()
-                                .whitespace_nowrap()
-                                .opacity(label_opacity)
-                                .child(title),
-                        )
-                    })
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.navigate_to(id, None, window, cx);
-                    })),
+                nav_item(
+                    id.key().into(),
+                    text::tab_title_of(tab),
+                    tab.icon,
+                    selected,
+                    false,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.navigate_to(id, None, window, cx);
+                })),
             );
+            if !extensions {
+                continue;
+            }
+            // 已安装的扩展各占一个二级项，点开是它自己的设置页。
+            for extension in extensions::installed_pages(cx) {
+                let selected = open_extension.as_deref() == Some(extension.as_str());
+                nav = nav.child(
+                    nav_item(
+                        gpui::SharedString::from(format!("extension-page-{extension}")).into(),
+                        extensions::name(&extension),
+                        extensions::icon(&extension),
+                        selected,
+                        true,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_extension_page(extension.clone(), window, cx);
+                    })),
+                );
+            }
         }
         let (toggle_icon, toggle_label) = if collapsed {
             (
@@ -3251,6 +3298,7 @@ impl Preferences {
     ) {
         let opening = self.tab != tab;
         self.tab = tab;
+        self.extension_page = None;
         self.shortcut_detail = None;
         self.shortcut_conflict = None;
         self.stop_recording(cx);
@@ -3268,7 +3316,7 @@ impl Preferences {
                 self.advanced_expanded.insert(tab);
             }
             if id == "ocr.status" {
-                self.extensions_expanded.insert("ocr".to_owned());
+                self.extension_page = Some("ocr".to_owned());
             }
             if let Some(anchor) = self.setting_anchors.get(id).cloned() {
                 // 页面和折叠内容需先完成布局，不能使用上一页或搜索结果的锚点位置。
@@ -3286,6 +3334,12 @@ impl Preferences {
             self.refresh_image_text(cx);
         }
         cx.notify();
+    }
+
+    /// 打开侧栏二级菜单里一个扩展自己的页面。
+    fn open_extension_page(&mut self, id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.navigate_to(TabId::Extensions, None, window, cx);
+        self.extension_page = Some(id);
     }
 
     /// 父开关关闭的子项仍收起；搜索不受页面或更多选项折叠的限制。
@@ -3572,9 +3626,13 @@ impl Preferences {
         if let Some(id) = detail {
             blocks.push(self.render_shortcut_detail(id, cx));
         }
+        let extension = self.open_extension(cx).filter(|_| !searching);
+        if let Some(status) = &extension {
+            blocks.extend(self.render_extension_page(status, cx));
+        }
         for tab in tabs
             .iter()
-            .filter(|_| detail.is_none())
+            .filter(|_| detail.is_none() && extension.is_none())
             .filter(|tab| page_in_scope(tab.id, self.tab, &query))
         {
             // 默认区只剩一个分组时，标题和页面标题重复，不显示。
@@ -3836,6 +3894,8 @@ impl Preferences {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(if searching {
                                 i18n::t("preferences:search.title")
+                            } else if let Some(status) = &extension {
+                                extensions::name(&status.id)
                             } else {
                                 text::tab_title(self.tab)
                             }),
