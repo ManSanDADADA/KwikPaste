@@ -2,6 +2,30 @@
 
 All notable changes to KwikPaste are documented here.
 
+## 2.0.10 - 2026-11-23
+
+- Added the Translation extension: once installed from Extensions in Preferences, text items can be translated from the context menu or with a shortcut, and the translation shows on the card and in the preview, ready to copy or paste on its own. It uses free translation by default, works with OpenAI-compatible AI APIs, and can translate new foreign-language copies automatically.
+- Added Pin to Screen: pin image and text items to the screen as always-on-top floating windows.
+- Ctrl+click (Cmd+click on macOS) or Shift+click a card to start multi-select.
+- Added a Links category to the group bar.
+- Appearance has a new Text Size option: Small, Default or Large.
+- Added Join Line Breaks for These Apps: text copied from the chosen apps, such as PDF readers, has the line breaks inside paragraphs joined.
+- View Image is now View Image / Edit Text: its key can be changed and text items open the editor; card clicks can be set to Double-click to View Image / Edit Text.
+- Scrolling the mouse wheel over an image in the preview opens the full-size viewer.
+- Custom rule regexes accept lookarounds, backreferences and \K.
+- In Preferences, each installed extension has its own page under Extensions in the sidebar, and search also matches descriptions and option names.
+- The tray menu has an Open Clipboard item.
+- Menus, dropdowns and toasts have a clear outline and shadow, and many details in the list, Preferences and onboarding were polished.
+- On Windows, KwikPaste releases most of its memory after sitting hidden for 30 seconds.
+- On Windows, temporary image files copied from apps such as WeChat are recorded as images.
+- Terminals whose paste key isn't Ctrl+V get Shift+Insert instead.
+- Pressing Enter or quick paste right after typing a search pastes the new result instead of the row selected before the search.
+- Sensitive masking also covers JSON headers, curl -u, credentials in URLs and password fields.
+- More reliable auto-update: signatures are checked against the package file name, the updated app no longer inherits crash-recovery arguments, a changed mirror URL doesn't trigger a new download, and update errors offer Retry.
+- LAN sync finishes large images on slow networks and retries failed catch-up automatically.
+- Backup import and export stream their data and use much less memory on large backups.
+- Fixed submenus running outside the window, the clipboard window position not being remembered after dragging it past the top or left screen edge, double-tap modifiers occasionally getting stuck, and keys going to the other pane in the two-column layout on Windows.
+
 ## 2.0.9 - 2026-10-30
 
 - Added Group by Source App: items copied from the chosen apps go into a group automatically; items already in another group stay there.
