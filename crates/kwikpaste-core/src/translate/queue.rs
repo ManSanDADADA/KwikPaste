@@ -11,7 +11,7 @@ use kwikpaste_ext_protocol::{
     TranslateEngine, TranslateFailure, TranslateOutcome, TranslateRequest, TranslateResponse,
 };
 
-use super::{config, languages, save, translatable, TranslationState};
+use super::{config, languages, load, save, translatable, TranslationState};
 use crate::db::models::ClipboardItem;
 use crate::events::CoreEvent;
 use crate::extensions::process::{self, ChildHandle, ProcessHost};
@@ -146,8 +146,9 @@ impl TranslateService {
             .emit(CoreEvent::TranslationChanged { id: Some(id) });
     }
 
-    /// 新文本记录入库：自动模式开着、可翻译、不是刚写出的译文、自动队列没在暂停时排到队尾。
-    pub(crate) fn on_inserted(&self, item: &ClipboardItem, id: &str) {
+    /// 文本记录入库（含去重命中）：自动模式开着、可翻译、不是刚写出的译文、自动队列没在暂停、
+    /// 还没有当前内容的译文时排到队尾。
+    pub(crate) async fn on_inserted(&self, item: &ClipboardItem, id: &str) {
         let Some(core) = self.core() else {
             return;
         };
@@ -172,6 +173,10 @@ impl TranslateService {
             {
                 return;
             }
+        }
+        let pool = core.db.pool().await;
+        if !matches!(load(&pool, id, &item.content_hash).await, Ok(None)) {
+            return;
         }
         self.enqueue(id.to_owned(), true);
     }

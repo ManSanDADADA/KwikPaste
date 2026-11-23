@@ -167,6 +167,43 @@ fn translation_shows_only_for_the_current_content_while_enabled() {
 }
 
 #[test]
+fn auto_mode_queues_re_copied_text_unless_already_translated() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    install(&fixture, &core);
+    let translated = text_item(&core, "The clipboard manager keeps everything you copy.");
+    let untranslated = text_item(&core, "Find anything you copied before.");
+    let translated_id = block_on(core.store_item(translated.clone(), None))
+        .unwrap()
+        .id;
+    let untranslated_id = block_on(core.store_item(untranslated.clone(), None))
+        .unwrap()
+        .id;
+    save_translation(
+        &core,
+        &translated_id,
+        "剪贴板管理器会保存你复制的所有内容。",
+    );
+    block_on(
+        core.update_settings(serde_json::json!({"extensions": {"translate": {"auto": true}}})),
+    )
+    .unwrap();
+
+    // 再复制一次（去重命中）：有译文的不排队；没有的排上（占位扩展起不来，之后会记成失败）。
+    block_on(core.store_item(translated, None)).unwrap();
+    assert_eq!(
+        core.0.translate.status(&translated_id),
+        TranslationState::Idle
+    );
+    block_on(core.store_item(untranslated, None)).unwrap();
+    assert_ne!(
+        core.0.translate.status(&untranslated_id),
+        TranslationState::Idle
+    );
+    block_on(core.shutdown()).unwrap();
+}
+
+#[test]
 fn stopped_queue_drops_new_jobs_until_released() {
     let fixture = Fixture::new();
     let core = fixture.start();
