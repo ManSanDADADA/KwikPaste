@@ -234,6 +234,7 @@ fn is_app_cache_file(path: &str, temp_dir: Option<&Path>) -> bool {
 
 /// Windows 上的应用缓存图片：在系统临时目录（后端给出的规范化路径）下，或路径里有微信的数据目录
 /// （4.x `xwechat_files`、3.9 `WeChat Files`）。微信数据目录常被用户搬到别的盘，所以按目录名匹配而不是固定根。
+/// 官方微信输入法把手机传来的图片放在 `WeType\ClipboardTmp`，收到下一张就删掉上一张。
 /// 动图（GIF、APNG，如微信表情）照常按文件收录：转成图片记录只剩第一帧。
 fn is_windows_app_image(path: &str, temp_dir: Option<&Path>) -> bool {
     if !is_image_path(path) {
@@ -250,7 +251,16 @@ fn is_windows_app_image(path: &str, temp_dir: Option<&Path>) -> bool {
         let part = part.as_os_str();
         part.eq_ignore_ascii_case("xwechat_files") || part.eq_ignore_ascii_case("WeChat Files")
     });
+    let in_wetype_tmp = path.parent().is_some_and(|dir| {
+        dir.file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("ClipboardTmp"))
+            && dir
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.eq_ignore_ascii_case("WeType"))
+    });
     in_wechat_dir
+        || in_wetype_tmp
         || temp_dir.is_some_and(|temp| {
             std::fs::canonicalize(path).is_ok_and(|file| file.starts_with(temp))
         })
@@ -543,6 +553,34 @@ mod tests {
 
         let payload = read(state, &Capture::default());
         std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(
+            payload,
+            Some(ClipboardPayload::Image(ImagePayload {
+                bytes: png,
+                width: 6,
+                height: 4,
+            }))
+        );
+    }
+
+    // 官方微信输入法收到手机图片只放一个指向 WeType\ClipboardTmp 的文件列表，文件很快会被它删掉。
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wetype_clipboard_tmp_file_is_read_as_image() {
+        let root =
+            std::env::temp_dir().join(format!("kwikpaste-read-wetype-{}", std::process::id()));
+        let dir = root.join("Tencent").join("WeType").join("ClipboardTmp");
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("1795519120561_d.png");
+        let png = sample_png(6, 4);
+        std::fs::write(&file, &png).unwrap();
+        let state = MemoryState {
+            files: Some(vec![file.to_string_lossy().into_owned()]),
+            ..MemoryState::default()
+        };
+
+        let payload = read(state, &Capture::default());
+        std::fs::remove_dir_all(&root).unwrap();
         assert_eq!(
             payload,
             Some(ClipboardPayload::Image(ImagePayload {
