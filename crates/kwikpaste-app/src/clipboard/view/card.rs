@@ -85,7 +85,7 @@ pub struct CardState {
     pub favorite: bool,
     /// 上一行铺了底色（当前项、悬停或勾选）：这一行上方的分隔线不画，免得贴着色块多出一道线。
     pub after_highlight: bool,
-    /// 悬停快捷动作（列表画好的按钮行）；有它时头部行不显示时间。
+    /// 悬停快捷动作（列表画好的按钮行）；有它时卡片右上角显示工具栏，否则显示标记和时间。
     pub actions: Option<AnyElement>,
     /// 多选的复选框。
     pub checkbox: Option<AnyElement>,
@@ -156,6 +156,7 @@ pub fn card(
     let sensitive = item.shows_sensitive_mark();
     let hint = state.hint;
     let actions = state.actions;
+    let has_actions = actions.is_some();
     let checkbox = state.checkbox;
     let on_snippet = state.on_snippet;
     let highlighted = is_highlighted(state.active, state.hovered, state.checked);
@@ -243,8 +244,21 @@ pub fn card(
                     .child(body)
                     .children(snippets(env, item, 0, links, on_snippet)),
             )
-            .when(favorite || pinned || sensitive, |frame| {
-                frame.child(status_marks(tokens, favorite, pinned, sensitive, true))
+            // 右上角：平时是标记和时间，悬停且有动作时换成浮起的工具栏。
+            .when(!has_actions, |frame| {
+                frame
+                    .when(favorite || pinned || sensitive, |frame| {
+                        frame.child(status_marks(tokens, favorite, pinned, sensitive, true))
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .kp_text(TextSize::Xs)
+                            .text_color(tokens.text.muted)
+                            .child(SharedString::from(time_label(item.created_at, &env.now))),
+                    )
             })
             .when_some(checkbox, |frame, checkbox| {
                 frame.child(
@@ -429,6 +443,7 @@ fn meta(
     marks: Div,
 ) -> Div {
     let tokens = env.tokens;
+    let has_actions = actions.is_some();
     let key = if is_wetype_origin(item) {
         "clipboard:origin.fromWeType"
     } else {
@@ -460,20 +475,24 @@ fn meta(
                     div()
                         .truncate()
                         .child(SharedString::from(format!("· {origin}")))
-                }))
-                .child(div().flex_none().child(SharedString::from(format!(
-                    "· {}",
-                    time_label(item.created_at, &env.now)
-                )))),
+                })),
         )
-        // 右侧：置顶、敏感标记；悬停时换成快捷动作（置顶动作本身带状态，标记不再重复），多选时跟复选框。
+        // 右上角：平时是置顶、敏感标记和时间；悬停时换成快捷动作（置顶动作本身带状态，标记不再重复），
+        // 多选时跟复选框。
         .child(
             div()
                 .flex()
                 .flex_none()
                 .items_center()
                 .gap(space((6.) / 4.))
-                .when(actions.is_none(), |side| side.child(marks))
+                .when(!has_actions, |side| side.child(marks))
+                .when(!has_actions, |side| {
+                    side.child(
+                        div()
+                            .flex_none()
+                            .child(SharedString::from(time_label(item.created_at, &env.now))),
+                    )
+                })
                 .children(actions)
                 .children(checkbox),
         )
