@@ -1,6 +1,7 @@
 //! 微信输入法的独立 stdio 桥接；身份、网络协议和 OpenSSL 不进入宿主进程。
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, bail};
@@ -8,8 +9,76 @@ use kwikpaste_ext_protocol::{
     self as protocol, WeTypeCommand as Command, WeTypeContent as Content, WeTypeDevice,
     WeTypeEvent as Event,
 };
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Notify, mpsc, watch};
+use tokio::time::Instant;
 use wx_ime_sdk::{Client, ClientOptions, ClipboardContent, PairingCode, ReceivedId};
+
+/// 待发送的最新一条：设备组只保留最新内容，新复制的直接顶掉还没发出的旧内容。
+#[derive(Default)]
+struct LatestSend {
+    pending: Mutex<Option<(Command, bool)>>,
+    wake: Notify,
+}
+
+impl LatestSend {
+    fn replace(&self, command: Command) {
+        *self.pending.lock().unwrap_or_else(|p| p.into_inner()) = Some((command, false));
+        self.wake.notify_one();
+    }
+
+    fn take(&self) -> Option<(Command, bool)> {
+        self.pending
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+    }
+
+    /// 发布前因网络失败的那条，重连后重发一次；已经重发过或期间有了更新的内容就放弃。
+    fn retry(&self, command: Command, retried: bool) {
+        let mut pending = self.pending.lock().unwrap_or_else(|p| p.into_inner());
+        if !retried && pending.is_none() {
+            *pending = Some((command, true));
+            self.wake.notify_one();
+        }
+    }
+}
+
+/// 返回（轮询间隔，设备刷新间隔）：五分钟没有键鼠输入就放慢；查不到空闲时间按有人在用算。
+fn poll_intervals(idle: Option<Duration>) -> (Duration, Duration) {
+    if idle.is_some_and(|idle| idle >= Duration::from_secs(300)) {
+        (Duration::from_secs(30), Duration::from_secs(300))
+    } else {
+        (Duration::from_secs(2), Duration::from_secs(30))
+    }
+}
+
+/// 整个会话距上次键鼠输入多久；两个都是 32 位毫秒计数，回绕后用环绕减法仍然正确。
+#[cfg(target_os = "windows")]
+fn input_idle() -> Option<Duration> {
+    use windows_sys::Win32::System::SystemInformation::GetTickCount;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+
+    let mut info = LASTINPUTINFO {
+        cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
+        dwTime: 0,
+    };
+    if unsafe { GetLastInputInfo(&mut info) } == 0 {
+        return None;
+    }
+    Some(Duration::from_millis(u64::from(
+        unsafe { GetTickCount() }.wrapping_sub(info.dwTime),
+    )))
+}
+
+/// 整个会话（CombinedSessionState）距上次任意输入事件多久。
+#[cfg(target_os = "macos")]
+fn input_idle() -> Option<Duration> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;
+    }
+    Duration::try_from_secs_f64(unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) }).ok()
+}
 
 struct Bridge<W> {
     state: PathBuf,
@@ -66,9 +135,12 @@ impl<W: Write> Bridge<W> {
         let Some(client) = &self.client else {
             return Ok(());
         };
-        self.self_name = client.local_device().await?.name;
+        let own = client.local_device().await?;
+        self.self_name = own.name;
         let group = client.group().await?;
-        self.paired = group.is_some();
+        self.paired = group
+            .as_ref()
+            .is_some_and(|g| g.devices.iter().any(|d| d.uin == own.uin));
         self.devices = group
             .map(|g| {
                 g.devices
@@ -213,14 +285,12 @@ impl<W: Write> Bridge<W> {
                     Ok::<_, anyhow::Error>(())
                 }
                 .await;
-                let error = result.err().map(|e| e.to_string());
+                let error = result.as_ref().err().map(|e| e.to_string());
                 self.emit(Event::SendResult {
                     ok: error.is_none(),
                     error: error.clone(),
                 })?;
-                if let Some(error) = error {
-                    bail!("{error}");
-                }
+                result?;
             }
         }
         Ok(())
@@ -247,6 +317,8 @@ fn validate_image(path: &Path) -> anyhow::Result<()> {
 async fn run(state: PathBuf) -> anyhow::Result<()> {
     let (input, mut commands) = mpsc::channel(16);
     let (closed, mut eof) = watch::channel(false);
+    let sends = Arc::new(LatestSend::default());
+    let reader_sends = Arc::clone(&sends);
     std::thread::Builder::new()
         .name("wetype-stdin".into())
         .spawn(move || {
@@ -258,7 +330,11 @@ async fn run(state: PathBuf) -> anyhow::Result<()> {
                     &mut buffer,
                     protocol::WETYPE_MAX_FRAME_BYTES,
                 ) {
-                    // 队列满时阻塞读取，背压沿管道传回宿主；只有主循环退出才会失败。
+                    // 发送不排队，只留最新一条：慢速上传期间读取照常进行，宿主那边的队列不会堆满。
+                    Ok(Some(command @ (Command::SendText { .. } | Command::SendImage { .. }))) => {
+                        reader_sends.replace(command);
+                    }
+                    // 控制命令队列满时阻塞读取，背压沿管道传回宿主；只有主循环退出才会失败。
                     Ok(Some(command)) => {
                         if input.blocking_send(command).is_err() {
                             break;
@@ -287,7 +363,11 @@ async fn run(state: PathBuf) -> anyhow::Result<()> {
     let work = async {
         let mut retry = Duration::from_secs(1);
         let mut reconnect_at = None;
-        let mut status = tokio::time::interval(Duration::from_secs(30));
+        let mut status = tokio::time::interval(Duration::from_secs(1));
+        let mut last_poll = Instant::now();
+        let mut last_refresh = Instant::now();
+        let mut was_idle = false;
+        let mut poll_now = true;
         status.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         if bridge.state.join("identity.json").exists() {
             if let Err(err) = bridge.open("KwikPaste".into()).await {
@@ -302,8 +382,10 @@ async fn run(state: PathBuf) -> anyhow::Result<()> {
         loop {
             let result = if let Some(at) = reconnect_at {
                 tokio::select! {
+                    biased;
                     command = commands.recv() => {
                         let Some(command) = command else { break; };
+                        if matches!(command, Command::Unpair) { sends.take(); }
                         bridge.command(command).await
                     }
                     _ = tokio::time::sleep_until(at) => {
@@ -311,7 +393,7 @@ async fn run(state: PathBuf) -> anyhow::Result<()> {
                             else { bridge.open("KwikPaste".into()).await };
                         let result = match result { Ok(()) => bridge.refresh().await, Err(err) => Err(err) };
                         match result {
-                            Ok(()) => { bridge.state(None)?; reconnect_at = None; Ok(()) }
+                            Ok(()) => { bridge.state(None)?; reconnect_at = None; retry = Duration::from_secs(1); poll_now = true; Ok(()) }
                             Err(err) => Err(err),
                         }
                     }
@@ -331,40 +413,56 @@ async fn run(state: PathBuf) -> anyhow::Result<()> {
                     Err(err) => Err(err.into()),
                 }
             } else {
-                let client = bridge.client.clone();
-                let paired = bridge.paired;
-                let pending = bridge.pending.is_some();
                 tokio::select! {
-                    _ = status.tick(), if client.is_some() => {
-                        match bridge.refresh().await {
-                            Ok(()) => bridge.state(None),
-                            Err(err) => Err(err),
-                        }
-                    }
+                    biased;
                     command = commands.recv() => {
                         let Some(command) = command else { break; };
+                        if matches!(command, Command::Unpair) { sends.take(); }
                         bridge.command(command).await
                     }
-                    event = async {
-                        if paired && !pending && let Some(client) = &client {
-                            return client.next_event().await;
+                    _ = sends.wake.notified() => {
+                        if let Some((command, retried)) = sends.take() {
+                            let result = bridge.command(command.clone()).await;
+                            if result.as_ref().err().is_some_and(retry_send) {
+                                sends.retry(command, retried);
+                            }
+                            result
+                        } else {
+                            Ok(())
                         }
-                        std::future::pending().await
-                    } => {
-                        match event {
-                            Ok(wx_ime_sdk::Event::ClipboardReceived(receipt)) => {
-                                retry = Duration::from_secs(1);
-                                // 复制缓存失败不能继续 next_event：SDK 已标记本次投递，重启才会重投。
-                                bridge.received(receipt)?;
-                                Ok(())
+                    }
+                    _ = status.tick(), if bridge.client.is_some() => {
+                        let (poll_every, refresh_every) = poll_intervals(input_idle());
+                        let idle = poll_every == Duration::from_secs(30);
+                        poll_now |= was_idle && !idle;
+                        was_idle = idle;
+                        let result = async {
+                            if bridge.paired && bridge.pending.is_none()
+                                && (poll_now || last_poll.elapsed() >= poll_every)
+                            {
+                                let client = bridge.client.as_ref().context("WeType client unavailable")?;
+                                let receipt = client.poll_clipboard_once().await?;
+                                last_poll = Instant::now();
+                                poll_now = false;
+                                if let Some(receipt) = receipt {
+                                    retry = Duration::from_secs(1);
+                                    bridge.received(receipt)?;
+                                }
                             }
-                            Ok(wx_ime_sdk::Event::GroupChanged(group)) => {
-                                retry = Duration::from_secs(1);
-                                bridge.paired = true;
-                                bridge.devices = group.devices.into_iter().map(|d| WeTypeDevice { uin: d.uin, name: d.name }).collect();
-                                bridge.state(None)
+                            Ok::<_, anyhow::Error>(())
+                        }.await;
+                        match result {
+                            // 复制缓存这类本地失败不能继续轮询：SDK 已把这条记为投递过，只有重启进程才会重投。
+                            Err(err) if err.downcast_ref::<wx_ime_sdk::Error>().is_none() => return Err(err),
+                            Err(err) => Err(err),
+                            Ok(()) if last_refresh.elapsed() >= refresh_every => {
+                                last_refresh = Instant::now();
+                                match bridge.refresh().await {
+                                    Ok(()) => bridge.state(None),
+                                    Err(err) => Err(err),
+                                }
                             }
-                            Err(err) => Err(err.into()),
+                            Ok(()) => Ok(()),
                         }
                     }
                 }
@@ -382,6 +480,15 @@ async fn run(state: PathBuf) -> anyhow::Result<()> {
     let result = tokio::select! { result = work => result, _ = eof.changed() => Ok(()), _ = parent_gone() => Ok(()) };
     bridge.shutdown().await;
     result
+}
+
+/// 只重发发布前的网络失败；OutcomeUnknown 可能已经发布，不重发。
+fn retry_send(error: &anyhow::Error) -> bool {
+    network_error(error)
+        && !matches!(
+            error.downcast_ref::<wx_ime_sdk::Error>(),
+            Some(wx_ime_sdk::Error::OutcomeUnknown)
+        )
 }
 
 fn network_error(error: &anyhow::Error) -> bool {
@@ -408,7 +515,7 @@ async fn parent_gone() {
         if parent <= 1 || unsafe { libc::getppid() } != parent {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
 }
 
@@ -432,7 +539,7 @@ fn main() -> anyhow::Result<()> {
     unsafe {
         libc::setpriority(libc::PRIO_DARWIN_PROCESS, 0, libc::PRIO_DARWIN_BG);
     }
-    tokio::runtime::Builder::new_multi_thread()
+    tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
         .block_on(run(state))
@@ -522,9 +629,47 @@ mod tests {
     }
 
     #[test]
+    fn latest_send_slot_keeps_newest_and_retries_once() {
+        let text = |text: &str| Command::SendText { text: text.into() };
+        let slot = LatestSend::default();
+        slot.replace(text("old"));
+        slot.replace(text("new"));
+        assert_eq!(slot.take(), Some((text("new"), false)));
+
+        // 失败的那条重发一次；重发也失败就放弃。
+        slot.retry(text("new"), false);
+        assert_eq!(slot.take(), Some((text("new"), true)));
+        slot.retry(text("new"), true);
+        assert_eq!(slot.take(), None);
+
+        // 失败期间来了更新的内容，就不再重发旧的。
+        slot.replace(text("newer"));
+        slot.retry(text("new"), false);
+        assert_eq!(slot.take(), Some((text("newer"), false)));
+    }
+
+    #[test]
+    fn idle_changes_poll_and_refresh_intervals() {
+        assert_eq!(
+            poll_intervals(Some(Duration::from_secs(299))),
+            (Duration::from_secs(2), Duration::from_secs(30))
+        );
+        assert_eq!(
+            poll_intervals(Some(Duration::from_secs(300))),
+            (Duration::from_secs(30), Duration::from_secs(300))
+        );
+        assert_eq!(
+            poll_intervals(None),
+            (Duration::from_secs(2), Duration::from_secs(30))
+        );
+    }
+
+    #[test]
     fn only_network_failures_trigger_pair_reconnection() {
         assert!(network_error(&wx_ime_sdk::Error::Transport.into()));
         assert!(network_error(&wx_ime_sdk::Error::OutcomeUnknown.into()));
+        assert!(!retry_send(&wx_ime_sdk::Error::OutcomeUnknown.into()));
+        assert!(retry_send(&wx_ime_sdk::Error::Transport.into()));
         assert!(!network_error(&wx_ime_sdk::Error::CodeUnavailable.into()));
         assert!(!network_error(&anyhow::anyhow!("invalid code")));
     }
