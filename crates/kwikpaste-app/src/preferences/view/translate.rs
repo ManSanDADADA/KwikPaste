@@ -51,13 +51,18 @@ fn key(name: &str) -> SharedString {
 fn engine_value(engine: TranslateEngineKind) -> &'static str {
     match engine {
         TranslateEngineKind::Free => "free",
+        TranslateEngineKind::Google => "google",
+        TranslateEngineKind::Microsoft => "microsoft",
+        TranslateEngineKind::Volc => "volc",
+        TranslateEngineKind::Transmart => "transmart",
         TranslateEngineKind::Ai => "ai",
     }
 }
 
 fn engine_options() -> Vec<SelectOption> {
     Vec::from(
-        ["free", "ai"].map(|value| SelectOption::new(value, key(&format!("engines.{value}")))),
+        ["free", "google", "microsoft", "volc", "transmart", "ai"]
+            .map(|value| SelectOption::new(value, key(&format!("engines.{value}")))),
     )
 }
 
@@ -328,7 +333,7 @@ impl Preferences {
             setting_row(
                 true,
                 key("engine"),
-                none(),
+                key("engineDescription"),
                 Some(select(&controls.engine, key("engine"))),
                 tokens,
             ),

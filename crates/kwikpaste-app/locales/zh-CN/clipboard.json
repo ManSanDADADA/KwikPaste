@@ -197,6 +197,8 @@
   "translation": {
     "pending": "翻译中…",
     "providers": {
+      "google": "谷歌翻译",
+      "microsoft": "微软翻译",
       "transmart": "腾讯交互翻译",
       "volc": "火山翻译"
     }

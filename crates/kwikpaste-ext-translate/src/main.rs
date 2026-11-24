@@ -88,7 +88,7 @@ fn translate(
         Plan::Translate { target, recheck } => (target, recheck),
     };
     let call = |target: &str| match engine {
-        TranslateEngine::Free => free::translate(client, text, target),
+        TranslateEngine::Free { service } => free::translate(client, *service, text, target),
         TranslateEngine::OpenAi {
             base_url,
             api_key,

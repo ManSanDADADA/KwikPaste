@@ -8,7 +8,8 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use kwikpaste_ext_protocol::{
-    TranslateEngine, TranslateFailure, TranslateOutcome, TranslateRequest, TranslateResponse,
+    FreeService, TranslateEngine, TranslateFailure, TranslateOutcome, TranslateRequest,
+    TranslateResponse,
 };
 
 use super::{config, languages, load, save, translatable, TranslationState};
@@ -301,8 +302,13 @@ fn run(
         .filter(translatable)?;
     let settings = core.settings.snapshot().extensions.translate;
     let (first, second) = languages(&settings, core.language());
+    let free = |service| (TranslateEngine::Free { service }, FREE_TIMEOUT);
     let (engine, timeout) = match settings.engine {
-        TranslateEngineKind::Free => (TranslateEngine::Free, FREE_TIMEOUT),
+        TranslateEngineKind::Free => free(None),
+        TranslateEngineKind::Google => free(Some(FreeService::Google)),
+        TranslateEngineKind::Microsoft => free(Some(FreeService::Microsoft)),
+        TranslateEngineKind::Volc => free(Some(FreeService::Volc)),
+        TranslateEngineKind::Transmart => free(Some(FreeService::Transmart)),
         TranslateEngineKind::Ai => {
             let ai = config::load(&core.paths);
             let engine = TranslateEngine::OpenAi {

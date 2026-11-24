@@ -1143,9 +1143,14 @@ impl Default for TranslateSettings {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum TranslateEngineKind {
-    /// 免密钥的网页接口。
+    /// 免密钥的网页接口，由扩展依次尝试几家。
     #[default]
     Free,
+    /// 只用指定的一家免密钥网页接口。
+    Google,
+    Microsoft,
+    Volc,
+    Transmart,
     /// 用户自己填的 OpenAI 兼容接口。
     Ai,
 }

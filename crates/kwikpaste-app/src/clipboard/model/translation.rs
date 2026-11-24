@@ -26,6 +26,8 @@ pub fn language_name(code: &str) -> &str {
 /// 翻译服务的名称；AI 接口的 `provider` 是模型名，原样显示。
 pub fn provider_name(provider: &str) -> SharedString {
     match provider {
+        "google" => t("clipboard:translation.providers.google"),
+        "microsoft" => t("clipboard:translation.providers.microsoft"),
         "volc" => t("clipboard:translation.providers.volc"),
         "transmart" => t("clipboard:translation.providers.transmart"),
         other => SharedString::from(other.to_owned()),

@@ -135,8 +135,11 @@ pub enum TranslateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "tag", deny_unknown_fields)]
 pub enum TranslateEngine {
-    /// 免密钥的网页接口，具体用哪几家由扩展决定。
-    Free,
+    /// 免密钥的网页接口。没有 `service` 时由扩展决定依次尝试哪几家，帧和协议 1 最初的 `Free` 一样。
+    Free {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        service: Option<FreeService>,
+    },
     /// OpenAI Chat Completions 格式；`prompt` 为空时用扩展内置的提示词。
     OpenAi {
         base_url: String,
@@ -144,6 +147,16 @@ pub enum TranslateEngine {
         model: String,
         prompt: Option<String>,
     },
+}
+
+/// 用户指定的免费翻译服务；序列化值和 `TranslateOutcome::Done::provider` 相同。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FreeService {
+    Google,
+    Microsoft,
+    Volc,
+    Transmart,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -163,7 +176,7 @@ pub enum TranslateOutcome {
         /// 服务报告的原文语种；AI 接口没有。
         source: Option<String>,
         target: String,
-        /// 稳定的短 id：`volc`、`transmart`；AI 接口是模型名。
+        /// 稳定的短 id：`google`、`microsoft`、`volc`、`transmart`；AI 接口是模型名。
         provider: String,
     },
     /// 只在 `auto` 为真时返回。
@@ -399,6 +412,25 @@ mod tests {
         assert_eq!(
             read_frame::<TranslateResponse>(&mut reader, &mut buffer)?,
             Some(response)
+        );
+        Ok(())
+    }
+
+    /// 不指定服务时帧和 1.0 的宿主、扩展一致，新旧版本混用也能翻。
+    #[test]
+    fn free_engine_without_service_keeps_the_original_frame() -> serde_json::Result<()> {
+        let auto = TranslateEngine::Free { service: None };
+        assert_eq!(serde_json::to_string(&auto)?, r#"{"tag":"Free"}"#);
+        assert_eq!(
+            serde_json::from_str::<TranslateEngine>(r#"{"tag":"Free"}"#)?,
+            auto
+        );
+        let google = TranslateEngine::Free {
+            service: Some(FreeService::Google),
+        };
+        assert_eq!(
+            serde_json::to_string(&google)?,
+            r#"{"tag":"Free","service":"google"}"#
         );
         Ok(())
     }

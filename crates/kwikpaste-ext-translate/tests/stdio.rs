@@ -15,7 +15,7 @@ fn exchange(text: &str, auto: bool) -> TranslateOutcome {
         first: "zh-Hans".into(),
         second: "en".into(),
         auto,
-        engine: TranslateEngine::Free,
+        engine: TranslateEngine::Free { service: None },
     };
     let mut child = Command::new(env!("CARGO_BIN_EXE_kwikpaste-ext-translate"))
         .stdin(Stdio::piped())
