@@ -152,19 +152,28 @@ impl WeTypeService {
                 self.names.update(&devices)?;
                 let identity_dropped = !paired && self_name.is_empty();
                 self.ready.store(true, Ordering::Release);
-                *lock(&self.state) = WeTypeState {
+                let next = WeTypeState {
                     running: true,
                     paired,
                     self_name,
                     devices,
                     error: error.clone(),
                 };
+                // 扩展每次定时刷新都会上报一遍，没变就不让界面重绘。
+                let changed = {
+                    let mut state = lock(&self.state);
+                    let changed = *state != next;
+                    *state = next;
+                    changed
+                };
                 if let Some(error) = error {
                     complete(&self.unpair, Err(error));
                 } else if identity_dropped {
                     complete(&self.unpair, Ok(()));
                 }
-                core.events.emit(CoreEvent::WeTypeChanged);
+                if changed {
+                    core.events.emit(CoreEvent::WeTypeChanged);
+                }
             }
             Event::PairResult { ok, error } => {
                 complete(&self.pair, outcome(ok, error));
@@ -177,11 +186,12 @@ impl WeTypeService {
             } => {
                 // 本机官方客户端上传的是这台电脑自己的复制，监听已经记过，不再记一遍。
                 let own_client = from_name == crate::sync::default_device_name();
-                self.names.update(&[WeTypeDevice {
+                if self.names.update(&[WeTypeDevice {
                     uin: from_uin,
                     name: from_name,
-                }])?;
-                core.events.emit(CoreEvent::WeTypeChanged);
+                }])? {
+                    core.events.emit(CoreEvent::WeTypeChanged);
+                }
                 self.receive(core, from_uin, content, own_client).await?;
                 // 成功提交或明确跳过才确认；失败使监督器重启，SDK 从持久化待收记录重投。
                 self.send(Command::Acknowledge)?;
@@ -438,6 +448,8 @@ impl Core {
 
     /// 等待 PairResult，最多 90 秒；UI 可在任何执行器调用，不需要 tokio 上下文。
     pub async fn wetype_pair(&self, code: String) -> Result<()> {
+        // 手机上的配对码常被读成「123 456」输入。
+        let code: String = code.chars().filter(|c| !c.is_whitespace()).collect();
         if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
             return Err(anyhow::anyhow!("pairing code must contain six digits").into());
         }

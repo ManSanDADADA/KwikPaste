@@ -98,13 +98,14 @@ impl Preferences {
                 tokens,
             ));
         }
-        if let Some(error) = state.error.clone().filter(|_| state.running) {
-            rows.push(note_row(
-                false,
-                error.into(),
-                tokens.status.danger.solid,
-                tokens,
-            ));
+        if let Some(error) = state.error.as_deref().filter(|_| state.running) {
+            let (text, transient) = error_text(error);
+            let color = if transient {
+                tokens.text.muted
+            } else {
+                tokens.status.danger.solid
+            };
+            rows.push(note_row(false, text, color, tokens));
         }
 
         let options = &self.settings.extensions.wetype;
@@ -177,7 +178,7 @@ impl Preferences {
                         Ok(()) => {
                             Toast::success(i18n::t("preferences:extensions.wetype.pairedToast"))
                         }
-                        Err(error) => Toast::error(error.to_string()),
+                        Err(error) => Toast::error(error_text(&error.to_string()).0),
                     };
                     toast::show(toast, window, cx);
                 });
@@ -216,10 +217,80 @@ impl Preferences {
                 }
                 if let Err(error) = core.wetype_unpair().await {
                     let _ = entity.update_in(cx, |_, window, cx| {
-                        toast::show(Toast::error(error.to_string()), window, cx);
+                        toast::show(Toast::error(error_text(&error.to_string()).0), window, cx);
                     });
                 }
             })
             .detach();
+    }
+}
+
+/// 扩展和 SDK 报的是英文技术错误：归成几类本地化提示，认不出的原样显示。
+/// 第二项为真表示网络这类会自动重试的临时故障，界面用次要色而不是报错色。
+fn error_text(raw: &str) -> (SharedString, bool) {
+    let Some((kind, transient)) = error_kind(raw) else {
+        return (raw.to_owned().into(), false);
+    };
+    let key = format!("preferences:extensions.wetype.errors.{kind}");
+    (i18n::t_args(&key, &[("detail", raw)]), transient)
+}
+
+/// 按 wx-ime-sdk 与宿主的错误原文分类；JOIN 是协议命令 31。
+fn error_kind(raw: &str) -> Option<(&'static str, bool)> {
+    let has = |parts: &[&str]| parts.iter().any(|part| raw.contains(part));
+    if has(&[
+        "transport failed",
+        "HTTP status",
+        "timed out waiting",
+        "outcome is unknown",
+    ]) {
+        Some(("network", true))
+    } else if has(&[
+        "command 31 rejected",
+        "pairing code",
+        "invalid protocol value",
+    ]) {
+        Some(("code", false))
+    } else if has(&["pairing timed out"]) {
+        Some(("timeout", false))
+    } else if has(&[
+        "process stopped",
+        "process is not",
+        "events disconnected",
+        "queue unavailable",
+    ]) {
+        Some(("restarting", true))
+    } else if has(&["already pending"]) {
+        Some(("busy", false))
+    } else if has(&["rejected with status"]) {
+        Some(("service", false))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::error_kind;
+
+    #[test]
+    fn sdk_errors_map_to_localized_kinds() {
+        assert_eq!(
+            error_kind("control transport failed"),
+            Some(("network", true))
+        );
+        assert_eq!(
+            error_kind("command 31 rejected with status -2"),
+            Some(("code", false))
+        );
+        assert_eq!(
+            error_kind("command 36 rejected with status -2"),
+            Some(("service", false))
+        );
+        assert_eq!(
+            error_kind("WeType pairing timed out"),
+            Some(("timeout", false))
+        );
+        assert_eq!(error_kind("identity state format invalid"), None);
     }
 }

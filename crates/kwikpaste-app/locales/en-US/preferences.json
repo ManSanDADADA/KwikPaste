@@ -200,6 +200,14 @@
       "description": "Exchange copied text and images with WeType (微信输入法) on your phone.",
       "deviceSeparator": ", ",
       "devices": "Devices in the group",
+      "errors": {
+        "busy": "The previous operation hasn't finished yet. Try again in a moment.",
+        "code": "The pairing code is wrong or has expired. Get a new one on your phone.",
+        "network": "Can't reach the WeType server. Retrying automatically.",
+        "restarting": "The sync process is restarting. Try again in a moment.",
+        "service": "The WeType server rejected the request; WeType may have changed its protocol ({{detail}}).",
+        "timeout": "Pairing timed out. Get a new pairing code on your phone and try again."
+      },
       "feature": "Text and images you copy here appear in WeType's clipboard on your phone, and what you copy on the phone comes into KwikPaste, usually within seconds. Your phone needs WeType with this computer linked under 跨设备粘贴传送 (cross-device paste).",
       "how": "Built on an analysis of WeType's cross-device clipboard protocol (the open-source wx-ime-sdk) and runs in a separate background process. It is not an interface provided by Tencent: it may stop working after a WeType update, and Tencent may restrict it.",
       "installContent": "This is an unofficial feature based on an analysis of WeType's protocol, not an interface provided by Tencent. It may stop working after a WeType update, Tencent may restrict it, and synced content passes through Tencent's servers. Install it?",

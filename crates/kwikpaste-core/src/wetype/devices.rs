@@ -31,8 +31,8 @@ impl DeviceNames {
         }
     }
 
-    /// 每次 State/Received 合并，不移除旧名字；原子保存到宿主目录。
-    pub fn update(&self, devices: &[WeTypeDevice]) -> anyhow::Result<()> {
+    /// 每次 State/Received 合并，不移除旧名字；原子保存到宿主目录。返回名字是否有变化。
+    pub fn update(&self, devices: &[WeTypeDevice]) -> anyhow::Result<bool> {
         let mut names = self.names.write().unwrap_or_else(|p| p.into_inner());
         let mut next = names.clone();
         for device in devices {
@@ -41,7 +41,7 @@ impl DeviceNames {
             }
         }
         if *names == next {
-            return Ok(());
+            return Ok(false);
         }
         let dir = self
             .path
@@ -53,7 +53,7 @@ impl DeviceNames {
         tmp.as_file().sync_all()?;
         tmp.persist(&self.path)?;
         *names = next;
-        Ok(())
+        Ok(true)
     }
 
     pub fn display_name(&self, uin: &str) -> Option<String> {
