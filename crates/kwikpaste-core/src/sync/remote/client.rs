@@ -13,7 +13,7 @@ use serde_json::json;
 use super::state::ServerConfig;
 
 /// 官方服务器。
-pub(super) const OFFICIAL_URL: &str = "https://paste.fastthree.com/sync";
+pub(super) const OFFICIAL_URL: &str = "https://sync.fastthree.com";
 /// 本机支持的协议版本。
 pub(super) const PROTOCOL: u32 = 1;
 /// 帧头上限。

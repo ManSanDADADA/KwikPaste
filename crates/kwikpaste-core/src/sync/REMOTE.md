@@ -2,7 +2,7 @@
 
 局域网同步之外的第二条路：设备通过一台同步服务器互通。服务器有两种运行方式，**同一个程序**：
 
-- **官方服务器**（`mode = official`）：我们运行在 `https://paste.fastthree.com/sync`。只做立即同步：
+- **官方服务器**（`mode = official`）：我们运行在 `https://sync.fastthree.com`（雨云宁波，和 FT2 同机，独立容器）。只做立即同步：
   文本留 24 小时给离线设备补收，图片强制压缩、只实时转发不存储，同步设置，不同步历史和收藏 / 置顶 / 删除。
 - **自部署服务器**（`mode = selfhost`）：用户用 Docker 跑在自己的机器上，访问要带服务器令牌。图片质量和大小由用户选，
   可以开「同步全部历史」（全部记录 + 收藏 / 置顶 / 备注 / 删除）。
@@ -23,7 +23,7 @@
 
 - HTTP/1.1，客户端用 `reqwest`（native-tls + system-proxy，已经在安装包里）。上行用 POST，下行用一条长连接的 GET 流（§4.7），
   不用 WebSocket（省一个依赖）。官方服务器在 nginx 后面：`proxy_buffering off`、`proxy_read_timeout 600s`。
-- 所有接口的路径都相对服务器地址，例如 `https://paste.fastthree.com/sync/v1/info`。
+- 所有接口的路径都相对服务器地址，例如 `https://sync.fastthree.com/v1/info`。
 - 请求头：
   - `X-KwikPaste-Client: KwikPaste/<应用版本> (<windows|macos>)`；
   - 成员接口带 `Authorization: Bearer <设备令牌>`；
