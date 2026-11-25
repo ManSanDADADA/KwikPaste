@@ -81,7 +81,7 @@ impl Default for DisplayOptions {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayoutSpec {
     pub seamless: bool,
-    /// 有头部行（来源图标、类型、时间独占一行）；没有时图标并入正文左侧，不显示类型和时间。
+    /// 有头部行（来源图标、类型在正文上方，时间靠右）；没有时图标并入正文左侧，时间仍在右上角。
     pub header_row: bool,
     /// 条目上方的间距（卡片风格才有）。
     pub item_gap: f32,
