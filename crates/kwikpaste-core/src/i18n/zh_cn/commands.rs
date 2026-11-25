@@ -51,7 +51,9 @@ pub fn label(key: Key) -> &'static str {
         Key::SyncSelfPairing => "不能与本机配对",
         Key::RemoteNotConfigured => "本机还没有加入同步组",
         Key::RemoteAlreadyConfigured => "本机已经在一个同步组里，请先退出",
-        Key::RemoteInvalidUrl => "服务器地址格式不正确，例如 https://sync.example.com",
+        Key::RemoteInvalidUrl => {
+            "服务器地址要以 http:// 或 https:// 开头，例如 http://192.168.1.8:8686"
+        }
         Key::RemoteUnreachable => "连不上同步服务器，请检查网络和服务器地址",
         Key::RemoteServerError => "同步服务器出错了，请稍后再试",
         Key::RemoteServerToken => "服务器令牌不正确",
