@@ -144,15 +144,18 @@ B 字节：体（密文）
 
 服务器逐帧处理：
 
-1. 校验策略：`kind = meta` 需要 `policy.meta`；`class = image` 需要 `images != "off"` 且体长 ≤ `imageMaxBytes`；
-   其他体长 ≤ `maxEntryBytes`；官方服务器再查图片额度（每组每天 30 MiB 转发量、全站每天 1 GiB，北京时间零点重置）。
+1. 校验：`entryId` 是 32 个十六进制字符、`hlc` 里的设备 id 是 20 个十六进制字符，否则 `badRequest`；
+   `kind = meta` 需要 `policy.meta`；`class = image` 需要 `images != "off"` 且体长 ≤ `imageMaxBytes`；其他体长 ≤ `maxEntryBytes`。
+   官方服务器只收 `item` + `text` / `image` 和 `settings` + `none`（其他回 `policy`），单条设置 ≤ 64 KiB，
+   再查图片额度（每组每天 30 MiB 转发量、全站每天 1 GiB，北京时间零点重置）。
 2. 后写者赢：同一 `entryId` 已存的 HLC ≥ 这一帧的 HLC 时丢弃（`stale`）。HLC 先比 16 位十六进制数，再比设备 id 字符串。
 3. 存储：`images = "live"` 的图片不存；其他条目替换旧版本，分到新的 `seq`，`class = text` 且 `textRetentionHours` 非空时设过期时间。
 4. 转发：发给组里除发送方和 `skip` 之外的在线设备（`skip` 用来跳过已经通过局域网直连的设备，省流量）。
 
 响应 `{"results": [{"entryId", "status": "stored" | "forwarded" | "stale" | "rejected", "seq": 12, "error": "quota", "retryAt": "<RFC3339>"}]}`，
-`seq` 只在 `stored` 时有。策略、超限、额度、帧头读不懂这类单帧错误都放在 200 响应里的 `rejected` 结果中（额度带 `retryAt`）；
-官方服务器整个请求超过 8 MiB 回 413，帧截断回 400（之前的帧已经处理）。自部署不限帧数，只限单帧。
+`seq` 只在 `stored` 时有，结果和帧一一对应、顺序相同。策略、超限、额度、帧头读不懂这类单帧错误都放在 200 响应里的 `rejected`
+结果中（额度带 `retryAt`）；官方服务器整个请求超过 8 MiB 回 413，帧截断回 400（之前的帧已经处理）。自部署不限帧数，只限单帧。
+上传方断开不会让已经写入的条目漏发：存储和转发在服务器上一起做完。
 
 转发出去的条目沿用上传方的 `live`（缺省为真），所以补传历史必须带 `live: false`，只有刚采集的记录才是 `live: true`。
 图片额度只按至少有一台设备收到的图片计一次；额度和按 IP 的限制存在内存里，服务器重启后清零。
@@ -258,9 +261,10 @@ JSON `{"item": <WireItem，同 PROTOCOL.md §4>, "itemKey": "...", "capturedAt":
 | 加入请求 | 每 IP 每小时 30 次；全站每小时配对码错误满 1000 次后，所有加入请求暂时回 `rateLimited`；每个配对码 5 次、5 分钟 |
 | 文本 | 单条密文 ≤ 1 MiB，保留 24 小时 |
 | 图片 | 单张密文 ≤ 2 MiB，只转发不存储；每组每天 30 MiB，全站每天 1 GiB |
-| 设置 | 跟着组一直保留 |
-| 存储 | 每组已存密文 ≤ 20 MiB，全站 ≤ 2 GiB；超出时这一帧回 `rejected` + `quota`（`retryAt` 一小时后） |
-| 非图片转发 | 每组每天 200 MiB（按实际送达的设备数计），北京时间零点重置 |
+| 设置 | 跟着组一直保留；单条 ≤ 64 KiB，每组永久保留的条目合计 ≤ 1 MiB |
+| 存储 | 每组 ≤ 20 MiB，全站 ≤ 2 GiB，每条按密文加 512 字节计；超出时这一帧回 `rejected` + `quota`（`retryAt` 一小时后） |
+| 非图片转发 | 每组每天 200 MiB（每条按密文加 512 字节、按实际送达的设备数计），北京时间零点重置 |
+| 连接 | 每 IP 最多 16 个并发连接（nginx）；不读数据的事件流积压超过 4 MiB 就断开，重连后从游标补齐 |
 | 上传频率 | 每台设备每 10 分钟 1200 帧，超出时整个请求回 `rateLimited` |
 | 闲置的组 | 90 天没有设备连接就整组删除 |
 
