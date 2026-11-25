@@ -138,6 +138,9 @@
       "uninstallContent": "New images will no longer be recognized; recognized text is kept."
     },
     "retry": "Retry",
+    "settings": "Settings",
+    "stateDisabled": "Disabled",
+    "stateEnabled": "Enabled",
     "translate": {
       "ai": {
         "apiKey": "API key",
@@ -844,7 +847,7 @@
       },
       "actions": {
         "deleteConfirm": {
-          "description": "Favorited and pinned records follow their own switches below.",
+          "description": "Favorited and pinned records have their own switches under More options.",
           "title": "Confirm Regular Deletes"
         },
         "deleteFavoriteConfirm": {
@@ -1629,7 +1632,9 @@
   },
   "sidebar": {
     "collapse": "Collapse Sidebar",
-    "expand": "Expand Sidebar"
+    "collapseExtensions": "Collapse Extensions",
+    "expand": "Expand Sidebar",
+    "expandExtensions": "Expand Extensions"
   },
   "status": {
     "alwaysOn": "Default",

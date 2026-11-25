@@ -291,6 +291,8 @@ struct Preferences {
     extensions_expanded: std::collections::HashSet<String>,
     /// 侧栏二级菜单打开的扩展页（扩展 id）；只在扩展分类下有值。
     extension_page: Option<String>,
+    /// 侧栏「扩展」下的二级菜单是否展开：默认收起，进入扩展分类时展开，箭头随时切换。
+    extension_nav_open: bool,
     /// 图片文字识别的计数（采集页状态行），打开窗口和收到 `OcrChanged` 时刷新。
     ocr_status: Option<kwikpaste_core::OcrStatus>,
     ocr_refresh: u64,
@@ -683,8 +685,9 @@ impl Preferences {
             .flat_map(|section| &section.settings)
             .map(|setting| (setting.id, ScrollAnchor::for_handle(scroll.clone())))
             .collect();
+        let tab = initial_tab();
         let mut preferences = Self {
-            tab: initial_tab(),
+            tab,
             advanced_expanded: Default::default(),
             setting_anchors,
             sidebar_collapsed: settings.appearance.preferences_sidebar_collapsed,
@@ -711,6 +714,7 @@ impl Preferences {
             lan_code_hidden: false,
             extensions_expanded: Default::default(),
             extension_page: None,
+            extension_nav_open: tab == TabId::Extensions,
             ocr_status: None,
             ocr_refresh: 0,
             ocr_support: None,
@@ -2101,13 +2105,7 @@ impl Preferences {
             .w_full()
             .gap(space(2.))
             .child(if rules.is_empty() {
-                list_tile(tokens)
-                    .px(space(3.))
-                    .py(space(3.))
-                    .kp_text(TextSize::Xs)
-                    .text_color(tokens.text.muted)
-                    .child(i18n::t("preferences:retentionRules.empty"))
-                    .into_any_element()
+                empty_tile(i18n::t("preferences:retentionRules.empty"), tokens)
             } else {
                 list_tile(tokens).children(rows).into_any_element()
             })
@@ -3193,24 +3191,70 @@ impl Preferences {
             group = Some(tab.group);
             let id = tab.id;
             let extensions = id == TabId::Extensions;
-            let selected = id == self.tab && !(extensions && open_extension.is_some());
-            nav = nav.child(
-                nav_item(
-                    id.key().into(),
-                    text::tab_title_of(tab),
-                    tab.icon,
-                    selected,
-                    false,
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.navigate_to(id, None, window, cx);
-                })),
-            );
-            if !extensions {
+            let pages = if extensions {
+                extensions::installed_pages(cx)
+            } else {
+                Vec::new()
+            };
+            let submenu_open = self.extension_nav_open && !pages.is_empty();
+            // 二级菜单收起时，打开的扩展页由「扩展」本身显示选中。
+            let selected = id == self.tab && !(open_extension.is_some() && submenu_open);
+            let mut item = nav_item(
+                id.key().into(),
+                text::tab_title_of(tab),
+                tab.icon,
+                selected,
+                false,
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.navigate_to(id, None, window, cx);
+            }));
+            if !pages.is_empty() && show_labels {
+                let label = i18n::t(if submenu_open {
+                    "preferences:sidebar.collapseExtensions"
+                } else {
+                    "preferences:sidebar.expandExtensions"
+                });
+                item = item.child(
+                    div()
+                        .id("preferences-extensions-submenu")
+                        .role(Role::Button)
+                        .aria_label(label)
+                        .aria_expanded(submenu_open)
+                        .ml_auto()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_center()
+                        .size(rems(1.5))
+                        .rounded(theme::radius::SM)
+                        .opacity(label_opacity)
+                        .text_color(tokens.text.muted)
+                        .hover(|style| {
+                            style
+                                .bg(tokens.fill.default)
+                                .text_color(tokens.text.primary)
+                        })
+                        .child(
+                            Icon::new(IconName::ChevronDown)
+                                .size(rems(0.875))
+                                .when(!submenu_open, |icon| {
+                                    icon.rotate(gpui::radians(-std::f32::consts::FRAC_PI_2))
+                                }),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.extension_nav_open = !this.extension_nav_open;
+                            cx.notify();
+                        })),
+                );
+            }
+            nav = nav.child(item);
+            if !submenu_open {
                 continue;
             }
             // 已安装的扩展各占一个二级项，点开是它自己的设置页。
-            for extension in extensions::installed_pages(cx) {
+            for extension in pages {
                 let selected = open_extension.as_deref() == Some(extension.as_str());
                 nav = nav.child(
                     nav_item(
@@ -3351,6 +3395,9 @@ impl Preferences {
         if tab == TabId::Data {
             self.refresh_storage_overview(cx);
         }
+        if tab == TabId::Extensions {
+            self.extension_nav_open = true;
+        }
         if tab == TabId::Extensions && opening {
             self.refresh_extensions(window, cx);
             self.refresh_image_text(cx);
@@ -3378,6 +3425,7 @@ impl Preferences {
         &self,
         setting: &Setting,
         first: bool,
+        hide_title: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
@@ -3621,7 +3669,18 @@ impl Preferences {
                 row.flex_col().items_start().gap(space(3.))
             })
             .when(setting.parent.is_some(), |row| row.pl(space(5.)))
-            .child(row_label(title, description, tokens).when(full_width, |label| label.w_full()))
+            .child(
+                row_label(
+                    if hide_title {
+                        Default::default()
+                    } else {
+                        title
+                    },
+                    description,
+                    tokens,
+                )
+                .when(full_width, |label| label.w_full()),
+            )
             .child(
                 div()
                     .flex()
@@ -3794,6 +3853,26 @@ impl Preferences {
                             continue;
                         }
                     }
+                    let title = if searching {
+                        Some(i18n::t_args(
+                            "preferences:search.group",
+                            &[
+                                ("tab", &text::tab_title(tab.id)),
+                                ("section", &text::section_title(section)),
+                            ],
+                        ))
+                    } else {
+                        let show_titles = if advanced {
+                            tab.sections.len() > 1
+                        } else {
+                            default_sections > 1
+                        };
+                        show_titles.then(|| text::section_title(section))
+                    };
+                    // 分组只有一行、行标题又和分组标题一样时，行里不再重复标题，只留说明。
+                    let hide_row_title = !searching
+                        && visible.len() == 1
+                        && title.as_ref() == Some(&text::setting_title(visible[0]));
                     let mut rows = Vec::with_capacity(visible.len());
                     for (index, setting) in visible.into_iter().enumerate() {
                         let row = if searching && search_navigation_only(setting.control) {
@@ -3820,7 +3899,7 @@ impl Preferences {
                                 tokens,
                             )
                         } else {
-                            self.render_setting(setting, index == 0, window, cx)
+                            self.render_setting(setting, index == 0, hide_row_title, window, cx)
                         };
                         rows.push(
                             div()
@@ -3830,22 +3909,6 @@ impl Preferences {
                                 .into_any_element(),
                         );
                     }
-                    let title = if searching {
-                        Some(i18n::t_args(
-                            "preferences:search.group",
-                            &[
-                                ("tab", &text::tab_title(tab.id)),
-                                ("section", &text::section_title(section)),
-                            ],
-                        ))
-                    } else {
-                        let show_titles = if advanced {
-                            tab.sections.len() > 1
-                        } else {
-                            default_sections > 1
-                        };
-                        show_titles.then(|| text::section_title(section))
-                    };
                     blocks.push(section_block(title, None, rows, tokens));
                 }
             }
@@ -5698,6 +5761,22 @@ fn list_tile(tokens: &SemanticTokens) -> gpui::Div {
         .border_color(tokens.border.subtle)
 }
 
+/// 规则列表还空着时的占位：虚线框里一句灰字，不像一个待填的输入框。
+pub(super) fn empty_tile(text: gpui::SharedString, tokens: &SemanticTokens) -> gpui::AnyElement {
+    div()
+        .w_full()
+        .px(space(3.))
+        .py(space(3.))
+        .rounded(theme::radius::LG)
+        .border_1()
+        .border_dashed()
+        .border_color(tokens.border_disabled)
+        .kp_text(TextSize::Xs)
+        .text_color(tokens.text.muted)
+        .child(text)
+        .into_any_element()
+}
+
 /// 设置分组的卡片：很淡的填充底、细边框、小圆角，行与行之间的分隔线留在卡片内。
 fn section_card(tokens: &SemanticTokens) -> gpui::Div {
     div()
@@ -5740,7 +5819,9 @@ pub(super) fn row_label(
         .gap(space(0.5))
         .flex_1()
         .min_w_0()
-        .child(div().kp_text(TextSize::Sm).child(title))
+        .when(!title.is_empty(), |label| {
+            label.child(div().kp_text(TextSize::Sm).child(title))
+        })
         .when(!description.is_empty(), |label| {
             label.child(
                 div()

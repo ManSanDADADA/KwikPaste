@@ -211,12 +211,7 @@ impl Preferences {
             .w_full()
             .gap(space(2.))
             .child(if rules.is_empty() {
-                list_tile(tokens)
-                    .p(space(3.))
-                    .kp_text(TextSize::Xs)
-                    .text_color(tokens.text.secondary)
-                    .child(words("empty"))
-                    .into_any_element()
+                empty_tile(words("empty"), tokens)
             } else {
                 list_tile(tokens).children(rows).into_any_element()
             })

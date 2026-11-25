@@ -138,6 +138,9 @@
       "uninstallContent": "卸载后不再识别新图片，已识别的文字会保留。"
     },
     "retry": "重试",
+    "settings": "设置",
+    "stateDisabled": "已停用",
+    "stateEnabled": "已启用",
     "translate": {
       "ai": {
         "apiKey": "API Key",
@@ -834,7 +837,7 @@
       },
       "actions": {
         "deleteConfirm": {
-          "description": "收藏和置顶记录由下面的开关单独控制。",
+          "description": "收藏和置顶记录在「更多选项」里单独设置。",
           "title": "删除普通记录前确认"
         },
         "deleteFavoriteConfirm": {
@@ -1618,7 +1621,9 @@
   },
   "sidebar": {
     "collapse": "收起侧栏",
-    "expand": "展开侧栏"
+    "collapseExtensions": "收起扩展菜单",
+    "expand": "展开侧栏",
+    "expandExtensions": "展开扩展菜单"
   },
   "status": {
     "alwaysOn": "默认能力",

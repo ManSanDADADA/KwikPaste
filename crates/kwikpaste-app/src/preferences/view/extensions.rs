@@ -7,7 +7,7 @@ use gpui::{
     radians, rems,
 };
 use kwikpaste_ui::{
-    Button, DialogSpec, Icon, IconName, KpStyled as _, Switch, form_dialog,
+    Button, DialogSpec, Icon, IconName, KpStyled as _, Switch, Tag, TagColor, form_dialog,
     theme::{self, SemanticTokens, TextSize, space},
     toast::{self, Toast},
 };
@@ -256,18 +256,41 @@ impl Preferences {
                     }
                 })
             };
+            // 没装的是主按钮「安装」；装好的是「设置」（进它自己的页面）加危险描边的「卸载」。
             if !matches!(status.operation, OperationState::Error { .. })
                 && status.installed.is_none()
                 && (status.catalog.is_some() || busy)
             {
-                controls = controls.child(button("install", Action::Install));
+                controls =
+                    controls.child(button("install", Action::Install).primary().loading(busy));
             }
             if status.installed.is_some() {
-                controls = controls.child(button("uninstall", Action::Uninstall));
+                let id = status.id.clone();
+                controls = controls
+                    .child(
+                        Button::new(
+                            format!("extension-{}-settings", status.id),
+                            i18n::t("preferences:extensions.settings"),
+                        )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.open_extension_page(id.clone(), window, cx);
+                            },
+                        )),
+                    )
+                    .child(button("uninstall", Action::Uninstall).danger_outline());
             }
+            let state = status.installed.as_ref().map(|installed| {
+                if installed.enabled {
+                    Tag::new(i18n::t("preferences:extensions.stateEnabled"))
+                        .color(TagColor::Success)
+                } else {
+                    Tag::new(i18n::t("preferences:extensions.stateDisabled"))
+                }
+            });
             let title = div()
                 .flex()
-                .items_baseline()
+                .items_center()
                 .gap(space(2.))
                 .child(div().kp_text(TextSize::Sm).child(name(&status.id)))
                 .children(metadata(&status).map(|metadata| {
@@ -275,7 +298,8 @@ impl Preferences {
                         .kp_text(TextSize::Xs)
                         .text_color(tokens.text.secondary)
                         .child(metadata)
-                }));
+                }))
+                .children(state);
             let expanded = self.extensions_expanded.contains(&status.id);
             let toggle = {
                 let id = status.id.clone();
@@ -330,21 +354,37 @@ impl Preferences {
                     .child(controls.flex_none())
                     .into_any_element(),
             ];
+            // 进度、出错和目录不可用是卡片里的一行小字，不像一条设置；出错标红。
             if let Some(note) = status_text(&status) {
+                let error = matches!(status.operation, OperationState::Error { .. });
                 let action = match status.operation {
                     OperationState::Error { .. } => Some(button("retry", Action::Refresh)),
                     OperationState::Idle if status.update_available => {
-                        Some(button("update", Action::Install))
+                        Some(button("update", Action::Install).primary())
+                    }
+                    OperationState::Idle if status.catalog.is_none() => {
+                        Some(button("retry", Action::Refresh))
                     }
                     _ => None,
                 };
-                rows.push(setting_row(
-                    false,
-                    note,
-                    SharedString::default(),
-                    action.map(IntoElement::into_any_element),
-                    tokens,
-                ));
+                rows.push(
+                    row_frame(false, tokens)
+                        .min_h(rems(2.75))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .kp_text(TextSize::Xs)
+                                .text_color(if error {
+                                    tokens.status.danger.solid
+                                } else {
+                                    tokens.text.secondary
+                                })
+                                .child(note),
+                        )
+                        .children(action.map(|action| action.small()))
+                        .into_any_element(),
+                );
             }
             // 展开后是功能介绍，装没装都能看。
             if expanded {

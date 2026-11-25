@@ -189,7 +189,6 @@ impl Preferences {
                 words(&format!("templates.{key}")),
             )
             .small()
-            .ghost()
             .disabled(rules.len() >= MAX_CUSTOM_RULES)
             .on_click(move |_, window, cx| {
                 if let Some(entity) = entity.upgrade() {
@@ -205,12 +204,7 @@ impl Preferences {
             .w_full()
             .gap(space(2.))
             .child(if rules.is_empty() {
-                list_tile(tokens)
-                    .p(space(3.))
-                    .kp_text(TextSize::Xs)
-                    .text_color(tokens.text.secondary)
-                    .child(words("empty"))
-                    .into_any_element()
+                empty_tile(words("empty"), tokens)
             } else {
                 list_tile(tokens).children(rows).into_any_element()
             })
@@ -229,17 +223,20 @@ impl Preferences {
                         }),
                 ),
             )
-            .child(
-                div()
-                    .kp_text(TextSize::Xs)
-                    .text_color(tokens.text.secondary)
-                    .child(words("fromTemplate")),
-            )
+            // 模板是和「添加规则」同款的小按钮，前面一句灰字说明它们是做什么的。
             .child(
                 div()
                     .flex()
                     .flex_wrap()
-                    .gap(space(1.))
+                    .items_center()
+                    .gap(space(2.))
+                    .pt(space(1.))
+                    .child(
+                        div()
+                            .kp_text(TextSize::Xs)
+                            .text_color(tokens.text.secondary)
+                            .child(words("fromTemplate")),
+                    )
                     .children(template_buttons),
             )
             .into_any_element()
