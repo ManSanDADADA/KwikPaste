@@ -934,7 +934,11 @@ impl Core {
         let core = self.clone();
         let id = id.to_owned();
         self.hop(async move {
-            let item_key = crate::db::remote::item_key(&core.0.db.pool().await, &id).await?;
+            let item_key = if remote::tracks_meta(&core.0) {
+                crate::db::remote::item_key(&core.0.db.pool().await, &id).await?
+            } else {
+                None
+            };
             delete_one(&core.0, &id).await?;
             remote::item_deleted(&core.0, item_key).await;
             Ok(())

@@ -76,7 +76,8 @@ pub struct ClipboardItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin_device_id: Option<String>,
 
-    /// 远程同步使用的稳定条目键；本机首次采集的记录在同步时补写。
+    /// 远程同步收到的记录记来源设备的 itemKey（`kind:content_hash`，图片压缩后本机指纹会变）；
+    /// 本机采集的记录为 `None`，itemKey 就是自己的 `kind:content_hash`。
     #[sqlx(default)]
     #[serde(skip)]
     pub sync_key: Option<String>,

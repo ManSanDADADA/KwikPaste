@@ -250,6 +250,11 @@ pub(crate) fn capture(core: &CoreInner, item: &ClipboardItem, skip: Vec<String>)
     core.remote.capture(item, skip);
 }
 
+/// 本机的收藏 / 置顶 / 备注 / 删除要不要同步：加入了同步组、开着「同步全部历史」。
+pub(crate) fn tracks_meta(core: &CoreInner) -> bool {
+    core.remote.tracks_meta(core)
+}
+
 /// 同步全部历史时上传用户的元数据改动（DB 已经改好之后调用）。失败只记日志，不影响本机操作。
 pub(crate) async fn meta_changed(
     core: &CoreInner,
@@ -257,6 +262,9 @@ pub(crate) async fn meta_changed(
     id: &str,
     change: MetaChange,
 ) {
+    if !tracks_meta(core) {
+        return;
+    }
     let (field, value) = match change {
         MetaChange::Favorite(favorite) => (entries::FAVORITE, Value::Bool(favorite)),
         MetaChange::Pinned(pinned) => (entries::PINNED, Value::Bool(pinned)),
@@ -272,12 +280,14 @@ pub(crate) async fn meta_changed(
     upload_meta(core, pool, item_key, field, value).await;
 }
 
-/// 同步全部历史时上传删除；`item_key` 要在删除之前取。
+/// 同步全部历史时上传删除；`item_key` 要在删除之前取（[`tracks_meta`] 为假时不必取）。
 pub(crate) async fn item_deleted(core: &CoreInner, item_key: Option<String>) {
     let pool = core.db.pool().await;
     upload_meta(core, &pool, item_key, entries::DELETED, Value::Bool(true)).await;
 }
 
+/// 记下一个元数据改动（待发，见 [`entries::local_meta`]）；运行中、服务器收元数据时马上发出，
+/// 发不出去的等下次补齐结束后重发。
 async fn upload_meta(
     core: &CoreInner,
     pool: &SqlitePool,
@@ -285,28 +295,27 @@ async fn upload_meta(
     field: &str,
     value: Value,
 ) {
-    let (Some(item_key), Some(run), Some(policy)) =
-        (item_key, core.remote.run(), core.remote.policy())
-    else {
+    let (Some(item_key), Some((device_id, keys))) = (item_key, core.remote.meta_keys(core)) else {
         return;
     };
-    let remote = core.settings.snapshot().sync.remote;
-    if !(remote.enabled && remote.full_history && policy.history && policy.meta) {
-        return;
-    }
     let entry = MetaEntry {
         item_key,
         field: field.to_owned(),
         value,
     };
-    let hlc = core.remote.tick(&run.device_id);
-    match entries::local_meta(pool, &run.keys, entry, hlc).await {
-        Ok(frame) => {
-            if let Err(err) = run.uploads.try_send(Upload::Frame(frame)) {
-                log::warn!("remote sync metadata not queued: {err}");
-            }
+    let hlc = core.remote.tick(&device_id);
+    let frame = match entries::local_meta(pool, &keys, entry, hlc).await {
+        Ok(frame) => frame,
+        Err(err) => {
+            log::warn!("remote sync metadata skipped: {err:#}");
+            return;
         }
-        Err(err) => log::warn!("remote sync metadata skipped: {err:#}"),
+    };
+    let Some(run) = core.remote.run() else {
+        return;
+    };
+    if run.accepts_meta() && run.uploads.try_send(Upload::Frame(frame)).is_err() {
+        log::info!("remote sync metadata stays pending: the upload queue did not take it");
     }
 }
 

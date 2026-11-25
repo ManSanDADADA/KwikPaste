@@ -65,10 +65,9 @@ struct Inner {
     run: Option<Arc<Run>>,
 }
 
-/// 偏好页要看的状态（不落盘）。
+/// 偏好页要看的状态（不落盘）。服务器策略在运行时上（[`Run::policy`]）。
 struct View {
     status: RemoteStatus,
-    policy: Option<RemotePolicy>,
     devices: Vec<RemoteDeviceView>,
     pairing: Option<RemotePairingCode>,
     image_quota_until: Option<DateTime<Utc>>,
@@ -82,7 +81,6 @@ impl Default for View {
     fn default() -> Self {
         Self {
             status: RemoteStatus::Connecting,
-            policy: None,
             devices: Vec::new(),
             pairing: None,
             image_quota_until: None,
@@ -103,11 +101,21 @@ pub(super) struct Run {
     nudge: Notify,
     /// 服务器策略，第一次连上后才有；上传任务等它。
     policy: watch::Sender<Option<RemotePolicy>>,
+    /// 这次运行还没从头收过一遍设置：「同步设置」关着时、或旧版本不认识的设置项当时跳过了。
+    settings_pass: AtomicBool,
 }
 
 impl Run {
     pub fn nudge(&self) {
         self.nudge.notify_one();
+    }
+
+    /// 已经连上过、服务器收元数据。
+    pub fn accepts_meta(&self) -> bool {
+        self.policy
+            .borrow()
+            .as_ref()
+            .is_some_and(|policy| policy.history && policy.meta)
     }
 }
 
@@ -215,15 +223,34 @@ impl RemoteService {
         self.lock().clock.tick().wire(device_id)
     }
 
-    pub(super) fn policy(&self) -> Option<RemotePolicy> {
-        self.lock().view.policy.clone()
+    /// 加入（或建立）同步组的时间。
+    fn joined_at(&self) -> Option<DateTime<Utc>> {
+        self.lock().file.as_ref().map(|file| file.joined_at)
     }
 
-    pub(super) fn history_uploaded(&self) -> bool {
-        self.lock()
+    /// 本机的元数据改动要不要记下来同步：加入了自部署服务器的同步组（官方服务器不收元数据）、
+    /// 开着「同步全部历史」。不看运行时：断网、刚启动还没连上时的改动也要留着，连上后再发。
+    pub(super) fn tracks_meta(&self, core: &CoreInner) -> bool {
+        self.meta_keys(core).is_some()
+    }
+
+    /// 记元数据改动要用的设备 id 与组密钥（条件见 [`Self::tracks_meta`]）。
+    pub(super) fn meta_keys(&self, core: &CoreInner) -> Option<(String, GroupKeys)> {
+        if !core.settings.snapshot().sync.remote.full_history {
+            return None;
+        }
+        let inner = self.lock();
+        let file = inner
             .file
             .as_ref()
-            .is_some_and(|file| file.history_uploaded)
+            .filter(|file| matches!(file.server, ServerConfig::SelfHost { .. }))?;
+        match GroupKeys::from_base64(&file.group_key) {
+            Ok(keys) => Some((file.device_id.clone(), keys)),
+            Err(err) => {
+                log::warn!("remote sync group key is invalid: {err:#}");
+                None
+            }
+        }
     }
 
     /// 宿主启用远程同步：之后按设置启停。
@@ -232,8 +259,8 @@ impl RemoteService {
         self.apply(core).await;
     }
 
-    /// 按当前设置启动、停止或更新运行时。「同步全部历史」或「同步设置」刚打开时从头补齐一次：
-    /// 关着时收到的那部分条目被跳过了。
+    /// 按当前设置启动、停止或更新运行时。「同步全部历史」刚打开时从头补齐一次：关着时元数据和
+    /// 加入前的记录被跳过了。「同步设置」刚打开时重启运行时，启动时从头收一遍设置，游标不动。
     pub(super) async fn apply(&self, core: &Arc<CoreInner>) {
         if !self.started.load(Ordering::Acquire) {
             return;
@@ -244,28 +271,19 @@ impl RemoteService {
             let mut inner = self.lock();
             let previous = inner.applied.replace(remote.clone());
             let turned_on = |now: bool, before: Option<bool>| now && before == Some(false);
-            let reset = turned_on(
+            let history_on = turned_on(
                 remote.full_history,
                 previous.as_ref().map(|p| p.full_history),
-            ) || turned_on(remote.settings, previous.as_ref().map(|p| p.settings));
-            let mut changed = false;
-            if let Some(file) = inner.file.as_mut() {
-                if reset {
-                    file.cursor = 0;
-                    file.caught_up = false;
-                    changed = true;
-                }
-                if !remote.full_history && file.history_uploaded {
-                    file.history_uploaded = false;
-                    changed = true;
-                }
-                if changed {
-                    if let Err(err) = state::save(&self.dir, file) {
-                        log::warn!("remote sync state save failed: {err:#}");
-                    }
+            );
+            let settings_on = turned_on(remote.settings, previous.as_ref().map(|p| p.settings));
+            if let Some(file) = inner.file.as_mut().filter(|_| history_on) {
+                file.cursor = 0;
+                file.caught_up = false;
+                if let Err(err) = state::save(&self.dir, file) {
+                    log::warn!("remote sync state save failed: {err:#}");
                 }
             }
-            (inner.file.is_some(), reset)
+            (inner.file.is_some(), history_on || settings_on)
         };
 
         if !configured || !remote.enabled {
@@ -337,6 +355,7 @@ impl RemoteService {
             uploads,
             nudge: Notify::new(),
             policy,
+            settings_pass: AtomicBool::new(true),
         });
         {
             let mut inner = self.lock();
@@ -359,6 +378,7 @@ impl RemoteService {
             {
                 inner.run = None;
             }
+            inner.view.history_upload = None;
         }
         runtime.task.abort();
         let _ = runtime.task.await;
@@ -422,8 +442,10 @@ impl RemoteService {
                 .as_ref()
                 .map(|file| file.server.view())
                 .or_else(|| view.revoked.clone()),
-            status,
-            policy: view.policy.clone(),
+            policy: inner
+                .run
+                .as_ref()
+                .and_then(|run| run.policy.borrow().clone()),
             devices: view.devices.clone(),
             pairing: view
                 .pairing
@@ -431,7 +453,10 @@ impl RemoteService {
                 .filter(|pairing| pairing.expires_at > now),
             image_quota_until: view.image_quota_until.filter(|until| *until > now),
             last_sync_at: view.last_sync_at,
-            history_upload: view.history_upload,
+            history_upload: view
+                .history_upload
+                .filter(|_| status == RemoteStatus::Connected),
+            status,
         }
     }
 
@@ -439,12 +464,12 @@ impl RemoteService {
     pub(super) fn accepts(&self, core: &CoreInner, item: &ClipboardItem) -> bool {
         let remote = core.settings.snapshot().sync.remote;
         let inner = self.lock();
-        if inner.run.is_none() || !remote.enabled {
+        let Some(run) = inner.run.as_ref().filter(|_| remote.enabled) else {
             return false;
-        }
-        let images = inner
-            .view
+        };
+        let images = run
             .policy
+            .borrow()
             .as_ref()
             .is_none_or(|policy| policy.images != RemoteImages::Off)
             && inner
@@ -475,7 +500,6 @@ impl RemoteService {
         self.update_file(|file| {
             file.cursor = 0;
             file.caught_up = false;
-            file.history_uploaded = false;
         });
         if let Some(core) = self.bound_core() {
             self.reconnect(&core).await;
@@ -511,7 +535,7 @@ impl RemoteService {
         server: RemoteServer,
     ) -> Result<()> {
         self.ensure_not_configured(core)?;
-        let (server, client, policy) = self.check_server(core, server).await?;
+        let (server, client, _) = self.check_server(core, server).await?;
         let device_id = self.device_id(core)?;
         let keys = GroupKeys::new(random_key());
         let name = effective_device_name(&core.settings.snapshot().sync.lan);
@@ -529,9 +553,9 @@ impl RemoteService {
             cursor: 0,
             caught_up: false,
             device_name: Some(name),
-            history_uploaded: false,
+            joined_at: Utc::now(),
         };
-        self.adopt(core, file, policy).await
+        self.adopt(core, file).await
     }
 
     pub(super) async fn join_group(
@@ -543,7 +567,7 @@ impl RemoteService {
         self.ensure_not_configured(core)?;
         let code = crate::sync::pairing::normalize_code(code, REMOTE_CODE_DIGITS)
             .ok_or_else(|| sync_error(core, Key::RemoteInvalidCode))?;
-        let (server, client, policy) = self.check_server(core, server).await?;
+        let (server, client, _) = self.check_server(core, server).await?;
         let device_id = self.device_id(core)?;
 
         let (joiner, message) = pairing::start_joiner(&code);
@@ -574,9 +598,9 @@ impl RemoteService {
             cursor: 0,
             caught_up: false,
             device_name: Some(name),
-            history_uploaded: false,
+            joined_at: Utc::now(),
         };
-        self.adopt(core, file, policy).await
+        self.adopt(core, file).await
     }
 
     fn ensure_not_configured(&self, core: &CoreInner) -> Result<()> {
@@ -587,21 +611,13 @@ impl RemoteService {
     }
 
     /// 建组或加入成功：保存凭据，清掉旧的同步状态，打开远程同步（设置变化随之启动运行时）。
-    async fn adopt(
-        &self,
-        core: &Arc<CoreInner>,
-        file: RemoteFile,
-        policy: RemotePolicy,
-    ) -> Result<()> {
+    async fn adopt(&self, core: &Arc<CoreInner>, file: RemoteFile) -> Result<()> {
         state::save(&self.dir, &file)?;
         crate::db::remote::clear(&core.db.pool().await).await?;
         {
             let mut inner = self.lock();
             inner.file = Some(file);
-            inner.view = View {
-                policy: Some(policy),
-                ..View::default()
-            };
+            inner.view = View::default();
         }
         self.emit(core);
         Core(core.clone())
@@ -709,17 +725,17 @@ impl RemoteService {
     // ---- 运行时用 ----
 
     fn set_policy(&self, core: &CoreInner, run: &Run, policy: RemotePolicy) {
-        run.policy.send_replace(Some(policy.clone()));
-        self.update_view(core, |view| view.policy = Some(policy));
+        run.policy.send_replace(Some(policy));
+        self.emit(core);
     }
 
-    /// 事件流从哪里开始：第一次补齐从 0 开始，不同步全部历史时只要设置；之后从游标开始要全部。
+    /// 事件流从游标开始（补齐被打断时从断的地方接着补）。第一次补齐完成之前、不同步全部历史时只要设置；
+    /// 之后要全部。
     fn stream_position(&self, history: bool) -> (u64, bool) {
         let inner = self.lock();
-        match inner.file.as_ref() {
-            Some(file) if file.caught_up => (file.cursor, true),
-            _ => (0, history),
-        }
+        inner.file.as_ref().map_or((0, history), |file| {
+            (file.cursor, file.caught_up || history)
+        })
     }
 
     /// 推进游标。`synced` 时直接设成服务器的当前最大序号（服务器数据重置过时会变小）并记下补齐完成。
@@ -754,16 +770,34 @@ impl RemoteService {
             .map_or_else(current_platform, |device| device.platform)
     }
 
-    fn upload_results(&self, core: &CoreInner, results: &[super::client::UploadResult]) {
+    /// 处理一批上传的结果（和发出的帧一一对应）：服务器收下的本机记录与元数据改动不再待发；
+    /// 图片额度用完时图片暂停到 `retryAt`，文本的额度不影响图片。
+    async fn upload_results(
+        &self,
+        core: &CoreInner,
+        frames: &[&Outgoing],
+        results: &[super::client::UploadResult],
+    ) {
+        let pool = core.db.pool().await;
         let mut quota = None;
-        for result in results {
+        for (frame, result) in frames.iter().zip(results) {
             match (result.status.as_str(), result.error.as_deref()) {
-                ("rejected", Some("quota")) => quota = result.retry_at.or(quota),
+                ("rejected", Some("quota")) if frame.class == "image" => {
+                    quota = result.retry_at.or(quota);
+                }
                 ("rejected", error) => log::info!(
                     "remote sync entry {} rejected: {}",
                     result.entry_id,
                     error.unwrap_or("unknown")
                 ),
+                _ if matches!(frame.kind, entries::ITEM | entries::META) => {
+                    let confirmed =
+                        crate::db::remote::confirm(&pool, &frame.entry_id, frame.kind, &frame.hlc)
+                            .await;
+                    if let Err(err) = confirmed {
+                        log::warn!("remote sync state update failed: {err}");
+                    }
+                }
                 _ => {}
             }
         }
@@ -922,6 +956,7 @@ fn stopped(core: &CoreInner, run: &Arc<Run>, status: RemoteStatus) {
             inner.run = None;
         }
         inner.view.status = status;
+        inner.view.history_upload = None;
     }
     core.remote.emit(core);
 }
@@ -945,6 +980,12 @@ async fn session(core: &Arc<CoreInner>, run: &Arc<Run>, backoff: &mut Duration) 
     }
 
     let remote = core.settings.snapshot().sync.remote;
+    if settings_active(&remote, &policy) && run.settings_pass.load(Ordering::Acquire) {
+        if let Some(end) = settings_pass(core, run, &policy, *backoff).await {
+            return end;
+        }
+        run.settings_pass.store(false, Ordering::Release);
+    }
     let (after, all) = core
         .remote
         .stream_position(history_active(&remote, &policy));
@@ -954,24 +995,20 @@ async fn session(core: &Arc<CoreInner>, run: &Arc<Run>, backoff: &mut Duration) 
     };
     core.remote.set_status(core, RemoteStatus::Connected);
 
-    let max_body = policy.max_entry_bytes.max(policy.image_max_bytes);
-    let mut reader = FrameReader::new(usize::try_from(max_body).unwrap_or(usize::MAX));
+    let mut reader = frame_reader(&policy);
     let mut synced = false;
     loop {
-        let chunk = tokio::select! {
-            chunk = tokio::time::timeout(STREAM_READ_TIMEOUT, response.chunk()) => chunk,
+        tokio::select! {
+            end = read_chunk(core, &mut response, &mut reader) => {
+                if let Some(end) = end {
+                    return end;
+                }
+            }
             () = run.nudge.notified() => {
                 settings_nudged(core, run, &policy).await;
                 continue;
             }
-        };
-        let bytes = match chunk {
-            Ok(Ok(Some(bytes))) => bytes,
-            Ok(Ok(None)) => return disconnected(core, "closed by the server"),
-            Ok(Err(err)) => return disconnected(core, &err.to_string()),
-            Err(_) => return disconnected(core, "read timed out"),
-        };
-        reader.push(&bytes);
+        }
         let mut reload = false;
         loop {
             let frame = match reader.next_frame() {
@@ -991,6 +1028,68 @@ async fn session(core: &Arc<CoreInner>, run: &Arc<Run>, backoff: &mut Duration) 
         if reload {
             core.events.emit(CoreEvent::ClipboardReloaded);
         }
+    }
+}
+
+/// 每次启动运行时先从头收一遍设置条目（`items=none`），游标不动：「同步设置」关着时、
+/// 或旧版本不认识的设置项当时被跳过了，这里补上。收到 `synced` 就结束，之后才开正常的事件流。
+async fn settings_pass(
+    core: &Arc<CoreInner>,
+    run: &Arc<Run>,
+    policy: &RemotePolicy,
+    backoff: Duration,
+) -> Option<End> {
+    let mut response = match run.client.events(0, false).await {
+        Ok(response) => response,
+        Err(err) => return Some(end_for(core, &err, backoff)),
+    };
+    let mut reader = frame_reader(policy);
+    loop {
+        if let Some(end) = read_chunk(core, &mut response, &mut reader).await {
+            return Some(end);
+        }
+        loop {
+            let (header, body) = match reader.next_frame() {
+                Ok(Some(frame)) => frame,
+                Ok(None) => break,
+                Err(err) => return Some(disconnected(core, &format!("{err:#}"))),
+            };
+            let Ok(header) = serde_json::from_slice::<EventHeader>(&header) else {
+                continue;
+            };
+            match header.event.as_str() {
+                "entry" => {
+                    if let Err(err) = receive_entry(core, run, policy, &header, &body).await {
+                        log::warn!("remote sync skips entry {}: {err:#}", header.entry_id);
+                    }
+                }
+                "synced" => return None,
+                "revoked" => return Some(End::Revoked),
+                _ => {}
+            }
+        }
+    }
+}
+
+fn frame_reader(policy: &RemotePolicy) -> FrameReader {
+    let max_body = policy.max_entry_bytes.max(policy.image_max_bytes);
+    FrameReader::new(usize::try_from(max_body).unwrap_or(usize::MAX))
+}
+
+/// 读事件流的下一块进 `reader`；流断了返回为什么断。
+async fn read_chunk(
+    core: &CoreInner,
+    response: &mut reqwest::Response,
+    reader: &mut FrameReader,
+) -> Option<End> {
+    match tokio::time::timeout(STREAM_READ_TIMEOUT, response.chunk()).await {
+        Ok(Ok(Some(bytes))) => {
+            reader.push(&bytes);
+            None
+        }
+        Ok(Ok(None)) => Some(disconnected(core, "closed by the server")),
+        Ok(Err(err)) => Some(disconnected(core, &err.to_string())),
+        Err(_) => Some(disconnected(core, "read timed out")),
     }
 }
 
@@ -1031,13 +1130,14 @@ async fn handle_frame(
                 Ok(changed) => *reload |= changed,
                 Err(err) => log::warn!("remote sync skips entry {}: {err:#}", header.entry_id),
             }
-            // 补齐结束前到的实时条目不推进游标：`synced` 会直接把游标设到服务器的当前最大值。
-            match (header.live && *synced, header.seq) {
-                (true, Some(seq)) => core.remote.advance_cursor(core, seq, false),
-                (true, None) => core
+            // 补齐按序号从小到大发，实时条目要等 `synced` 之后才来：带序号的条目处理完就推进游标，
+            // 补齐被打断（睡眠、断网、退出）时从这里接着补。
+            match header.seq {
+                Some(seq) => core.remote.advance_cursor(core, seq, false),
+                None if header.live => core
                     .remote
                     .update_view(core, |view| view.last_sync_at = Some(Utc::now())),
-                _ => {}
+                None => {}
             }
         }
         "synced" => {
@@ -1105,14 +1205,23 @@ async fn receive_entry(
     let remote = core.settings.snapshot().sync.remote;
     match header.kind.as_str() {
         entries::ITEM => {
-            // 补齐时服务器也会把本机自己传的记录发回来；本机删掉的不该被它们找回来。
             if header.from == run.device_id {
+                if policy.history {
+                    let pool = core.db.pool().await;
+                    entries::note_own_item(&pool, &run.keys, &plain, &header.hlc).await?;
+                }
                 return Ok(false);
             }
+            let history = history_active(&remote, policy);
             let incoming = Incoming {
                 hlc: &header.hlc,
                 from: &header.from,
                 live: header.live,
+                since: if history {
+                    None
+                } else {
+                    core.remote.joined_at()
+                },
             };
             entries::receive_item(
                 core,
@@ -1143,7 +1252,8 @@ async fn receive_entry(
     }
 }
 
-/// 补齐结束：上传设置差异（新加入的设备这时已经采用了组里的值）；需要时开始上传整个历史。
+/// 补齐结束：上传设置差异（新加入的设备这时已经采用了组里的值）；同步全部历史时重发待发的元数据改动，
+/// 并上传服务器还没收下的记录（第一次是整个历史，之后是断网、退出时没发出去的）。
 async fn after_catch_up(core: &Arc<CoreInner>, run: &Arc<Run>, policy: &RemotePolicy) {
     let remote = core.settings.snapshot().sync.remote;
     if settings_active(&remote, policy) {
@@ -1151,7 +1261,7 @@ async fn after_catch_up(core: &Arc<CoreInner>, run: &Arc<Run>, policy: &RemotePo
             log::warn!("remote sync settings upload failed: {err:#}");
         }
     }
-    if history_active(&remote, policy) && !core.remote.history_uploaded() {
+    if history_active(&remote, policy) {
         let _ = run.uploads.send(Upload::History).await;
     }
 }
@@ -1343,11 +1453,23 @@ async fn upload_loop(core: Weak<CoreInner>, run: Arc<Run>, mut rx: mpsc::Receive
                         Err(err) => log::warn!("remote sync skips a record: {err:#}"),
                     }
                 }
-                Upload::History if history.is_none() => match HistoryUpload::start(&core).await {
-                    Ok(upload) => history = Some(upload),
-                    Err(err) => log::warn!("remote sync history upload failed to start: {err:#}"),
-                },
-                Upload::History => {}
+                Upload::History => {
+                    if meta_active(&core.settings.snapshot().sync.remote, &policy) {
+                        let pool = core.db.pool().await;
+                        match entries::pending_meta(&pool, &run.keys).await {
+                            Ok(pending) => frames.extend(pending),
+                            Err(err) => log::warn!("remote sync pending metadata skipped: {err:#}"),
+                        }
+                    }
+                    if history.is_none() {
+                        match HistoryUpload::start(&core).await {
+                            Ok(upload) => history = Some(upload),
+                            Err(err) => {
+                                log::warn!("remote sync history upload failed to start: {err:#}")
+                            }
+                        }
+                    }
+                }
             }
         }
         if !post(&core, &run, frames).await {
@@ -1389,15 +1511,17 @@ async fn post(core: &CoreInner, run: &Run, frames: Vec<Outgoing>) -> bool {
         let mut backoff = BACKOFF_MIN;
         loop {
             let mut body = Vec::new();
+            let mut sent = Vec::new();
             for frame in &batch {
-                if let Err(err) = encode_frame(&mut body, &frame.header(), &frame.body) {
-                    log::warn!("remote sync skips an entry: {err:#}");
+                match encode_frame(&mut body, &frame.header(), &frame.body) {
+                    Ok(()) => sent.push(frame),
+                    Err(err) => log::warn!("remote sync skips an entry: {err:#}"),
                 }
             }
-            log::debug!("remote sync uploads {} entries", batch.len());
+            log::debug!("remote sync uploads {} entries", sent.len());
             let err = match run.client.upload(body).await {
                 Ok(results) => {
-                    core.remote.upload_results(core, &results);
+                    core.remote.upload_results(core, &sent, &results).await;
                     break;
                 }
                 Err(err) => err,
@@ -1429,7 +1553,7 @@ async fn post(core: &CoreInner, run: &Run, frames: Vec<Outgoing>) -> bool {
     true
 }
 
-/// 「同步全部历史」打开后的整个历史上传，按页进行。
+/// 同步全部历史时上传服务器还没收下的记录，按页进行。
 struct HistoryUpload {
     ids: Vec<String>,
     next: usize,
@@ -1437,14 +1561,19 @@ struct HistoryUpload {
 
 impl HistoryUpload {
     async fn start(core: &CoreInner) -> anyhow::Result<Self> {
-        let ids = crate::db::remote::history_item_ids(&core.db.pool().await).await?;
-        core.remote.update_view(core, |view| {
-            view.history_upload = Some((0, ids.len() as u64));
-        });
+        let remote = core.settings.snapshot().sync.remote;
+        let pool = core.db.pool().await;
+        let ids = crate::db::remote::history_item_ids(&pool, remote.text, remote.image).await?;
+        if !ids.is_empty() {
+            core.remote.update_view(core, |view| {
+                view.history_upload = Some((0, ids.len() as u64));
+            });
+        }
         Ok(Self { ids, next: 0 })
     }
 
-    /// 准备并上传下一页；返回是否结束（传完，或「同步全部历史」已经关掉）。
+    /// 准备并上传下一页（最多 [`HISTORY_PAGE`] 条、约一个请求的体积，页与页之间排队的实时内容先发）；
+    /// 返回是否结束（传完，或「同步全部历史」已经关掉）。
     async fn next_page(
         &mut self,
         core: &Arc<CoreInner>,
@@ -1459,9 +1588,12 @@ impl HistoryUpload {
         }
         let meta = meta_active(&remote, policy);
         let pool = core.db.pool().await;
-        let end = (self.next + HISTORY_PAGE).min(self.ids.len());
+        let page_end = (self.next + HISTORY_PAGE).min(self.ids.len());
         let mut frames = Vec::new();
-        for id in &self.ids[self.next..end] {
+        let mut bytes = 0;
+        while self.next < page_end && bytes < MAX_REQUEST_BYTES {
+            let id = &self.ids[self.next];
+            self.next += 1;
             let Some(item) = crate::db::items::find_item_by_id(&pool, id).await? else {
                 continue;
             };
@@ -1470,7 +1602,13 @@ impl HistoryUpload {
             }
             let tick = || core.remote.tick(&run.device_id);
             match entries::history_frames(core, &run.keys, policy, &item, meta, tick).await {
-                Ok(item_frames) => frames.extend(item_frames),
+                Ok(item_frames) => {
+                    bytes += item_frames
+                        .iter()
+                        .map(|frame| frame.body.len())
+                        .sum::<usize>();
+                    frames.extend(item_frames);
+                }
                 Err(err) => log::warn!("remote sync skips a history record: {err:#}"),
             }
         }
@@ -1478,14 +1616,11 @@ impl HistoryUpload {
             return Err(anyhow!("upload stopped"));
         }
 
-        self.next = end;
         let total = self.ids.len() as u64;
-        let done = end == self.ids.len();
-        if done {
-            core.remote.update_file(|file| file.history_uploaded = true);
-        }
+        let done = self.next == self.ids.len();
+        let next = self.next as u64;
         core.remote.update_view(core, |view| {
-            view.history_upload = (!done).then_some((end as u64, total));
+            view.history_upload = (!done).then_some((next, total));
         });
         Ok(done)
     }

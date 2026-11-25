@@ -699,13 +699,15 @@ impl Shared {
             .contains_key(device_id)
     }
 
-    /// 在线的已配对设备：本机复制经远程同步发出时让服务器跳过它们（局域网已经直接送到）。
-    pub(super) fn connected_ids(&self) -> Vec<String> {
+    /// 在线、放得下 `attachment` 字节附件的已配对设备：本机复制经远程同步发出时让服务器跳过它们
+    /// （局域网已经直接送到）。
+    pub(super) fn connected_ids(&self, attachment: u64) -> Vec<String> {
         self.connections
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .keys()
-            .cloned()
+            .iter()
+            .filter(|(_, connection)| attachment <= connection.max_attachment)
+            .map(|(id, _)| id.clone())
             .collect()
     }
 

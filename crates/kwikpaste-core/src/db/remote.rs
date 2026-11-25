@@ -8,10 +8,14 @@ use anyhow::Context;
 use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 
+use crate::db::models::{ClipboardItem, ClipboardKind};
 use crate::error::Result;
 
-/// `remote_sync_state` 的一行。`kind` 是 `item` / `meta` / `settings`：记录行的 `field` 为空串、
-/// 没有 `value`；设置行没有 `item_key`，`field` 是 JSON 指针。`value` 是 JSON 文本。
+/// 本机改的记录与元数据、服务器还没收下时行的 `kind`；收下后改回 `item` / `meta`（[`confirm`]）。
+pub const PENDING: &str = "pending";
+
+/// `remote_sync_state` 的一行。`kind` 是 `item` / `meta` / `settings` / [`PENDING`]：记录行的 `field`
+/// 为空串、没有 `value`；设置行没有 `item_key`，`field` 是 JSON 指针。`value` 是 JSON 文本。
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
 pub struct RemoteStateRow {
     pub entry_id: String,
@@ -69,11 +73,27 @@ pub async fn rows_of_kind(pool: &SqlitePool, kind: &str) -> Result<Vec<RemoteSta
         .context("failed to read remote sync state")?)
 }
 
-/// 一条记录的全部元数据行（含删除墓碑）。
+/// 服务器收下了本机的这一版（结果不是 `rejected`）：行还是这个 HLC 时不再待发。
+pub async fn confirm(pool: &SqlitePool, entry_id: &str, kind: &str, hlc: &str) -> Result<()> {
+    sqlx::query(
+        "UPDATE remote_sync_state SET kind = ?, updated_at = ? \
+         WHERE entry_id = ? AND kind = 'pending' AND hlc = ?",
+    )
+    .bind(kind)
+    .bind(Utc::now())
+    .bind(entry_id)
+    .bind(hlc)
+    .execute(pool)
+    .await
+    .context("failed to confirm remote sync state")?;
+    Ok(())
+}
+
+/// 一条记录的全部元数据行（含删除墓碑和还没被服务器收下的）。
 pub async fn meta_rows(pool: &SqlitePool, item_key: &str) -> Result<Vec<RemoteStateRow>> {
     Ok(sqlx::query_as(concat!(
         select_row!(),
-        " WHERE item_key = ? AND kind = 'meta'"
+        " WHERE item_key = ? AND field <> ''"
     ))
     .bind(item_key)
     .fetch_all(pool)
@@ -117,6 +137,18 @@ pub async fn find_by_item_key(
     .context("failed to find clipboard item by sync key")?)
 }
 
+/// 一条记录跨设备的键：收到的是来源设备的 `sync_key`，本机采集的是自己的 `kind:content_hash`。
+pub fn key_of(item: &ClipboardItem) -> String {
+    item.sync_key.clone().unwrap_or_else(|| {
+        let kind = match item.kind {
+            ClipboardKind::Text => "text",
+            ClipboardKind::Image => "image",
+            ClipboardKind::Files => "files",
+        };
+        format!("{kind}:{}", item.content_hash)
+    })
+}
+
 /// 一条本机记录的 itemKey。
 pub async fn item_key(pool: &SqlitePool, id: &str) -> Result<Option<String>> {
     Ok(sqlx::query_scalar(
@@ -143,12 +175,17 @@ pub async fn set_sync_key(pool: &SqlitePool, id: &str, item_key: &str) -> Result
     Ok(())
 }
 
-/// 全部可以作为历史上传的记录（文本与图片、不是敏感内容），按最后使用时间从旧到新。
-pub async fn history_item_ids(pool: &SqlitePool) -> Result<Vec<String>> {
+/// 还要作为历史上传的记录（同步的文本 / 图片、不是敏感内容、服务器还没收下），按最后使用时间从旧到新。
+pub async fn history_item_ids(pool: &SqlitePool, text: bool, image: bool) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar(
-        "SELECT id FROM clipboard_items WHERE kind IN ('text', 'image') AND is_sensitive = 0 \
+        "SELECT id FROM clipboard_items AS c \
+         WHERE ((kind = 'text' AND ?) OR (kind = 'image' AND ?)) AND is_sensitive = 0 \
+         AND NOT EXISTS (SELECT 1 FROM remote_sync_state AS s WHERE s.kind = 'item' \
+             AND s.item_key = COALESCE(c.sync_key, c.kind || ':' || c.content_hash)) \
          ORDER BY updated_at ASC",
     )
+    .bind(text)
+    .bind(image)
     .fetch_all(pool)
     .await
     .context("failed to list history for remote sync")?)

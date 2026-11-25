@@ -86,18 +86,6 @@ impl Outgoing {
     }
 }
 
-/// 一条记录跨设备的键：来源设备采集时的 `kind:content_hash`。
-pub(super) fn item_key(item: &ClipboardItem) -> String {
-    item.sync_key.clone().unwrap_or_else(|| {
-        let kind = match item.kind {
-            ClipboardKind::Text => "text",
-            ClipboardKind::Image => "image",
-            ClipboardKind::Files => "files",
-        };
-        format!("{kind}:{}", item.content_hash)
-    })
-}
-
 /// 图片怎么发：服务器下发了压缩参数就必须照做，否则按用户选的档（「原图」直接发 PNG）。
 /// 单张上限是服务器的上限，用户自选档时再取用户设的上限。
 fn image_plan(
@@ -125,7 +113,8 @@ fn image_plan(
 }
 
 /// 本机记录转成记录条目的帧。超过服务器上限（按密文算）或原图读不到时返回 `None`。
-/// `track`（服务器存储历史）时记下这条记录的 HLC：比它旧的删除不再删掉它，上传整个历史时也不再重传。
+/// `track`（服务器存储历史）时记下这条记录的 HLC：比它旧的删除不再删掉它；服务器收下之前它是待发的，
+/// 没收下（断网、退出）就由补齐后的历史上传重传。
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn item_frame(
     core: &Arc<CoreInner>,
@@ -168,7 +157,7 @@ pub(super) async fn item_frame(
         None
     };
 
-    let item_key = item_key(item);
+    let item_key = state::key_of(item);
     let entry_id = keys.item_id(&item_key);
     let entry = ItemEntry {
         item: wire,
@@ -192,7 +181,7 @@ pub(super) async fn item_frame(
     }
 
     if track {
-        note_item_hlc(&core.db.pool().await, keys, &item_key, &hlc).await?;
+        note_item(&core.db.pool().await, keys, &item_key, &hlc, state::PENDING).await?;
     }
     Ok(Some(Outgoing {
         entry_id,
@@ -232,15 +221,39 @@ pub(super) fn meta_frame(
     })
 }
 
-/// 记下本机的元数据改动（后写者赢的状态），返回要上传的帧。
+/// 记下本机的元数据改动（后写者赢的状态），返回要上传的帧。服务器收下之前这一行是待发的，
+/// 断网、退出、被拒时留着，每次补齐结束后重发（[`pending_meta`]）。
 pub(super) async fn local_meta(
     pool: &SqlitePool,
     keys: &GroupKeys,
     entry: MetaEntry,
     hlc: String,
 ) -> anyhow::Result<Outgoing> {
-    record_meta(pool, keys, &entry, &hlc).await?;
+    record_meta(pool, keys, &entry, &hlc, state::PENDING).await?;
     meta_frame(keys, &entry, hlc)
+}
+
+/// 还没被服务器收下的本机元数据改动，重新包成帧。
+pub(super) async fn pending_meta(
+    pool: &SqlitePool,
+    keys: &GroupKeys,
+) -> anyhow::Result<Vec<Outgoing>> {
+    let mut frames = Vec::new();
+    for row in state::rows_of_kind(pool, state::PENDING).await? {
+        let Some(item_key) = row.item_key.filter(|_| !row.field.is_empty()) else {
+            continue;
+        };
+        let value = row.value.as_deref().map_or(Value::Null, |text| {
+            serde_json::from_str(text).unwrap_or(Value::Null)
+        });
+        let entry = MetaEntry {
+            item_key,
+            field: row.field,
+            value,
+        };
+        frames.push(meta_frame(keys, &entry, row.hlc)?);
+    }
+    Ok(frames)
 }
 
 async fn record_meta(
@@ -248,12 +261,13 @@ async fn record_meta(
     keys: &GroupKeys,
     entry: &MetaEntry,
     hlc: &str,
+    kind: &str,
 ) -> crate::error::Result<()> {
     state::put(
         pool,
         &RemoteStateRow {
             entry_id: keys.meta_id(&entry.field, &entry.item_key),
-            kind: META.to_owned(),
+            kind: kind.to_owned(),
             item_key: Some(entry.item_key.clone()),
             field: entry.field.clone(),
             value: Some(entry.value.to_string()),
@@ -263,12 +277,14 @@ async fn record_meta(
     .await
 }
 
-/// 记下一条记录最后一次的 HLC（只往新的走）。
-pub(super) async fn note_item_hlc(
+/// 记下一条记录最后一次的 HLC（只往新的走）。`kind` 是 [`ITEM`]（服务器上已经有这一版），
+/// 或本机刚采集、还没被服务器收下的 [`state::PENDING`]。
+async fn note_item(
     pool: &SqlitePool,
     keys: &GroupKeys,
     item_key: &str,
     hlc: &str,
+    kind: &str,
 ) -> crate::error::Result<()> {
     let entry_id = keys.item_id(item_key);
     if let Some(row) = state::get(pool, &entry_id).await? {
@@ -280,7 +296,7 @@ pub(super) async fn note_item_hlc(
         pool,
         &RemoteStateRow {
             entry_id,
-            kind: ITEM.to_owned(),
+            kind: kind.to_owned(),
             item_key: Some(item_key.to_owned()),
             field: String::new(),
             value: None,
@@ -290,11 +306,35 @@ pub(super) async fn note_item_hlc(
     .await
 }
 
+/// 补齐时服务器把本机自己传过的记录发回来（重新加入、覆盖导入之后）：只记下它的 HLC，
+/// 之后的历史上传不再重传它。不入库：本机删掉的不该被它找回来。
+pub(super) async fn note_own_item(
+    pool: &SqlitePool,
+    keys: &GroupKeys,
+    plain: &[u8],
+    hlc: &str,
+) -> anyhow::Result<()> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Key {
+        item_key: String,
+    }
+
+    let (json, _) = unpack(plain)?;
+    let key: Key = serde_json::from_slice(json).context("invalid record entry")?;
+    // 上传其实成功了、只是没等到响应（退出、断网）时，本机这一版还记着待发。
+    state::confirm(pool, &keys.item_id(&key.item_key), ITEM, hlc).await?;
+    note_item(pool, keys, &key.item_key, hlc, ITEM).await?;
+    Ok(())
+}
+
 /// 收到的条目在线上的身份。
 pub(super) struct Incoming<'a> {
     pub hlc: &'a str,
     pub from: &'a str,
     pub live: bool,
+    /// 本机不同步全部历史时是加入同步组的时间：补齐的记录只收这之后采集的。
+    pub since: Option<DateTime<Utc>>,
 }
 
 /// 入库一条收到的记录。`live` 的按实时推送处理（写剪贴板、回声过滤），补齐的只在本机还没有时插入；
@@ -315,6 +355,13 @@ pub(super) async fn receive_item(
 ) -> anyhow::Result<bool> {
     let (json, binary) = unpack(plain)?;
     let entry: ItemEntry = serde_json::from_slice(json).context("invalid record entry")?;
+    if !incoming.live
+        && incoming
+            .since
+            .is_some_and(|since| entry.captured_at < since)
+    {
+        return Ok(false);
+    }
     let pool = core.db.pool().await;
     if meta {
         let tombstone = state::get(&pool, &keys.meta_id(DELETED, &entry.item_key)).await?;
@@ -361,7 +408,7 @@ pub(super) async fn receive_item(
         }
     }
     if track || meta {
-        note_item_hlc(&pool, keys, &entry.item_key, incoming.hlc).await?;
+        note_item(&pool, keys, &entry.item_key, incoming.hlc, ITEM).await?;
     }
     Ok(changed)
 }
@@ -384,7 +431,7 @@ pub(super) async fn apply_meta(
             return Ok(false);
         }
     }
-    record_meta(&pool, keys, &entry, hlc).await?;
+    record_meta(&pool, keys, &entry, hlc, META).await?;
 
     let ids: Vec<String> = state::find_by_item_key(&pool, &entry.item_key)
         .await?
@@ -430,7 +477,8 @@ async fn apply_field(
     Ok(true)
 }
 
-/// 历史上传的一条记录：服务器上还没有的记录条目，加上本机的收藏 / 置顶 / 备注里组里还没有的。
+/// 历史上传的一条记录：服务器还没收下的记录条目，加上本机的收藏 / 置顶 / 备注里组里还没有的。
+/// 按本机规则发不了的记录（超过上限、原图没了）也记下 HLC，之后的历史上传不再一遍遍重试它。
 pub(super) async fn history_frames(
     core: &Arc<CoreInner>,
     keys: &GroupKeys,
@@ -440,13 +488,27 @@ pub(super) async fn history_frames(
     mut tick: impl FnMut() -> String,
 ) -> anyhow::Result<Vec<Outgoing>> {
     let pool = core.db.pool().await;
-    let item_key = item_key(item);
+    let item_key = state::key_of(item);
     let mut frames = Vec::new();
-    if state::get(&pool, &keys.item_id(&item_key)).await?.is_none() {
-        if let Some(frame) =
-            item_frame(core, keys, policy, item, tick(), None, Vec::new(), true).await?
+    let uploaded = state::get(&pool, &keys.item_id(&item_key))
+        .await?
+        .is_some_and(|row| row.kind == ITEM);
+    if !uploaded {
+        let hlc = tick();
+        match item_frame(
+            core,
+            keys,
+            policy,
+            item,
+            hlc.clone(),
+            None,
+            Vec::new(),
+            true,
+        )
+        .await?
         {
-            frames.push(frame);
+            Some(frame) => frames.push(frame),
+            None => note_item(&pool, keys, &item_key, &hlc, ITEM).await?,
         }
     }
     if !meta {

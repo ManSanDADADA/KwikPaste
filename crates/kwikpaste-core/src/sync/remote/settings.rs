@@ -180,6 +180,8 @@ pub(super) async fn record(
 }
 
 /// 应用收到的设置叶子：范围和本机的划分一致、比本机记下的新才写进设置。返回是否写了。
+/// 本机版本不认识的设置项什么都不记：升级后启动时从头收一遍设置（`settings_pass`）再应用，
+/// 不会把本机的默认值当成改动传上去。
 pub(super) async fn apply_incoming(
     core: &Arc<CoreInner>,
     entry_id: &str,
@@ -195,12 +197,15 @@ pub(super) async fn apply_incoming(
             return Ok(false);
         }
     }
-
     let current = flatten(&serde_json::to_value(core.settings.snapshot()).unwrap_or_default());
-    if current.get(&entry.path) != Some(&entry.value) {
+    let Some(local) = current.get(&entry.path) else {
+        return Ok(false);
+    };
+
+    if *local != entry.value {
         // 先记同步值：写入设置会触发差异检查，看到的已经是这个值。
         record(&pool, entry_id, &entry.path, &entry.value, hlc).await?;
-        let patch = patch_for(&entry.path, &entry.value, current.get(&entry.path));
+        let patch = patch_for(&entry.path, &entry.value, Some(local));
         if let Err(err) = Core(core.clone()).update_settings(patch).await {
             log::warn!("remote sync skips setting {}: {err}", entry.path);
         }

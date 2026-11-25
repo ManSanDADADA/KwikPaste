@@ -6,6 +6,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::client::official_url;
@@ -64,9 +65,9 @@ pub(super) struct RemoteFile {
     /// 上次登记到服务器的设备名。
     #[serde(default)]
     pub device_name: Option<String>,
-    /// 「同步全部历史」打开后整个历史已经上传完。
+    /// 加入（或建立）同步组的时间：不同步全部历史时只收这之后采集的记录。
     #[serde(default)]
-    pub history_uploaded: bool,
+    pub joined_at: DateTime<Utc>,
 }
 
 /// 读不到或读不懂时当作没有加入同步组（读不懂的记日志）。

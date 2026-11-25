@@ -349,10 +349,14 @@ pub(crate) async fn receive_with_options(
     }
 
     if !live {
+        // 远程同步先收到的压缩图片指纹不同，来源指纹记在 `sync_key` 里。
         let pool = core.db.pool().await;
         if crate::db::items::find_item_by_content_hash(&pool, &item.content_hash)
             .await?
             .is_some()
+            || !crate::db::remote::find_by_item_key(&pool, &crate::db::remote::key_of(&item))
+                .await?
+                .is_empty()
         {
             return Ok(None);
         }

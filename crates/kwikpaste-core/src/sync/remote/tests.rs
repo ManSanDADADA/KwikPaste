@@ -85,6 +85,16 @@ fn incoming_settings_apply_without_echo() {
         assert_eq!(settings_now.shortcuts.open_clipboard, "Alt+C");
         assert!(!settings_now.general.auto_start);
 
+        // 新版本才有的设置项什么都不记，升级后启动时的设置补齐再应用。
+        let future = SettingsEntry {
+            path: "/appearance/futureOption".into(),
+            scope: "all".into(),
+            value: json!("on"),
+        };
+        let future_id = keys.settings_id("all", &future.path);
+        assert!(!settings::apply_incoming(&core.0, &future_id, &hlc(3), future).await?);
+        assert!(state::get(&pool, &future_id).await?.is_none());
+
         // 本机改了的叶子才上传。
         core.update_settings(json!({"appearance": {"textSize": "large"}}))
             .await?;
@@ -116,11 +126,23 @@ fn item_plain(item_key: &str, text: &str) -> Vec<u8> {
 }
 
 async fn receive(core: &Core, keys: &GroupKeys, item_key: &str, at: u64) -> anyhow::Result<bool> {
+    receive_since(core, keys, item_key, at, None).await
+}
+
+/// 收一条补齐的记录（采集于一天前）；`since` 是本机加入同步组的时间（不同步全部历史时）。
+async fn receive_since(
+    core: &Core,
+    keys: &GroupKeys,
+    item_key: &str,
+    at: u64,
+    since: Option<chrono::DateTime<Utc>>,
+) -> anyhow::Result<bool> {
     let hlc = hlc(at);
     let incoming = Incoming {
         hlc: &hlc,
         from: "peer",
         live: false,
+        since,
     };
     let options = ReceiveOptions {
         text: true,
@@ -200,6 +222,113 @@ fn metadata_is_last_writer_wins_with_delete_and_resurrect() {
             !entries::apply_meta(&core.0, &keys, &hlc(45), meta("deleted", json!(true))).await?
         );
         assert!(find(&core, key).await?.is_some());
+        Ok(())
+    });
+}
+
+#[test]
+fn local_changes_stay_pending_until_the_server_takes_them() {
+    on_core(|core| async move {
+        let keys = keys();
+        let pool = core.0.db.pool().await;
+
+        // 取消收藏这类改动也要留着重发；服务器收下旧的一版不算。
+        let entry = MetaEntry {
+            item_key: "text:h".into(),
+            field: "favorite".into(),
+            value: json!(false),
+        };
+        let frame = entries::local_meta(&pool, &keys, entry, hlc(5)).await?;
+        let pending = entries::pending_meta(&pool, &keys).await?;
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].entry_id, frame.entry_id);
+        assert_eq!(pending[0].hlc, frame.hlc);
+        state::confirm(&pool, &frame.entry_id, "meta", &hlc(4)).await?;
+        assert_eq!(entries::pending_meta(&pool, &keys).await?.len(), 1);
+        state::confirm(&pool, &frame.entry_id, "meta", &frame.hlc).await?;
+        assert!(entries::pending_meta(&pool, &keys).await?.is_empty());
+
+        // 本机记录在服务器收下之前一直算历史上传要传的。
+        let item = core
+            .build_item(&crate::clipboard::ClipboardPayload::Text(
+                crate::clipboard::TextPayload {
+                    text: "offline copy".into(),
+                    html: None,
+                    rtf: None,
+                },
+            ))?
+            .expect("text item");
+        core.store_item(item.clone(), None).await?;
+        let key = state::key_of(&item);
+        let row = RemoteStateRow {
+            entry_id: keys.item_id(&key),
+            kind: state::PENDING.into(),
+            item_key: Some(key),
+            field: String::new(),
+            value: None,
+            hlc: hlc(6),
+        };
+        state::put(&pool, &row).await?;
+        assert_eq!(state::history_item_ids(&pool, true, true).await?.len(), 1);
+        state::confirm(&pool, &row.entry_id, "item", &row.hlc).await?;
+        assert!(state::history_item_ids(&pool, true, true).await?.is_empty());
+        Ok(())
+    });
+}
+
+#[test]
+fn history_off_takes_only_records_captured_after_joining() {
+    on_core(|core| async move {
+        let keys = keys();
+        let joined = Some(Utc::now() - chrono::Duration::hours(1));
+        assert!(!receive_since(&core, &keys, "text:before", 10, joined).await?);
+        assert!(find(&core, "text:before").await?.is_none());
+        receive_since(&core, &keys, "text:before", 10, None).await?;
+        assert!(find(&core, "text:before").await?.is_some());
+        Ok(())
+    });
+}
+
+/// 远程同步先收到的记录（压缩图片的指纹变了，来源指纹在 `sync_key`）不会被局域网补齐再插一遍。
+#[test]
+fn lan_catch_up_skips_records_received_remotely() {
+    on_core(|core| async move {
+        let keys = keys();
+        let original = "lan original";
+        let key = format!(
+            "text:{}",
+            crate::db::items::content_hash(ClipboardKind::Text, original)
+        );
+        receive(&core, &keys, &key, 10).await?;
+        let wire = WireItem {
+            kind: ClipboardKind::Text,
+            sub_kind: None,
+            content: original.into(),
+            search_text: None,
+            summary: None,
+            width: None,
+            height: None,
+        };
+        let stored = crate::sync::engine::receive_with_options(
+            &core.0,
+            &Mutex::new(EchoFilter::default()),
+            "peer",
+            Platform::Macos,
+            wire,
+            Vec::new(),
+            false,
+            ReceiveOptions {
+                text: true,
+                image: true,
+                write_clipboard: false,
+                max_image_bytes: u64::MAX,
+                allow_jpeg: false,
+                allow_webp: true,
+                captured_at: None,
+            },
+        )
+        .await?;
+        assert!(stored.is_none());
         Ok(())
     });
 }
