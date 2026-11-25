@@ -594,6 +594,8 @@
       "hint": "Enter it on another device under Join a Sync Group. Valid until {{time}}."
     },
     "selfHost": {
+      "guide": "Deploy the Server",
+      "guideOpen": "Setup Guide",
       "summary": "Run the KwikPaste sync server with Docker on your own server or NAS. You choose image quality and size, and can sync your whole history. Content is end-to-end encrypted.",
       "token": "Server Token",
       "tokenDescription": "Printed in the server's startup log and saved as server-token in its data folder.",

@@ -24,7 +24,7 @@ use kwikpaste_ui::{
 use serde_json::json;
 
 use super::{
-    CONTROL_WIDTH, Preferences, choices, note_row, platform_label, section_block, setting_row,
+    CONTROL_WIDTH, Preferences, choices, note_row, platform_label, section_block, setting_row, text,
 };
 use crate::{core_host, i18n};
 
@@ -259,6 +259,15 @@ impl Preferences {
                 tokens,
             )),
             ServerChoice::SelfHost => {
+                let guide = Button::new("remote-self-host-guide", key("selfHost.guideOpen"))
+                    .on_click(|_, _, cx| cx.open_url(text::SYNC_SERVER_URL));
+                server.push(setting_row(
+                    false,
+                    key("selfHost.guide"),
+                    key("selfHost.summary"),
+                    Some(guide.into_any_element()),
+                    tokens,
+                ));
                 server.push(setting_row(
                     false,
                     key("selfHost.url"),
@@ -283,12 +292,6 @@ impl Preferences {
                             .accessibility_label(key("selfHost.token"))
                             .into_any_element(),
                     ),
-                    tokens,
-                ));
-                server.push(note_row(
-                    false,
-                    key("selfHost.summary"),
-                    tokens.text.secondary,
                     tokens,
                 ));
             }

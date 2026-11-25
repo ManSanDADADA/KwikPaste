@@ -9,6 +9,8 @@ use crate::i18n::{t, t_args};
 /// 官网与源码仓库：关于页两行的说明直接显示网址。
 pub const WEBSITE_URL: &str = "https://paste.fastthree.com";
 pub const REPOSITORY_URL: &str = "https://github.com/ManSanDADADA/KwikPaste";
+/// 同步服务端仓库，README 开头就是自部署教程。
+pub const SYNC_SERVER_URL: &str = "https://github.com/ManSanDADADA/KwikPaste-sync-server";
 
 /// 取文案；key 不存在时返回空串（i18n 找不到时原样返回 key）。
 pub fn optional(key: &str) -> SharedString {
