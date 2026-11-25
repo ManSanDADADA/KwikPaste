@@ -231,6 +231,15 @@ impl ListItem {
     pub fn file_rows(&self) -> &[FileRow] {
         self.file_entries.as_deref().unwrap_or_default()
     }
+
+    /// 能在大图预览窗里看：图片记录，以及按图片卡片显示的单个图片文件。
+    pub fn views_as_image(&self) -> bool {
+        match self.kind {
+            ItemKind::Image => true,
+            ItemKind::Files => self.files_preview_kind == Some(FilesPreview::ImagePreview),
+            ItemKind::Text => false,
+        }
+    }
 }
 
 /// 一条记录的 id 与删除保护要看的标记（core `ClipboardItemRef`），多选全选、连选用。

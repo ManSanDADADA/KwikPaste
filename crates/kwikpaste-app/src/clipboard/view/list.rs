@@ -1901,14 +1901,22 @@ impl Render for ClipboardList {
                         {
                             return;
                         }
+                        let Some(entity) = entity.upgrade() else {
+                            return;
+                        };
+                        // 按住 Mod 滚轮（含触控板）停在图片卡片上：缩放预览里的图，不滚动列表。
+                        if event.modifiers.secondary()
+                            && entity.update(cx, |list, cx| list.wheel_zoom_card(event.delta, cx))
+                        {
+                            cx.stop_propagation();
+                            return;
+                        }
                         // 只接管鼠标滚轮的“行”增量；触控板的像素增量（自带惯性）交给列表自己处理。
                         let ScrollDelta::Lines(lines) = event.delta else {
                             return;
                         };
-                        if let Some(entity) = entity.upgrade() {
-                            entity.update(cx, |list, cx| list.on_wheel_lines(lines.y, cx));
-                            cx.stop_propagation();
-                        }
+                        entity.update(cx, |list, cx| list.on_wheel_lines(lines.y, cx));
+                        cx.stop_propagation();
                     });
                 },
             )

@@ -4,7 +4,7 @@
 
 use std::{collections::BTreeSet, ops::Range};
 
-use gpui::{App, FontWeight, TextRun, Window, font, px};
+use gpui::{App, FontWeight, ScrollDelta, TextRun, Window, font, px};
 use kwikpaste_core::{
     clipboard::WordSpan,
     presenter::{PreviewContentMetrics, PreviewWordChip},
@@ -57,6 +57,9 @@ pub const SNIPPET_LINE_HEIGHT: f64 = 16.;
 /// 片段再多也给正文留出位置。
 pub const SNIPPETS_MAX_HEIGHT: f64 =
     1. + SNIPPETS_PADDING_Y + 3.5 * SNIPPET_CHIP_HEIGHT + 3. * WORD_GAP;
+/// 预览图最多放大到适应预览窗时的几倍（实际还受显示器工作区限制）。
+pub const MAX_ZOOM: f64 = 8.;
+
 /// 预览窗译文区工具栏的高度（来源标签和小号按钮）。
 pub const TRANSLATION_BAR_HEIGHT: f64 = 40.;
 /// 译文正文最多显示的行数，超出在区内滚动。
@@ -160,7 +163,8 @@ impl Geometry {
 /// 算预览窗的位置：`card` 是卡片、`window` 是卡片所在的主窗口、`monitor` 是显示器工作区（同一坐标系的
 /// 逻辑像素），`metrics` 为 `None` 表示记录已经不在了（只剩空状态）。`prefer_left`：指针在主窗口左半边。
 /// `gap` 是面板与卡片的距离。`scale` 是文本缩放，面板内容随它放大，尺寸上下限和间距也跟着放大。
-/// `translation` 是正文下方译文区的高度。
+/// `translation` 是正文下方译文区的高度。`zoom` 是图片在适应预览窗之上再放大的倍数（Mod+滚轮），
+/// 只作用于图片。
 #[allow(clippy::too_many_arguments)]
 pub fn geometry(
     card: RectF,
@@ -172,12 +176,13 @@ pub fn geometry(
     prefer_left: bool,
     gap: f64,
     scale: f64,
+    zoom: f64,
 ) -> Geometry {
     let available = monitor.inset(MARGIN);
     let source = card
         .intersect(&monitor)
         .unwrap_or_else(|| card.clamp_into(&monitor));
-    let size = panel_size(metrics, snippets, translation, &available, scale);
+    let size = panel_size(metrics, snippets, translation, &available, scale, zoom);
     let gap = gap * scale;
     let placement = placement(&source, &window, &available, size, prefer_left, gap);
     let panel = raw_panel(&anchor(&source, &window, placement), placement, size, gap)
@@ -259,9 +264,14 @@ fn panel_size(
     translation: f64,
     available: &RectF,
     scale: f64,
+    zoom: f64,
 ) -> (f64, f64) {
-    let max_width = (MAX_WIDTH * scale).min(available.width);
-    let max_height = (MAX_HEIGHT * scale).min(available.height);
+    let zoom = match metrics {
+        Some(PreviewContentMetrics::Image { .. }) => zoom,
+        _ => 1.,
+    };
+    let max_width = (MAX_WIDTH * scale * zoom).min(available.width);
+    let max_height = (MAX_HEIGHT * scale * zoom).min(available.height);
     let min_width = (MIN_WIDTH * scale).min(max_width);
     let min_height = (MIN_HEIGHT * scale).min(max_height);
     let header = HEADER_HEIGHT * scale;
@@ -287,7 +297,7 @@ fn panel_size(
             (max_width, header + files_height(*shown, *total) * scale)
         }
         Some(PreviewContentMetrics::Image { width, height }) => {
-            image_size(*width, *height, max_width, max_height, scale)
+            image_size(*width, *height, max_width, max_height, scale, zoom)
         }
     };
 
@@ -449,6 +459,7 @@ fn image_size(
     max_width: f64,
     max_height: f64,
     scale: f64,
+    zoom: f64,
 ) -> (f64, f64) {
     let fallback = (FALLBACK_SIZE.0 * scale, FALLBACK_SIZE.1 * scale);
     let (Some(width), Some(height)) = (width, height) else {
@@ -460,7 +471,7 @@ fn image_size(
 
     let padding_x = IMAGE_PADDING_X * scale;
     let padding_y = (HEADER_HEIGHT + IMAGE_PADDING_Y) * scale;
-    let fit = 1_f64
+    let fit = zoom
         .min((max_width - padding_x).max(1.) / width)
         .min((max_height - padding_y).max(1.) / height);
 
@@ -468,6 +479,15 @@ fn image_size(
         (width * fit).ceil() + padding_x,
         (height * fit).ceil() + padding_y,
     )
+}
+
+/// Mod+滚轮一下的缩放倍数，与大图预览窗一致：滚轮一行 1.08 倍（Windows 一格 3 行约 1.26 倍），
+/// 触控板按像素连续缩放。
+pub fn wheel_zoom(delta: ScrollDelta) -> f64 {
+    match delta {
+        ScrollDelta::Lines(delta) => 1.08_f64.powf(f64::from(delta.y)),
+        ScrollDelta::Pixels(delta) => (f64::from(delta.y.as_f32()) / 200.).exp(),
+    }
 }
 
 /// 按偏好的一侧依次找放得下的方位：偏好侧、另一侧、主窗口下方、主窗口上方。都放不下时夹进显示器，
@@ -701,6 +721,7 @@ mod tests {
             false,
             GAP,
             1.,
+            1.,
         );
         assert_eq!(geometry.placement, Placement::Right);
         assert_eq!(geometry.panel.width, 480.);
@@ -720,6 +741,7 @@ mod tests {
             0.,
             false,
             GAP,
+            1.,
             1.,
         );
         assert_eq!(with_snippets.panel.height, geometry.panel.height + snippets);
@@ -753,6 +775,7 @@ mod tests {
             true,
             GAP,
             1.,
+            1.,
         );
         let short = geometry(
             card(800.),
@@ -763,6 +786,7 @@ mod tests {
             0.,
             true,
             GAP,
+            1.,
             1.,
         );
         assert_ne!(tall.panel.top, short.panel.top);
@@ -785,6 +809,7 @@ mod tests {
             true,
             GAP,
             1.,
+            1.,
         );
         assert_eq!(left.placement, Placement::Left);
 
@@ -798,6 +823,7 @@ mod tests {
             0.,
             false,
             GAP,
+            1.,
             1.,
         );
         assert_eq!(edge.placement, Placement::Left);
@@ -825,7 +851,7 @@ mod tests {
             height: 100.,
         };
         let text = Some(&PreviewContentMetrics::Text { rows: 12 });
-        let below = geometry(card, main, portrait, text, 0., 0., false, GAP, 1.);
+        let below = geometry(card, main, portrait, text, 0., 0., false, GAP, 1., 1.);
         assert_eq!(below.placement, Placement::Bottom);
         assert_eq!(below.panel.top, main.top + main.height + GAP);
         assert!(below.panel.intersect(&main).is_none());
@@ -836,7 +862,7 @@ mod tests {
             height: 1872.,
             ..main
         };
-        let edge = geometry(card, tall, portrait, text, 0., 0., false, GAP, 1.);
+        let edge = geometry(card, tall, portrait, text, 0., 0., false, GAP, 1., 1.);
         assert_eq!(edge.placement, Placement::Right);
         assert_eq!(edge.panel.right(), portrait.width - MARGIN);
     }
@@ -856,6 +882,7 @@ mod tests {
             false,
             GAP,
             1.,
+            1.,
         );
         assert_eq!(geometry.panel.width, 480.);
         assert!(geometry.panel.height < 480.);
@@ -869,8 +896,27 @@ mod tests {
             0.,
             &MONITOR.inset(MARGIN),
             1.,
+            1.,
         );
         assert_eq!(small, (288., 96.));
+
+        // Mod+滚轮放大：图片跟着放大，小图也能放大到原尺寸之上，最大到显示器工作区。
+        let zoomed = |zoom: f64, size: f64| {
+            panel_size(
+                Some(&PreviewContentMetrics::Image {
+                    width: Some(size * 4.),
+                    height: Some(size),
+                }),
+                0.,
+                0.,
+                &MONITOR.inset(MARGIN),
+                1.,
+                zoom,
+            )
+        };
+        assert_eq!(zoomed(2., 1000.).0, 960.);
+        assert_eq!(zoomed(2., 50.), (432., 180.));
+        assert_eq!(zoomed(MAX_ZOOM, 1000.).0, 1920. - 2. * MARGIN);
     }
 
     #[test]
@@ -888,6 +934,7 @@ mod tests {
             0.,
             0.,
             &MONITOR.inset(MARGIN),
+            1.,
             1.,
         )
         .1;
@@ -971,7 +1018,7 @@ mod tests {
 
     #[test]
     fn panels_scale_with_text_size() {
-        let size = panel_size(None, 0., 0., &MONITOR.inset(MARGIN), 1.25);
+        let size = panel_size(None, 0., 0., &MONITOR.inset(MARGIN), 1.25, 1.);
         assert_eq!(size, (600., (48. + 96.) * 1.25));
     }
 
@@ -982,6 +1029,7 @@ mod tests {
             0.,
             0.,
             &MONITOR.inset(MARGIN),
+            1.,
             1.,
         );
         assert_eq!(width, 480.);

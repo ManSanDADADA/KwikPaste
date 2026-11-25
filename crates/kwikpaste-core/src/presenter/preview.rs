@@ -1,6 +1,6 @@
 //! 预览面板的展示数据与内容度量。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -8,7 +8,7 @@ use sqlx::SqlitePool;
 
 use super::files::{
     count_file_paths, is_image_path, path_to_string, resolve_file_icon_path,
-    resolve_preview_file_is_dir, resolve_preview_file_size,
+    resolve_preview_file_is_dir, resolve_preview_file_size, single_image_file,
 };
 use super::text::{count_preview_text_rows, preview_sub_kind, preview_text, preview_text_source};
 use super::{parse_preview_html, PreviewDocument};
@@ -158,6 +158,12 @@ pub(crate) fn preview_content_metrics(
             height: item.height.map(|value| value as f64),
         },
         ClipboardKind::Files => {
+            if let Some((_, width, height)) = image_file_preview(&item.content) {
+                return PreviewContentMetrics::Image {
+                    width: Some(f64::from(width)),
+                    height: Some(f64::from(height)),
+                };
+            }
             let total = count_file_paths(&item.content);
 
             PreviewContentMetrics::Files {
@@ -255,6 +261,9 @@ pub(crate) async fn build_preview_payload(
     let mut document = None;
     let mut image_path = None;
     let mut image_exists = false;
+    let mut image_width = item.width;
+    let mut image_height = item.height;
+    let mut size = item.size;
     let mut files = Vec::new();
     let mut total_files = 0;
     let mut words = Vec::new();
@@ -287,6 +296,13 @@ pub(crate) async fn build_preview_payload(
         ClipboardKind::Files => {
             total_files = count_file_paths(&item.content);
             files = build_preview_file_entries(pool, file_icon_store, &item).await?;
+            if let Some((path, width, height)) = image_file_preview(&item.content) {
+                image_exists = true;
+                image_path = Some(path_to_string(&path, "image path")?);
+                image_width = Some(i64::from(width));
+                image_height = Some(i64::from(height));
+                size = files.first().and_then(|file| file.size);
+            }
         }
     }
     let preview_sub_kind = preview_sub_kind(&item, redact_sensitive);
@@ -299,9 +315,9 @@ pub(crate) async fn build_preview_payload(
         text,
         document,
         image_path,
-        image_width: item.width,
-        image_height: item.height,
-        size: item.size,
+        image_width,
+        image_height,
+        size,
         is_sensitive: item.is_sensitive,
         image_exists,
         files,
@@ -310,6 +326,14 @@ pub(crate) async fn build_preview_payload(
         snippets,
         words_truncated,
     })
+}
+
+/// 按图片预览的单图文件记录：文件路径与文件里存的像素尺寸（预览和大图都按存的方向解码）。
+/// 读不出尺寸（不支持的格式、超出解码上限）时仍按文件列表预览。
+fn image_file_preview(content: &str) -> Option<(PathBuf, u32, u32)> {
+    let path = single_image_file(content)?;
+    let (width, height) = crate::imaging::open(&path).ok()?.into_dimensions().ok()?;
+    (width > 0 && height > 0).then_some((path, width, height))
 }
 
 /// 解析 files 类型记录中的路径列表，最多返回前 64 项以控制 icon 抽取成本。
@@ -450,6 +474,54 @@ mod tests {
             build_image_text_preview(&item, text.to_owned(), PreviewTextView::Plain);
         assert!(image_text.snippets.is_empty());
         assert!(image_text.document.is_none());
+    }
+
+    // 只复制了一个图片文件时按图片预览；多个文件或文件不在时仍是文件列表。
+    #[tokio::test]
+    async fn a_single_image_file_previews_as_an_image() {
+        let pool = memory_pool().await;
+        let temp = tempfile::tempdir().unwrap();
+        let images = ImageStore::for_test(temp.path().join("images"));
+        let icons = FileIconStore::for_test(temp.path().join("icons"));
+        let image = temp.path().join("a.png");
+        std::fs::write(&image, crate::presenter::tests::sample_png(30, 20)).unwrap();
+        let clipboard = Clipboard::default();
+        let mut item = text_item(None, false);
+        item.kind = ClipboardKind::Files;
+        item.content = image.display().to_string();
+
+        let payload = build_preview_payload(&pool, &images, &icons, item.clone(), &clipboard)
+            .await
+            .unwrap();
+        assert_eq!(payload.image_path.as_deref(), Some(item.content.as_str()));
+        assert!(payload.image_exists);
+        assert_eq!(
+            (payload.image_width, payload.image_height),
+            (Some(30), Some(20))
+        );
+        assert_eq!(payload.files.len(), 1);
+        assert_eq!(
+            preview_content_metrics(&item, &clipboard),
+            PreviewContentMetrics::Image {
+                width: Some(30.0),
+                height: Some(20.0)
+            }
+        );
+
+        for content in [
+            format!("{}\n{}", image.display(), image.display()),
+            temp.path().join("gone.png").display().to_string(),
+        ] {
+            item.content = content;
+            let payload = build_preview_payload(&pool, &images, &icons, item.clone(), &clipboard)
+                .await
+                .unwrap();
+            assert!(payload.image_path.is_none());
+            assert!(matches!(
+                preview_content_metrics(&item, &clipboard),
+                PreviewContentMetrics::Files { .. }
+            ));
+        }
     }
 
     // 面板按预览方式开窗：原文方式按文本行，选词方式按词块；脱敏展示的敏感内容没有词可选，始终按文本行。

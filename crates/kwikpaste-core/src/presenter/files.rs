@@ -1,6 +1,6 @@
 //! 文件记录的展示：文件条目、文件类型图标与路径判断。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -23,6 +23,18 @@ pub struct FileIconResult {
 /// 统计 files payload 中的有效路径数量。
 pub(crate) fn count_file_paths(content: &str) -> usize {
     content.split('\n').filter(|path| !path.is_empty()).count()
+}
+
+/// 只复制了一个仍在磁盘上的图片文件时，返回这个文件：预览和大图都按图片显示它，与列表的单图卡片一致。
+pub(crate) fn single_image_file(content: &str) -> Option<PathBuf> {
+    let mut paths = content.split('\n').filter(|path| !path.is_empty());
+    let path = paths.next()?;
+    if paths.next().is_some() || !is_image_path(path) {
+        return None;
+    }
+
+    let path = PathBuf::from(path);
+    path.is_file().then_some(path)
 }
 
 /// 解析文件是否为目录：存在时信任实时 metadata，缺失时回退到入库时保存的 file_types。

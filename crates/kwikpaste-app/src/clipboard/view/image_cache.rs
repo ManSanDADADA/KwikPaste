@@ -153,6 +153,26 @@ impl KpImageCache {
         }
     }
 
+    /// 只留下 `keep` 这一个尺寸：同一文件别的尺寸（预览缩放时换下来的）连同还在解码的一起丢掉，
+    /// 解码好的从图集里删掉。
+    pub fn drop_other_sizes(&mut self, keep: &ImageKey, window: &mut Window, cx: &mut App) {
+        let stale: Vec<ImageKey> = self
+            .entries
+            .keys()
+            .filter(|key| key.path == keep.path && *key != keep)
+            .cloned()
+            .collect();
+        for key in stale {
+            if let Some(Entry {
+                slot: Slot::Ready(image),
+                ..
+            }) = self.entries.remove(&key)
+            {
+                cx.drop_image(image, Some(window));
+            }
+        }
+    }
+
     fn evict_for_one(&mut self, window: &mut Window, cx: &mut App) {
         if self.entries.len() < self.capacity {
             return;

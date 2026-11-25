@@ -443,22 +443,23 @@ impl ClipboardList {
 
     // ------------------------------------------------------------ 大图
 
-    /// 「查看」：图片看大图，文本打开内容编辑窗，文件不响应；快捷键与“双击查看”共用。
+    /// 「查看」：图片（含单个图片文件）看大图，文本打开内容编辑窗，其余文件不响应；快捷键与“双击查看”共用。
     pub fn view_item(&mut self, item: &ListItem, window: &mut Window, cx: &mut Context<Self>) {
         match item.kind {
-            ItemKind::Image => self.view_image(item.id.clone(), cx),
+            _ if item.views_as_image() => self.view_image(item.id.clone(), cx),
             ItemKind::Text => self.edit_content(item.id.clone(), window, cx),
-            ItemKind::Files => {}
+            ItemKind::Image | ItemKind::Files => {}
         }
     }
 
-    /// 在大图预览窗里看这张图：已加载的图片记录按列表顺序做快照，面板按点外部处理（固定时留着）。
+    /// 在大图预览窗里看这张图：已加载的图片记录（含单个图片文件）按列表顺序做快照，面板按点外部处理
+    /// （固定时留着）。
     pub fn view_image(&mut self, id: Arc<str>, cx: &mut Context<Self>) {
         let images: Vec<ViewerImage> = self
             .model
             .cached_items()
             .into_iter()
-            .filter(|item| item.kind == ItemKind::Image)
+            .filter(|item| item.views_as_image())
             .map(|item| ViewerImage {
                 id: item.id.clone(),
                 size: item.width.zip(item.height),

@@ -12,11 +12,11 @@ use gpui::{
     AnyElement, AnyWindowHandle, App, AppContext as _, Bounds, ClickEvent, Context, DispatchPhase,
     Div, ElementId, Entity, EventEmitter, FontStyle, FontWeight, HighlightStyle, ImageSource,
     InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, MouseExitEvent,
-    MouseMoveEvent, ParentElement as _, Render, Role, ScrollDelta, ScrollHandle, ScrollWheelEvent,
-    SharedString, Stateful, StatefulInteractiveElement as _, StrikethroughStyle, Styled as _,
-    StyledText, UnderlineStyle, UniformListScrollHandle, WeakEntity, Window, WindowBounds,
-    WindowKind, WindowOptions, canvas, div, img, point, prelude::FluentBuilder as _, px, size,
-    uniform_list,
+    MouseMoveEvent, ParentElement as _, Render, RenderImage, Role, ScrollDelta, ScrollHandle,
+    ScrollWheelEvent, SharedString, Stateful, StatefulInteractiveElement as _, StrikethroughStyle,
+    Styled as _, StyledText, UnderlineStyle, UniformListScrollHandle, WeakEntity, Window,
+    WindowBounds, WindowKind, WindowOptions, canvas, div, img, point, prelude::FluentBuilder as _,
+    px, size, uniform_list,
 };
 use kwikpaste_core::{
     clipboard::SnippetKind,
@@ -42,18 +42,18 @@ use crate::{
                 SNIPPET_PART_GAP, SNIPPETS_MAX_HEIGHT, SNIPPETS_PADDING_Y, TEXT_PADDING_X,
                 TEXT_ROW_HEIGHT, TRANSLATION_BAR_HEIGHT, TRANSLATION_MAX_ROWS,
                 TRANSLATION_PADDING_BOTTOM, WORDS_BAR_HEIGHT, WordSelection, format_bytes,
-                utf16_range,
+                utf16_range, wheel_zoom,
             },
             translation::{language_name, provider_name},
         },
-        source::{Preview, PreviewTextView},
+        source::{Preview, PreviewPayload, PreviewTextView},
     },
     i18n::{t, t_args, t_count},
     platform::window_drag::WindowDragArea as _,
 };
 
 /// 预览窗发给列表的事件。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PreviewEvent {
     /// 指针进出预览窗（悬停预览离开卡片后，指针在预览窗里就不关）。
     Pointer(bool),
@@ -75,6 +75,8 @@ pub enum PreviewEvent {
     Reveal(Arc<str>),
     /// 点了图片：在大图预览窗里看。
     ViewImage,
+    /// 在图片上按住 Mod 滚轮：把预览里的图再放大这么多倍（小于 1 是缩小）。
+    Zoom(f64),
     /// 双击了文本记录的正文：打开内容编辑框。
     EditText,
     /// 点了翻译、重试或重新翻译。
@@ -119,6 +121,8 @@ pub struct PreviewPanel {
     /// 按住修饰键：快捷信息里的链接、邮箱显示成链接，点了打开。列表的数字角标开关时同步。
     pub links: bool,
     images: Entity<KpImageCache>,
+    /// 最近画出的图片：放大缩小时新尺寸还在解码，先拉伸它，不闪白。关上预览时随缓存一起放掉。
+    shown: Option<(Arc<std::path::Path>, Arc<RenderImage>)>,
     /// 预览文件图标的独立有界缓存；关闭预览时不清空，避免再次打开时闪烁。
     icons: Entity<KpImageCache>,
     text_scroll: UniformListScrollHandle,
@@ -147,6 +151,7 @@ impl PreviewPanel {
             snippet_colors: true,
             links: false,
             images,
+            shown: None,
             icons,
             text_scroll: UniformListScrollHandle::new(),
             scroll: ScrollHandle::new(),
@@ -205,6 +210,7 @@ impl PreviewPanel {
     pub fn release(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         dismiss_menu(window, cx);
         self.selection.clear();
+        self.shown = None;
         self.images
             .update(cx, |images, cx| images.clear(Some(window), cx));
     }
@@ -388,6 +394,14 @@ impl PreviewPanel {
         let (title, meta) = match payload {
             None => (t("preview:title.loading"), t("preview:meta.contentViewer")),
             Some(payload) => match payload.kind {
+                // 单个图片文件按图片预览：标题是文件名，类型标签仍是「文件」。
+                ClipboardKind::Files if payload.image_path.is_some() => (
+                    payload.files.first().map_or_else(
+                        || t("preview:title.image"),
+                        |file| SharedString::from(file.name.clone()),
+                    ),
+                    image_meta(payload),
+                ),
                 ClipboardKind::Files => (
                     t_count(
                         "preview:title.files",
@@ -406,23 +420,7 @@ impl PreviewPanel {
                         SharedString::default()
                     },
                 ),
-                ClipboardKind::Image => {
-                    let dimensions = match (payload.image_width, payload.image_height) {
-                        (Some(width), Some(height)) => format!("{width} × {height}"),
-                        _ => t("preview:meta.unknownSize").to_string(),
-                    };
-                    let size = payload
-                        .size
-                        .map(|size| format!(" · {}", format_bytes(size)))
-                        .unwrap_or_default();
-                    (
-                        t("preview:title.image"),
-                        SharedString::from(format!(
-                            "{dimensions}{size} · {}",
-                            t("preview:image.hint")
-                        )),
-                    )
-                }
+                ClipboardKind::Image => (t("preview:title.image"), image_meta(payload)),
                 ClipboardKind::Text if self.image_text == Some(ImageTextView::Text) => {
                     let units = payload
                         .text
@@ -613,6 +611,9 @@ impl PreviewPanel {
 
         match payload.kind {
             ClipboardKind::Image => self.image(&preview, window, cx),
+            ClipboardKind::Files if payload.image_path.is_some() => {
+                self.image(&preview, window, cx)
+            }
             ClipboardKind::Files => self.files(&preview, window, cx),
             ClipboardKind::Text => {
                 let text = payload.text.as_deref().unwrap_or_default();
@@ -651,9 +652,31 @@ impl PreviewPanel {
             height: (height * scale).round().max(1.) as u32,
             resize: ResizeMode::Exact,
         };
+        let path = key.path.clone();
         let state = self
             .images
-            .update(cx, |images, cx| images.request(key, window, cx));
+            .update(cx, |images, cx| images.request(key.clone(), window, cx));
+        let failed = matches!(state, ImageState::Failed);
+        let image = match state {
+            ImageState::Ready(image) => {
+                if self
+                    .shown
+                    .as_ref()
+                    .is_some_and(|(_, shown)| !Arc::ptr_eq(shown, &image))
+                {
+                    self.images
+                        .update(cx, |images, cx| images.drop_other_sizes(&key, window, cx));
+                }
+                self.shown = Some((path, image.clone()));
+                Some(image)
+            }
+            ImageState::Loading => self
+                .shown
+                .as_ref()
+                .filter(|(shown, _)| *shown == path)
+                .map(|(_, image)| image.clone()),
+            ImageState::Failed => None,
+        };
 
         div()
             .flex()
@@ -661,19 +684,19 @@ impl PreviewPanel {
             .items_center()
             .justify_center()
             .p(space((16.) / 4.))
-            .child(match state {
+            .child(match image {
                 // 同列表缩略图：圆角，叠一圈不占位置的细描边。点图片看大图。
-                ImageState::Ready(image) => div()
+                Some(image) => div()
                     .id("preview-image")
                     .cursor_pointer()
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(PreviewEvent::ViewImage)))
-                    // 滚轮同点击：打开大图查看器；触控板的精确滚动需按住 Mod 才算，避免误开。
+                    // 按住 Mod 滚轮（含触控板）放大缩小预览；不按时滚轮同点击，打开大图查看器
+                    // （触控板的精确滚动不算，避免误开）。
                     .on_scroll_wheel(cx.listener(|_, event: &ScrollWheelEvent, _, cx| {
-                        let wheel = match event.delta {
-                            ScrollDelta::Lines(delta) => delta.y != 0.,
-                            ScrollDelta::Pixels(_) => event.modifiers.secondary(),
-                        };
-                        if wheel {
+                        if event.modifiers.secondary() {
+                            cx.emit(PreviewEvent::Zoom(wheel_zoom(event.delta)));
+                        } else if matches!(event.delta, ScrollDelta::Lines(delta) if delta.y != 0.)
+                        {
                             cx.emit(PreviewEvent::ViewImage);
                         }
                     }))
@@ -697,8 +720,8 @@ impl PreviewPanel {
                             .border_color(theme::semantic(cx).border.divider),
                     )
                     .into_any_element(),
-                ImageState::Loading => div().w(px(width)).h(px(height)).into_any_element(),
-                ImageState::Failed => Self::empty("preview:empty.imageMissing", cx),
+                None if failed => Self::empty("preview:empty.imageMissing", cx),
+                None => div().w(px(width)).h(px(height)).into_any_element(),
             })
             .into_any_element()
     }
@@ -1215,6 +1238,20 @@ impl PreviewPanel {
             .children(rows)
             .into_any_element()
     }
+}
+
+/// 图片预览头部的说明：像素尺寸、大小和「点击或滚轮放大查看」。
+fn image_meta(payload: &PreviewPayload) -> SharedString {
+    let dimensions = match (payload.image_width, payload.image_height) {
+        (Some(width), Some(height)) => format!("{width} × {height}"),
+        _ => t("preview:meta.unknownSize").to_string(),
+    };
+    let size = payload
+        .size
+        .map(|size| format!(" · {}", format_bytes(size)))
+        .unwrap_or_default();
+
+    SharedString::from(format!("{dimensions}{size} · {}", t("preview:image.hint")))
 }
 
 /// 类型标签的文案 key（1.x `clipboard:types.{subKind ?? kind}`）。

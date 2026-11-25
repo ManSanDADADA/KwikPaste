@@ -24,7 +24,7 @@ pub use view::{
     ClipboardAction, ClipboardItemPage, ClipboardItemView, FileEntry, FilesPreviewKind,
 };
 
-pub(crate) use files::resolve_file_icon_path;
+pub(crate) use files::{resolve_file_icon_path, single_image_file};
 pub(crate) use list::{present_list_item, ListContext};
 pub(crate) use preview::{
     build_image_text_preview, build_preview_payload, preview_content_metrics,

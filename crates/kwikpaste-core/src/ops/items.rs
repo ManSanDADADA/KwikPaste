@@ -334,14 +334,17 @@ fn write_recognized_text(core: &CoreInner, text: &str) -> Result<()> {
     core.clipboard()?.set_text(text.to_owned())
 }
 
-/// 图片另存与文件粘贴共用的原图校验和路径解析。
+/// 图片另存与文件粘贴共用的原图校验和路径解析。只复制了一个图片文件的文件记录（列表按图片显示）
+/// 的原图就是那个文件，大图预览、另存和贴到屏幕都用它。
 fn original_image_path(core: &CoreInner, item: &ClipboardItem) -> Result<PathBuf> {
-    if item.kind != ClipboardKind::Image {
-        return Err(AppError::Clipboard(
+    match item.kind {
+        ClipboardKind::Image => image_origin_path(&core.images, &item.content),
+        ClipboardKind::Files => crate::presenter::single_image_file(&item.content)
+            .ok_or_else(|| AppError::Clipboard("selected item is not an image".to_owned())),
+        ClipboardKind::Text => Err(AppError::Clipboard(
             "selected item is not an image".to_owned(),
-        ));
+        )),
     }
-    image_origin_path(&core.images, &item.content)
 }
 
 /// 校验图片文件名并解析原图路径，原图不存在时报错。
@@ -1022,9 +1025,13 @@ impl Core {
         self.hop(async move {
             let item = find_required(&core.0.db.pool().await, &id).await?;
             let source = original_image_path(&core.0, &item)?;
+            let default_file_name = match (item.kind, source.file_name()) {
+                (ClipboardKind::Files, Some(name)) => name.to_string_lossy().into_owned(),
+                _ => default_saved_image_file_name(&item.created_at, &Local),
+            };
             Ok(ImageSave {
                 source,
-                default_file_name: default_saved_image_file_name(&item.created_at, &Local),
+                default_file_name,
             })
         })
         .await

@@ -5,6 +5,8 @@
 //! - 空格（设置打开时）：按住预览当前项，↑/↓ 换当前项时跟着换，松开关；松开时指针在预览窗里就转成
 //!   悬停式（离开预览窗再关）。
 //! - 关：面板隐藏、换筛选条件、滚动（悬停式）、Esc、对这一条做了粘贴 / 复制 / 删除等操作。
+//! - Mod+滚轮停在图片卡片（含单个图片文件）或预览图上：没开预览就立刻打开，开着就放大缩小预览里的图。
+//!   预览窗不激活，面板不收起，键盘也还在面板上（大图预览窗会抢前台，面板跟着收起）。
 //!
 //! 预览窗的几何在打开时按卡片在屏幕上的位置算（见 [`crate::clipboard::model::preview::geometry`]）：
 //! 卡片的位置由列表渲染时挂在卡片上的 canvas 记下。
@@ -14,7 +16,7 @@ use std::{cell::RefCell, path::Path, rc::Rc, sync::Arc, time::Duration};
 use futures::channel::oneshot;
 use gpui::{
     AnyElement, AnyWindowHandle, AsyncApp, Bounds, Context, IntoElement as _, Pixels, Point,
-    Styled as _, Subscription, Task, Window, canvas,
+    ScrollDelta, Styled as _, Subscription, Task, Window, canvas,
 };
 use kwikpaste_core::{clipboard::ClipboardFragment, settings::PreviewHoverDelayMs};
 use kwikpaste_ui::theme;
@@ -24,7 +26,7 @@ use crate::{
     clipboard::{
         model::{
             actions::OpenTarget,
-            preview::{self, HEADER_HEIGHT, RectF},
+            preview::{self, HEADER_HEIGHT, MAX_ZOOM, RectF},
         },
         source::{Preview, PreviewContentMetrics, PreviewTextView, TranslationView},
         view::preview::{
@@ -76,6 +78,8 @@ pub(super) struct Previewing {
     placed: Option<(Arc<str>, preview::Geometry)>,
     /// 「拆词」临时换的文本方式，只管这一次预览（键盘换当前项时跟着走），不写进设置；关上预览就清掉。
     text_view: Option<PreviewTextView>,
+    /// Mod+滚轮把预览图放大的倍数（`None` 是适应预览窗）；换了记录或关上预览就清掉。
+    zoom: Option<f64>,
     /// 每次打开、关闭都加一，晚到的结果按它作废。
     request: u64,
     hover_timer: Option<Task<()>>,
@@ -244,6 +248,7 @@ impl ClipboardList {
                 }
             }
             PreviewEvent::Open(target) => self.open_preview_target(*target, cx),
+            PreviewEvent::Zoom(factor) => self.zoom_preview(*factor, cx),
             PreviewEvent::ViewImage => {
                 if let Some((id, _)) = self.previewing.session.clone() {
                     self.view_image(id, cx);
@@ -461,10 +466,60 @@ impl ClipboardList {
         }));
     }
 
+    /// Mod+滚轮停在能看大图的卡片上：没开这一条的预览就立刻打开，开着就按滚轮放大或缩小预览里的图。
+    /// 返回是否接管了这次滚轮（不是图片卡片时照常滚动列表）。
+    pub(in crate::clipboard::view) fn wheel_zoom_card(
+        &mut self,
+        delta: ScrollDelta,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(id) = self.hovered.clone() else {
+            return false;
+        };
+        if !self
+            .model
+            .find(&id)
+            .is_some_and(|item| item.views_as_image())
+        {
+            return false;
+        }
+
+        match &self.previewing.session {
+            Some((session, _)) if *session == id => {
+                self.zoom_preview(preview::wheel_zoom(delta), cx)
+            }
+            _ => self.open_preview(id, PreviewTrigger::Hover, cx),
+        }
+        true
+    }
+
+    /// 把预览里的图再放大 `factor` 倍（小于 1 是缩小，最小回到适应预览窗），预览窗跟着变大变小。
+    fn zoom_preview(&mut self, factor: f64, cx: &mut Context<Self>) {
+        let Some((id, trigger)) = self.previewing.session.clone() else {
+            return;
+        };
+        let current = self.previewing.zoom.unwrap_or(1.);
+        let zoom = (current * factor).clamp(1., MAX_ZOOM);
+        if zoom == current {
+            return;
+        }
+
+        self.previewing.zoom = Some(zoom);
+        self.open_preview(id, trigger, cx);
+    }
+
     /// 打开（或换成）`id` 的预览：取数据，按卡片位置算几何，再在借用之外显示原生窗口。
     pub fn open_preview(&mut self, id: Arc<str>, trigger: PreviewTrigger, cx: &mut Context<Self>) {
         if !self.ensure_preview_window(cx) {
             return;
+        }
+        if self
+            .previewing
+            .session
+            .as_ref()
+            .is_none_or(|(session, _)| *session != id)
+        {
+            self.previewing.zoom = None;
         }
         self.previewing.request += 1;
         let request = self.previewing.request;
@@ -586,6 +641,7 @@ impl ClipboardList {
         self.previewing.image_text = None;
         self.previewing.placed = None;
         self.previewing.text_view = None;
+        self.previewing.zoom = None;
         self.previewing.request += 1;
         let was_open = self.previewing.session.take().is_some();
         if !was_open {
@@ -869,6 +925,7 @@ impl ClipboardList {
         let translation_height = zone.as_ref().map_or(0., |zone| {
             preview::translation_height(&zone.view, zone.rows.len())
         });
+        let zoom = self.previewing.zoom.unwrap_or(1.);
         let geometry = preview::geometry(
             place.card,
             place.window,
@@ -879,6 +936,7 @@ impl ClipboardList {
             prefer_left,
             f64::from(self.settings.clipboard.preview.gap),
             text_scale,
+            zoom,
         );
         let geometry = match &self.previewing.placed {
             Some((placed, previous)) if placed == id => geometry.keep_top(previous, place.monitor),
@@ -887,7 +945,7 @@ impl ClipboardList {
         self.previewing.placed = Some((id.clone(), geometry));
         let image_box = preview
             .as_ref()
-            .and_then(|preview| image_box(preview, geometry.panel, text_scale));
+            .and_then(|preview| image_box(preview, geometry.panel, text_scale, zoom));
         let preview_window = self.previewing.window.as_ref()?;
         let links = self.key_hints;
         preview_window.panel.update(cx, |panel, cx| {
@@ -920,8 +978,9 @@ async fn after_next_paint(window: AnyWindowHandle, cx: &mut AsyncApp) {
     }
 }
 
-/// 图片在面板里的显示尺寸：等比缩进面板内容区（左右各 16、上下各 16 的内边距，头部 48）。
-fn image_box(preview: &Preview, panel: RectF, scale: f64) -> Option<(f32, f32)> {
+/// 图片在面板里的显示尺寸：等比缩进面板内容区（左右各 16、上下各 16 的内边距，头部 48），
+/// 最多放大到原尺寸的 `zoom` 倍。
+fn image_box(preview: &Preview, panel: RectF, scale: f64, zoom: f64) -> Option<(f32, f32)> {
     let PreviewContentMetrics::Image {
         width: Some(width),
         height: Some(height),
@@ -935,6 +994,6 @@ fn image_box(preview: &Preview, panel: RectF, scale: f64) -> Option<(f32, f32)> 
 
     let room_width = (panel.width - 32. * scale).max(1.);
     let room_height = (panel.height - (HEADER_HEIGHT + 32.) * scale).max(1.);
-    let fit = 1_f64.min(room_width / width).min(room_height / height);
+    let fit = zoom.min(room_width / width).min(room_height / height);
     Some(((width * fit) as f32, (height * fit) as f32))
 }
