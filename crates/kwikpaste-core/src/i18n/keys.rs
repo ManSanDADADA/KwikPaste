@@ -52,6 +52,7 @@ pub enum CommandKey {
     StorageCustomUnavailable,
     SyncNotRunning,
     SyncInvalidCode,
+    RemoteInvalidCode,
     SyncWrongCode,
     SyncPairingUnavailable,
     SyncUnreachable,

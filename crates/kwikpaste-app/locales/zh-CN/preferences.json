@@ -573,10 +573,10 @@
     "enabledSelfHost": "通过你自己部署的服务器同步，内容端到端加密。",
     "historyUploading": "正在上传全部历史：{{done}} / {{total}}",
     "join": {
-      "description": "在组里的设备上打开「同步 → 远程同步」，点「添加设备」，再输入它显示的 6 位配对码。",
+      "description": "在组里的设备上打开「同步 → 远程同步」，点「添加设备」，再输入它显示的 8 位配对码。",
       "joined": "已加入同步组",
       "ok": "加入",
-      "placeholder": "6 位配对码",
+      "placeholder": "8 位配对码",
       "title": "用配对码加入"
     },
     "official": {
@@ -620,7 +620,7 @@
       "connected": "已连接",
       "connectedAt": "已连接 · {{time}} 同步过",
       "connecting": "正在连接服务器",
-      "imageQuota": "今日图片额度已用完，{{time}} 恢复；文本照常同步。",
+      "imageQuota": "服务器额度已用完，{{time}} 恢复，在此之前部分内容同步不过去。",
       "offline": "连不上服务器：{{reason}}",
       "paused": "远程同步已关闭",
       "rateLimited": "请求太频繁，{{time}} 后重试",

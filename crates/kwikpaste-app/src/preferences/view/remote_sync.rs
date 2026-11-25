@@ -143,6 +143,9 @@ impl Preferences {
                     SyncView::Lan
                 };
                 let _ = entity.update(cx, |this, cx| {
+                    if view == SyncView::Lan {
+                        this.abandon_remote_code(cx);
+                    }
                     this.remote.view = view;
                     cx.notify();
                 });
@@ -641,6 +644,27 @@ impl Preferences {
         }
     }
 
+    /// 离开远程同步（切到局域网、换页、关窗）时作废正在显示的配对码：码只在用户看着它的时候有效。
+    pub(super) fn abandon_remote_code(&mut self, cx: &mut Context<Self>) {
+        let showing = self
+            .remote
+            .state
+            .as_ref()
+            .is_some_and(|state| state.pairing.is_some());
+        let Some(core) = core_host::core(cx).cloned().filter(|_| showing) else {
+            return;
+        };
+        if let Some(state) = self.remote.state.as_mut() {
+            state.pairing = None;
+        }
+        cx.spawn(async move |_, _| {
+            if let Err(error) = core.cancel_remote_pairing().await {
+                log::warn!("cancel remote pairing code failed: {error:#}");
+            }
+        })
+        .detach();
+    }
+
     fn create_remote_group(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(server) = self.chosen_remote_server(cx) else {
             toast::show(Toast::error(key("selfHost.urlRequired")), window, cx);
@@ -880,10 +904,10 @@ fn local_date_time(time: DateTime<Utc>) -> String {
     time.with_timezone(&Local).format("%m-%d %H:%M").to_string()
 }
 
-/// `123456` → `123 456`，读给别人听或照着输都更容易。
+/// `12345678` → `1234 5678`，读给别人听或照着输都更容易。
 fn spaced_code(code: &str) -> String {
-    if code.len() == 6 && code.is_ascii() {
-        format!("{} {}", &code[..3], &code[3..])
+    if code.len() == 8 && code.is_ascii() {
+        format!("{} {}", &code[..4], &code[4..])
     } else {
         code.to_owned()
     }

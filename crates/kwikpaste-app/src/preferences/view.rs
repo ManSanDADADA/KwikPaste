@@ -670,7 +670,10 @@ impl Preferences {
         subscriptions.push(cx.on_blur(&focus, window, |this, _, cx| this.stop_recording(cx)));
         let view = cx.entity().downgrade();
         window.on_window_should_close(cx, move |window, cx| {
-            let _ = view.update(cx, |this, cx| this.commit_focused_input(window, cx));
+            let _ = view.update(cx, |this, cx| {
+                this.commit_focused_input(window, cx);
+                this.abandon_remote_code(cx);
+            });
             true
         });
         let scroll = ScrollHandle::new();
@@ -3313,6 +3316,9 @@ impl Preferences {
         cx: &mut Context<Self>,
     ) {
         let opening = self.tab != tab;
+        if opening && self.tab == TabId::Sync {
+            self.abandon_remote_code(cx);
+        }
         self.tab = tab;
         self.extension_page = None;
         self.shortcut_detail = None;

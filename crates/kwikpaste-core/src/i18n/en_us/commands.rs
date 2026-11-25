@@ -44,6 +44,7 @@ pub fn label(key: Key) -> &'static str {
         Key::StorageCustomUnavailable => "The custom data directory is unavailable. Reconnect it and restart KwikPaste before changing directories",
         Key::SyncNotRunning => "Turn on LAN sync first",
         Key::SyncInvalidCode => "The pairing code is 6 digits",
+        Key::RemoteInvalidCode => "The pairing code is 8 digits",
         Key::SyncWrongCode => "The pairing code is incorrect",
         Key::SyncPairingUnavailable => {
             "The pairing code has expired. Refresh it on the other device"

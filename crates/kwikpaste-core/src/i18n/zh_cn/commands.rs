@@ -38,6 +38,7 @@ pub fn label(key: Key) -> &'static str {
         Key::StorageCustomUnavailable => "自定义数据目录当前不可用，请重新连接后重启快贴再更改目录",
         Key::SyncNotRunning => "请先开启局域网同步",
         Key::SyncInvalidCode => "配对码是 6 位数字",
+        Key::RemoteInvalidCode => "配对码是 8 位数字",
         Key::SyncWrongCode => "配对码不正确",
         Key::SyncPairingUnavailable => "对方的配对码已失效，请在对方设备上刷新配对码",
         Key::SyncUnreachable => "连不上这台设备，请确认两台设备在同一网络，且对方已开启局域网同步",

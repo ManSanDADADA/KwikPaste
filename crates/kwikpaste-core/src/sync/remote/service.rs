@@ -44,6 +44,8 @@ const BACKOFF_MAX: Duration = Duration::from_secs(300);
 const UPLOAD_QUEUE: usize = 256;
 /// 历史上传每页的记录数。
 const HISTORY_PAGE: usize = 50;
+/// 远程同步的配对码位数（服务器生成，局域网是 6 位）。
+const REMOTE_CODE_DIGITS: usize = 8;
 
 /// 由 `Core` 持有。`remote.json` 随 core 读入；网络部分要宿主调用 [`Core::start_remote_sync`] 后才按设置启动。
 pub(crate) struct RemoteService {
@@ -539,8 +541,8 @@ impl RemoteService {
         code: &str,
     ) -> Result<()> {
         self.ensure_not_configured(core)?;
-        let code = crate::sync::pairing::normalize_code(code)
-            .ok_or_else(|| sync_error(core, Key::SyncInvalidCode))?;
+        let code = crate::sync::pairing::normalize_code(code, REMOTE_CODE_DIGITS)
+            .ok_or_else(|| sync_error(core, Key::RemoteInvalidCode))?;
         let (server, client, policy) = self.check_server(core, server).await?;
         let device_id = self.device_id(core)?;
 
@@ -632,7 +634,28 @@ impl RemoteService {
         };
         let shown = code.clone();
         self.update_view(core, |view| view.pairing = Some(shown));
+        self.expire_code_later(&code);
         Ok(code)
+    }
+
+    /// 配对码到期时从界面上撤掉（服务器那边同时作废），不用等下一次别的刷新。
+    fn expire_code_later(&self, code: &RemotePairingCode) {
+        let Some(owner) = self.bound_core() else {
+            return;
+        };
+        let wait = (code.expires_at - Utc::now()).to_std().unwrap_or_default();
+        let expiring = code.code.clone();
+        let weak = Arc::downgrade(&owner);
+        owner.rt.clone().spawn(async move {
+            tokio::time::sleep(wait).await;
+            let Some(core) = weak.upgrade() else {
+                return;
+            };
+            let shown = core.remote.lock().view.pairing.clone();
+            if shown.is_some_and(|pairing| pairing.code == expiring) {
+                core.remote.update_view(&core, |view| view.pairing = None);
+            }
+        });
     }
 
     /// 作废配对码。本机先不再应答配对请求，通知服务器失败只记日志：码最多 5 分钟后自己过期。

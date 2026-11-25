@@ -578,10 +578,10 @@
     "enabledSelfHost": "Sync through your own server. Content is end-to-end encrypted.",
     "historyUploading": "Uploading full history: {{done}} / {{total}}",
     "join": {
-      "description": "On a device in the group, open Sync → Remote Sync, click Add Device, then enter the 6-digit code it shows.",
+      "description": "On a device in the group, open Sync → Remote Sync, click Add Device, then enter the 8-digit code it shows.",
       "joined": "Joined the sync group",
       "ok": "Join",
-      "placeholder": "6-digit code",
+      "placeholder": "8-digit code",
       "title": "Join with a Pairing Code"
     },
     "official": {
@@ -625,7 +625,7 @@
       "connected": "Connected",
       "connectedAt": "Connected · last synced {{time}}",
       "connecting": "Connecting to the server",
-      "imageQuota": "Today's image quota is used up until {{time}}. Text still syncs.",
+      "imageQuota": "The server quota is used up until {{time}}. Some items won't sync until then.",
       "offline": "Can't reach the server: {{reason}}",
       "paused": "Remote sync is off",
       "rateLimited": "Too many requests. Retrying at {{time}}",

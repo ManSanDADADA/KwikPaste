@@ -464,7 +464,7 @@ impl LanSyncService {
         code: &str,
     ) -> Result<String> {
         let shared = self.require_running(core)?;
-        let Some(code) = pairing::normalize_code(code) else {
+        let Some(code) = pairing::normalize_code(code, pairing::CODE_DIGITS) else {
             return Err(sync_error(core, Key::SyncInvalidCode));
         };
 

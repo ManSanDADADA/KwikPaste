@@ -94,7 +94,7 @@ B 字节：体（密文）
 
 ### 4.3 配对码
 
-- `POST /v1/pairing`（成员）→ `{"code": "123456", "expiresAt": "<RFC3339>"}`：6 位数字，5 分钟有效、最多尝试 5 次；
+- `POST /v1/pairing`（成员）→ `{"code": "12345678", "expiresAt": "<RFC3339>"}`：8 位数字，5 分钟有效、最多尝试 5 次；
   每组同一时间只有一个有效码，新申请替换旧的。服务器记下是哪台设备申请的（邀请方）。
 - `DELETE /v1/pairing`（成员）：作废当前配对码。
 
@@ -113,7 +113,7 @@ B 字节：体（密文）
  ◀─ 200 {groupId, deviceToken}
 ```
 
-- SPAKE2：Ed25519 群，身份 `kwikpaste-remote-joiner`（A）/ `kwikpaste-remote-member`（B），密码是 6 位数字的 ASCII。
+- SPAKE2：Ed25519 群，身份 `kwikpaste-remote-joiner`（A）/ `kwikpaste-remote-member`（B），密码是 8 位数字的 ASCII。
 - `K = BLAKE3.derive_key("KwikPaste remote pairing v1", SPAKE2 共享密钥 ‖ session 的 UTF-8)`。
 - `sealed = base64(nonce(24) ‖ XChaCha20-Poly1305(K, nonce, aad = session 的 UTF-8, JSON {"groupKey": "<base64 32 字节>", "joinSecret": "<hex 32 字节>"}))`。
 - `joinProof = hex(BLAKE3(joinSecret 的 32 字节原文))`（先把十六进制解码再哈希），`complete` 里 `joinSecret` 照样传十六进制。
@@ -248,11 +248,17 @@ JSON `{"item": <WireItem，同 PROTOCOL.md §4>, "itemKey": "...", "capturedAt":
 | --- | --- |
 | 每组设备数 | 10 |
 | 建组 | 每 IP 每天 10 次 |
-| 加入请求 | 每 IP 每小时 30 次；每个配对码 5 次、5 分钟 |
+| 加入请求 | 每 IP 每小时 30 次；全站每小时配对码错误满 1000 次后，所有加入请求暂时回 `rateLimited`；每个配对码 5 次、5 分钟 |
 | 文本 | 单条密文 ≤ 1 MiB，保留 24 小时 |
 | 图片 | 单张密文 ≤ 2 MiB，只转发不存储；每组每天 30 MiB，全站每天 1 GiB |
 | 设置 | 跟着组一直保留 |
+| 存储 | 每组已存密文 ≤ 20 MiB，全站 ≤ 2 GiB；超出时这一帧回 `rejected` + `quota`（`retryAt` 一小时后） |
+| 非图片转发 | 每组每天 200 MiB（按实际送达的设备数计），北京时间零点重置 |
+| 上传频率 | 每台设备每 10 分钟 1200 帧，超出时整个请求回 `rateLimited` |
 | 闲置的组 | 90 天没有设备连接就整组删除 |
+
+配对码只在用户点「添加设备」时生成；离开远程同步页面（切到局域网同步、换到别的设置页、关闭偏好窗口）就作废，
+到期时也自动从界面撤掉。所有限额都在服务端执行，客户端的压缩和开关只是配合，改过的客户端绕不过去。
 
 ## 9. 兼容规则
 

@@ -12,7 +12,7 @@ use super::protocol::from_hex;
 
 /// 同一个配对码最多尝试的次数；用完要在显示方刷新。
 pub const PAIRING_ATTEMPTS: u8 = 5;
-const CODE_DIGITS: usize = 6;
+pub(crate) const CODE_DIGITS: usize = 6;
 const SPAKE_ID_DIALER: &[u8] = b"kwikpaste-lan-dialer";
 const SPAKE_ID_LISTENER: &[u8] = b"kwikpaste-lan-listener";
 const CONFIRM_CONTEXT: &str = "KwikPaste LAN pairing confirmation v1";
@@ -57,14 +57,14 @@ fn random_code() -> String {
     format!("{value:0width$}", width = CODE_DIGITS)
 }
 
-/// 规范化用户输入的配对码：去掉空格和连字符，必须是 6 位数字。
-pub fn normalize_code(input: &str) -> Option<String> {
+/// 规范化用户输入的配对码：去掉空格和连字符，必须是 `digits` 位数字（局域网 6 位，远程同步 8 位）。
+pub fn normalize_code(input: &str, digits: usize) -> Option<String> {
     let code: String = input
         .chars()
         .filter(|c| !c.is_whitespace() && *c != '-')
         .collect();
 
-    (code.len() == CODE_DIGITS && code.chars().all(|c| c.is_ascii_digit())).then_some(code)
+    (code.len() == digits && code.chars().all(|c| c.is_ascii_digit())).then_some(code)
 }
 
 /// 输入配对码、主动连接的一方。
@@ -201,9 +201,10 @@ mod tests {
 
     #[test]
     fn normalizes_user_input() {
-        assert_eq!(normalize_code(" 123 456 "), Some("123456".to_owned()));
-        assert_eq!(normalize_code("123-456"), Some("123456".to_owned()));
-        assert_eq!(normalize_code("12345"), None);
-        assert_eq!(normalize_code("12345a"), None);
+        assert_eq!(normalize_code(" 123 456 ", 6), Some("123456".to_owned()));
+        assert_eq!(normalize_code("123-456", 6), Some("123456".to_owned()));
+        assert_eq!(normalize_code("12345", 6), None);
+        assert_eq!(normalize_code("1234 5678", 8), Some("12345678".to_owned()));
+        assert_eq!(normalize_code("12345a", 6), None);
     }
 }
