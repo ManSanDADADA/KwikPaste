@@ -260,6 +260,8 @@ impl WeTypeService {
                 write_clipboard: options.write_clipboard && !official_client_running(core),
                 max_image_bytes: WETYPE_MAX_IMAGE_BYTES,
                 allow_jpeg: true,
+                allow_webp: false,
+                captured_at: None,
             },
         )
         .await?;

@@ -1020,6 +1020,7 @@ pub enum WindowPosition {
 #[serde(default, rename_all = "camelCase")]
 pub struct SyncSettings {
     pub lan: LanSync,
+    pub remote: RemoteSync,
 }
 
 pub const LAN_SYNC_DEVICE_NAME_MAX_CHARS: usize = 40;
@@ -1062,6 +1063,55 @@ impl LanSync {
             .clamp(LAN_SYNC_MAX_IMAGE_MB_MIN, LAN_SYNC_MAX_IMAGE_MB_MAX);
         u64::from(mb) * 1024 * 1024
     }
+}
+
+/// 通过官方或自托管服务端同步剪贴板内容的设置。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct RemoteSync {
+    pub enabled: bool,
+    pub text: bool,
+    pub image: bool,
+    pub settings: bool,
+    pub write_clipboard: bool,
+    pub image_quality: RemoteImageQuality,
+    pub max_image_mb: u32,
+    pub full_history: bool,
+}
+
+impl Default for RemoteSync {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            text: true,
+            image: true,
+            settings: true,
+            write_clipboard: true,
+            image_quality: RemoteImageQuality::High,
+            max_image_mb: 20,
+            full_history: false,
+        }
+    }
+}
+
+impl RemoteSync {
+    /// 用户设的单张图片上限，收进允许范围（同 [`LanSync::max_image_bytes`]）。
+    pub fn max_image_bytes(&self) -> u64 {
+        let mb = self
+            .max_image_mb
+            .clamp(LAN_SYNC_MAX_IMAGE_MB_MIN, LAN_SYNC_MAX_IMAGE_MB_MAX);
+        u64::from(mb) * 1024 * 1024
+    }
+}
+
+/// 自托管服务端接收图片时采用的压缩档位。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteImageQuality {
+    Original,
+    #[default]
+    High,
+    Saver,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

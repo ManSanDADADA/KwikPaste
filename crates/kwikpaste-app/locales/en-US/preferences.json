@@ -562,6 +562,81 @@
     "title": "Export to files",
     "ungrouped": "Include ungrouped records"
   },
+  "remoteSync": {
+    "deviceNameDescription": "The name other devices see, shared by LAN and remote sync.",
+    "devices": {
+      "add": "Add Device",
+      "alone": "No other devices yet. Click Add Device to get a pairing code.",
+      "remove": "Remove",
+      "removeConfirmContent": "It stops sending and receiving synced items. Records already received are kept.",
+      "removeConfirmTitle": "Remove {{name}} from the group?",
+      "removed": "Device removed",
+      "self": "This device",
+      "title": "Devices in the Group"
+    },
+    "enabledOfficial": "Sync through the KwikPaste server. Content is end-to-end encrypted.",
+    "enabledSelfHost": "Sync through your own server. Content is end-to-end encrypted.",
+    "historyUploading": "Uploading full history: {{done}} / {{total}}",
+    "join": {
+      "description": "On a device in the group, open Sync → Remote Sync, click Add Device, then enter the 6-digit code it shows.",
+      "joined": "Joined the sync group",
+      "ok": "Join",
+      "placeholder": "6-digit code",
+      "title": "Join with a Pairing Code"
+    },
+    "official": {
+      "imageNote": "Compressed and sent to online devices only",
+      "short": "Text kept {{hours}} h · images relayed live only · end-to-end encrypted",
+      "summary": "Syncs new copies and settings only: text is kept for {{hours}} hours so offline devices catch up; images are compressed and relayed live, never stored. Content is end-to-end encrypted, so the server can't read it."
+    },
+    "pairing": {
+      "code": "Pairing code {{code}}",
+      "hint": "Enter it on another device under Join a Sync Group. Valid until {{time}}."
+    },
+    "selfHost": {
+      "summary": "Run the KwikPaste sync server with Docker on your own server or NAS. You choose image quality and size, and can sync your whole history. Content is end-to-end encrypted.",
+      "token": "Server Token",
+      "tokenDescription": "Printed in the server's startup log and saved as server-token in its data folder.",
+      "tokenPlaceholder": "Created on the server's first start",
+      "url": "Server Address",
+      "urlPlaceholder": "https://sync.example.com",
+      "urlRequired": "Enter the server address"
+    },
+    "server": {
+      "leave": "Leave Group",
+      "leaveConfirmContent": "This device stops syncing with the group. Records already received are kept.",
+      "leaveConfirmTitle": "Leave the sync group?",
+      "left": "Left the sync group",
+      "official": "Official Server",
+      "selfHost": "Self-Hosted Server",
+      "title": "Server"
+    },
+    "setup": {
+      "create": "Create",
+      "createDescription": "Start a group on this device, then join from other devices with a pairing code.",
+      "created": "Sync group created",
+      "createTitle": "Create a Sync Group",
+      "join": "Join",
+      "joinDescription": "Enter the pairing code shown on any device in the group.",
+      "joinTitle": "Join a Sync Group"
+    },
+    "starting": "Starting remote sync",
+    "status": {
+      "connected": "Connected",
+      "connectedAt": "Connected · last synced {{time}}",
+      "connecting": "Connecting to the server",
+      "imageQuota": "Today's image quota is used up until {{time}}. Text still syncs.",
+      "offline": "Can't reach the server: {{reason}}",
+      "paused": "Remote sync is off",
+      "rateLimited": "Too many requests. Retrying at {{time}}",
+      "revoked": "This device is no longer in the group",
+      "serverToken": "The server token is incorrect"
+    },
+    "views": {
+      "lan": "LAN Sync",
+      "remote": "Remote Sync"
+    }
+  },
   "retentionConfirm": {
     "content": "This policy will permanently delete {{count}} records. Save it?",
     "title": "Change retention policy"
@@ -1375,6 +1450,40 @@
           },
           "writeClipboard": {
             "description": "When off, received items only go to history.",
+            "title": "Copy Received Items to Clipboard"
+          }
+        },
+        "remote": {
+          "enabled": {
+            "title": "Remote Sync"
+          },
+          "fullHistory": {
+            "description": "Includes favorites, pins, notes and deletions. Turning it on first uploads this device's whole history.",
+            "title": "Sync Full History"
+          },
+          "image": {
+            "title": "Sync Images"
+          },
+          "imageQuality": {
+            "description": "Original is sharpest; Saver uses the least space and traffic.",
+            "options": {
+              "high": "High",
+              "original": "Original",
+              "saver": "Saver"
+            },
+            "title": "Image Quality"
+          },
+          "maxImageMb": {
+            "title": "Image Size Limit"
+          },
+          "settings": {
+            "description": "Devices in the group share one set of preferences. Shortcuts sync only between devices on the same OS.",
+            "title": "Sync Settings"
+          },
+          "text": {
+            "title": "Sync Text"
+          },
+          "writeClipboard": {
             "title": "Copy Received Items to Clipboard"
           }
         }

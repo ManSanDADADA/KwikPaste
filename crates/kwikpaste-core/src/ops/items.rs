@@ -29,6 +29,7 @@ use crate::error::{AppError, Result};
 use crate::events::CoreEvent;
 use crate::i18n::commands::{label, Key};
 use crate::root::{Core, CoreInner};
+use crate::sync::remote::{self, MetaChange};
 
 /// 复制写回后的结果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -356,6 +357,19 @@ fn image_origin_path(images: &clipboard::ImageStore, file_name: &str) -> Result<
         return Err(AppError::Clipboard("image file does not exist".to_owned()));
     }
     Ok(source)
+}
+
+/// 删除一条记录，图片记录连带删除原图与缩略图（删文件失败只记日志）。远程同步收到的删除也走这里。
+pub(crate) async fn delete_one(core: &CoreInner, id: &str) -> Result<()> {
+    let _ocr = core.ocr.suspend().await;
+    let _exclusive = core.cleanup.exclusive().await;
+    let pool = core.db.pool().await;
+    if let Some(file_name) = delete_item(&pool, id).await? {
+        if let Err(err) = core.images.remove(&file_name) {
+            log::warn!("remove deleted image {file_name} failed: {err}");
+        }
+    }
+    Ok(())
 }
 
 /// 按设置决定是否把复制 / 粘贴历史记录计为一次复用：计入时累加次数、刷新 `updated_at` 并通知宿主；
@@ -778,16 +792,26 @@ impl Core {
     pub async fn toggle_favorite(&self, id: &str) -> Result<bool> {
         let core = self.clone();
         let id = id.to_owned();
-        self.hop(async move { toggle_item_favorite(&core.0.db.pool().await, &id).await })
-            .await
+        self.hop(async move {
+            let pool = core.0.db.pool().await;
+            let favorite = toggle_item_favorite(&pool, &id).await?;
+            remote::meta_changed(&core.0, &pool, &id, MetaChange::Favorite(favorite)).await;
+            Ok(favorite)
+        })
+        .await
     }
 
     /// 翻转置顶，返回新状态。不刷新 `updated_at`，不污染最近使用排序。
     pub async fn toggle_pinned(&self, id: &str) -> Result<bool> {
         let core = self.clone();
         let id = id.to_owned();
-        self.hop(async move { toggle_item_pinned(&core.0.db.pool().await, &id).await })
-            .await
+        self.hop(async move {
+            let pool = core.0.db.pool().await;
+            let pinned = toggle_item_pinned(&pool, &id).await?;
+            remote::meta_changed(&core.0, &pool, &id, MetaChange::Pinned(pinned)).await;
+            Ok(pinned)
+        })
+        .await
     }
 
     /// 把记录放到置顶或收藏分区中锚点记录的前面 / 后面，并通知所有列表刷新。
@@ -815,10 +839,13 @@ impl Core {
             let pool = core.0.db.pool().await;
             let normalized = normalize_note(note.as_deref());
             update_item_note(&pool, &id, normalized).await?;
+            let change = MetaChange::Note(normalized.map(str::to_owned));
+            remote::meta_changed(&core.0, &pool, &id, change).await;
 
             let mut auto_favorited = false;
             if normalized.is_some() && core.0.settings.snapshot().clipboard.content.auto_favorite {
                 mark_item_favorite(&pool, &id).await?;
+                remote::meta_changed(&core.0, &pool, &id, MetaChange::Favorite(true)).await;
                 auto_favorited = true;
             }
             Ok(UpdateNoteResult {
@@ -902,18 +929,14 @@ impl Core {
     }
 
     /// 删除一条记录；图片记录连带删除原图与缩略图（删文件失败只记日志）。不发事件。
+    /// 同步全部历史时，这次删除也同步给远程同步组。
     pub async fn delete_item(&self, id: &str) -> Result<()> {
         let core = self.clone();
         let id = id.to_owned();
         self.hop(async move {
-            let _ocr = core.0.ocr.suspend().await;
-            let _exclusive = core.0.cleanup.exclusive().await;
-            let pool = core.0.db.pool().await;
-            if let Some(file_name) = delete_item(&pool, &id).await? {
-                if let Err(err) = core.0.images.remove(&file_name) {
-                    log::warn!("remove deleted image {file_name} failed: {err}");
-                }
-            }
+            let item_key = crate::db::remote::item_key(&core.0.db.pool().await, &id).await?;
+            delete_one(&core.0, &id).await?;
+            remote::item_deleted(&core.0, item_key).await;
             Ok(())
         })
         .await

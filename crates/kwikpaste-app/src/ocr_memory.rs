@@ -99,6 +99,7 @@ pub fn run_if_requested() -> anyhow::Result<bool> {
             updated_at: now,
             has_original: false,
             origin_device_id: None,
+            sync_key: None,
             source_app_name: None,
             source_app_icon_file: None,
         };

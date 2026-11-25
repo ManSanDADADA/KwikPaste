@@ -11,7 +11,7 @@ use crate::error::Result;
 
 const SELECT_ITEM: &str = "SELECT id, kind, sub_kind, group_id, source_app_id, content, \
      content_hash, search_text, summary, file_types, size, width, height, use_count, is_favorite, is_pinned, \
-     is_sensitive, platform, note, created_at, updated_at, origin_device_id, \
+     is_sensitive, platform, note, created_at, updated_at, origin_device_id, sync_key, \
      original_content IS NOT NULL AS has_original FROM clipboard_items";
 
 /// 列表/单条刷新场景的精简 SELECT：text 类型条目的 `content` 与 `search_text` 一律置空，
@@ -31,7 +31,7 @@ const LIST_SELECT_ITEM: &str = "SELECT clipboard_items.id, clipboard_items.kind,
      clipboard_items.is_favorite, clipboard_items.is_pinned, \
      clipboard_items.is_sensitive, \
      clipboard_items.platform, clipboard_items.note, \
-     clipboard_items.created_at, clipboard_items.updated_at, clipboard_items.origin_device_id, \
+     clipboard_items.created_at, clipboard_items.updated_at, clipboard_items.origin_device_id, clipboard_items.sync_key, \
      clipboard_items.original_content IS NOT NULL AS has_original, \
      clipboard_apps.name AS source_app_name, \
      clipboard_apps.icon_file AS source_app_icon_file \
@@ -140,11 +140,11 @@ pub async fn insert_item(pool: &SqlitePool, item: &ClipboardItem) -> Result<()> 
         "INSERT INTO clipboard_items \
          (id, kind, sub_kind, group_id, source_app_id, content, content_hash, search_text, \
           summary, file_types, size, width, height, use_count, is_favorite, is_pinned, favorite_order, pin_order, is_sensitive, platform, note, \
-          created_at, updated_at, last_used_at, origin_device_id) \
+          created_at, updated_at, last_used_at, origin_device_id, sync_key) \
          VALUES (?, ?, ?, (SELECT id FROM clipboard_groups WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                  CASE WHEN ? THEN 1 + COALESCE((SELECT MAX(favorite_order) FROM clipboard_items), 0) END,
                  CASE WHEN ? THEN 1 + COALESCE((SELECT MAX(pin_order) FROM clipboard_items), 0) END,
-                 ?, ?, ?, ?, ?, ?, ?)",
+                 ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(item.id.as_str())
     .bind(item.kind)
@@ -171,6 +171,7 @@ pub async fn insert_item(pool: &SqlitePool, item: &ClipboardItem) -> Result<()> 
     .bind(item.updated_at)
     .bind(item.updated_at)
     .bind(item.origin_device_id.as_deref())
+    .bind(item.sync_key.as_deref())
     .execute(pool)
     .await
     .context("failed to insert clipboard item")?;
@@ -281,6 +282,46 @@ pub async fn mark_item_favorite(pool: &SqlitePool, id: &str) -> Result<()> {
     .execute(pool)
     .await
     .context("failed to mark clipboard item favorite")?;
+    Ok(())
+}
+
+/// 把收藏设成 `favorite`（远程同步收到的元数据用）：已收藏的保留手动排序，取消时清掉。
+pub async fn set_item_favorite(pool: &SqlitePool, id: &str, favorite: bool) -> Result<()> {
+    sqlx::query(
+        "UPDATE clipboard_items
+         SET favorite_order = CASE WHEN ? THEN
+                 CASE WHEN is_favorite AND favorite_order IS NOT NULL THEN favorite_order
+                     ELSE 1 + COALESCE((SELECT MAX(favorite_order) FROM clipboard_items), 0) END
+             END,
+             is_favorite = ?
+         WHERE id = ?",
+    )
+    .bind(favorite)
+    .bind(favorite)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("failed to set clipboard item favorite")?;
+    Ok(())
+}
+
+/// 把置顶设成 `pinned`（远程同步收到的元数据用）：已置顶的保留手动排序，取消时清掉。
+pub async fn set_item_pinned(pool: &SqlitePool, id: &str, pinned: bool) -> Result<()> {
+    sqlx::query(
+        "UPDATE clipboard_items
+         SET pin_order = CASE WHEN ? THEN
+                 CASE WHEN is_pinned AND pin_order IS NOT NULL THEN pin_order
+                     ELSE 1 + COALESCE((SELECT MAX(pin_order) FROM clipboard_items), 0) END
+             END,
+             is_pinned = ?
+         WHERE id = ?",
+    )
+    .bind(pinned)
+    .bind(pinned)
+    .bind(id)
+    .execute(pool)
+    .await
+    .context("failed to set clipboard item pinned")?;
     Ok(())
 }
 
@@ -978,6 +1019,7 @@ mod tests {
             updated_at: ts,
             has_original: false,
             origin_device_id: None,
+            sync_key: None,
             source_app_name: None,
             source_app_icon_file: None,
         }

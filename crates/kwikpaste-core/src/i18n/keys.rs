@@ -62,6 +62,20 @@ pub enum CommandKey {
     SyncNotPaired,
     SyncDeviceNotFound,
     SyncSelfPairing,
+    RemoteNotConfigured,
+    RemoteAlreadyConfigured,
+    RemoteInvalidUrl,
+    RemoteUnreachable,
+    RemoteServerError,
+    RemoteServerToken,
+    RemoteRevoked,
+    RemoteCodeInvalid,
+    RemoteInviterOffline,
+    RemotePairingTimeout,
+    RemoteGroupFull,
+    RemoteRateLimited,
+    RemoteServerOutdated,
+    RemoteIncompatible,
 }
 
 #[cfg(target_os = "windows")]

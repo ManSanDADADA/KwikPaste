@@ -63,6 +63,7 @@ mod feedback;
 mod image_text;
 mod ocr_engine;
 mod overview;
+mod remote_sync;
 mod shortcut_page;
 mod translate;
 mod wetype;
@@ -299,6 +300,8 @@ struct Preferences {
     /// 扩展页里翻译设置的控件。
     translate: translate::TranslateControls,
     lan_max_image: NumberInputState,
+    /// 同步页顶部的切换和远程同步的控件。
+    remote: remote_sync::RemoteControls,
     icons: gpui::Entity<KpImageCache>,
     /// 全部分组：启动分组下拉与自动归组规则共用，分组变化时刷新。
     groups: Vec<kwikpaste_core::db::models::ClipboardGroup>,
@@ -569,6 +572,8 @@ impl Preferences {
         let lan_state = core_host::core(cx).map(|core| core.lan_sync_state());
         let (translate, translate_subscriptions) =
             translate::TranslateControls::new(&settings, window, cx);
+        let (remote, remote_subscriptions) =
+            remote_sync::RemoteControls::new(&settings, window, cx);
         let subscriptions: Vec<Subscription> = core_events(cx)
             .map(|events| {
                 cx.subscribe_in(&events, window, |this, _, event: &CoreEvent, window, cx| {
@@ -587,6 +592,12 @@ impl Preferences {
                     ) && let Some(core) = core_host::core(cx)
                     {
                         this.lan_state = Some(core.lan_sync_state());
+                        cx.notify();
+                    }
+                    if matches!(event, CoreEvent::RemoteSyncChanged)
+                        && let Some(core) = core_host::core(cx)
+                    {
+                        this.remote.state = Some(core.remote_sync_state());
                         cx.notify();
                     }
                     if matches!(event, CoreEvent::WeTypeChanged) && this.tab == TabId::Extensions {
@@ -637,6 +648,7 @@ impl Preferences {
             ])
             .chain(setting_subscriptions)
             .chain(translate_subscriptions)
+            .chain(remote_subscriptions)
             .collect();
         let mut subscriptions = subscriptions;
         subscriptions.push(cx.observe(&icons, |_, _, cx| cx.notify()));
@@ -702,6 +714,7 @@ impl Preferences {
             lan_name,
             translate,
             lan_max_image,
+            remote,
             icons,
             groups: Vec::new(),
             auto_group_apps: Vec::new(),
@@ -786,6 +799,7 @@ impl Preferences {
             cx,
         );
         self.translate.relabel(&self.settings, window, cx);
+        self.remote.relabel(window, cx);
     }
 
     /// 导入或其它入口更新设置后，同步快照及独立持有状态的控件；下拉、数字框和滑块只同步这次改到的。
@@ -846,6 +860,7 @@ impl Preferences {
         if delta.touches("extensions.translate") {
             self.translate.sync(&self.settings, window, cx);
         }
+        self.remote.sync(&self.settings, delta, window, cx);
         cx.notify();
     }
 
@@ -1020,6 +1035,7 @@ impl Preferences {
         }
         self.lan_name.commit_if_focused(window, cx);
         self.translate.commit_if_focused(window, cx);
+        self.remote.commit_if_focused(window, cx);
     }
 
     /// 结束正在进行的全局快捷键或窗口内按键录制。
@@ -3732,7 +3748,7 @@ impl Preferences {
                                     .anchor_scroll(
                                         self.setting_anchors.get("sync.lan.devices").cloned(),
                                     )
-                                    .child(self.render_lan_sync(cx))
+                                    .child(self.render_sync_page(cx))
                                     .into_any_element(),
                             );
                             continue;

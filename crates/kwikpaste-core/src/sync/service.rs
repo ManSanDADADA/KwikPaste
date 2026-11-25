@@ -176,6 +176,8 @@ pub struct LanSyncService {
     error: Mutex<Option<String>>,
     /// 本机申报的协议版本范围；只有测试会改，用来模拟新旧版本。
     supported: Mutex<VersionRange>,
+    /// 回声过滤，局域网与远程同步共用一份：同一内容不会经两条路来回写。
+    echo: Arc<Mutex<EchoFilter>>,
 }
 
 struct Runtime {
@@ -195,6 +197,7 @@ impl LanSyncService {
             shared: RwLock::new(None),
             error: Mutex::new(None),
             supported: Mutex::new(SUPPORTED),
+            echo: Arc::default(),
         }
     }
 
@@ -205,6 +208,10 @@ impl LanSyncService {
 
     pub(crate) fn peers(&self) -> &PeerStore {
         &self.peers
+    }
+
+    pub(crate) fn echo(&self) -> &Mutex<EchoFilter> {
+        &self.echo
     }
 
     /// 测试用：假装本机支持另一个版本范围，下次启动运行时生效。
@@ -301,7 +308,7 @@ impl LanSyncService {
             connections: Mutex::new(HashMap::new()),
             nearby: Mutex::new(HashMap::new()),
             pairing: Mutex::new(PairingCode::new()),
-            echo: Mutex::new(EchoFilter::default()),
+            echo: self.echo.clone(),
             dials: Mutex::new(HashMap::new()),
             dial_now: Notify::new(),
             handshakes: Arc::new(Semaphore::new(MAX_PENDING_HANDSHAKES)),
@@ -626,7 +633,7 @@ pub(super) struct Shared {
     connections: Mutex<HashMap<String, Connection>>,
     nearby: Mutex<HashMap<String, Nearby>>,
     pairing: Mutex<PairingCode>,
-    echo: Mutex<EchoFilter>,
+    echo: Arc<Mutex<EchoFilter>>,
     dials: Mutex<HashMap<String, DialState>>,
     dial_now: Notify,
     handshakes: Arc<Semaphore>,
@@ -692,11 +699,14 @@ impl Shared {
             .contains_key(device_id)
     }
 
-    pub(super) fn should_send(&self, content_hash: &str) -> bool {
-        self.echo
+    /// 在线的已配对设备：本机复制经远程同步发出时让服务器跳过它们（局域网已经直接送到）。
+    pub(super) fn connected_ids(&self) -> Vec<String> {
+        self.connections
             .lock()
-            .expect("lan sync poisoned")
-            .should_send(content_hash)
+            .unwrap_or_else(|p| p.into_inner())
+            .keys()
+            .cloned()
+            .collect()
     }
 
     /// 处理一次本机采集：`push` 推给所有在线设备（附件超过对方上限的跳过；某台设备的发送队列满了
@@ -2061,7 +2071,7 @@ mod tests {
             connections: Mutex::new(HashMap::new()),
             nearby: Mutex::new(HashMap::new()),
             pairing: Mutex::new(PairingCode::new()),
-            echo: Mutex::new(EchoFilter::default()),
+            echo: Arc::default(),
             dials: Mutex::new(HashMap::new()),
             dial_now: Notify::new(),
             handshakes: Arc::new(Semaphore::new(1)),

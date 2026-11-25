@@ -112,7 +112,8 @@ pub async fn catch_up_page(
 }
 
 /// 覆盖导入备份后调用：导入进来的记录都不是本机采集的，清掉它们的序号；计数器不回退，
-/// 已配对设备记着的水位线仍然有效。
+/// 已配对设备记着的水位线仍然有效。备份里的远程同步状态属于备份时的那台设备和那个组，一并清空
+/// （远程同步的游标由 [`crate::sync`] 归零）。
 pub async fn reset_after_import(pool: &SqlitePool, counter_at_least: i64) -> Result<()> {
     let mut tx = pool
         .begin()
@@ -122,6 +123,10 @@ pub async fn reset_after_import(pool: &SqlitePool, counter_at_least: i64) -> Res
         .execute(&mut *tx)
         .await
         .context("failed to clear imported sync sequences")?;
+    sqlx::query("DELETE FROM remote_sync_state")
+        .execute(&mut *tx)
+        .await
+        .context("failed to clear imported remote sync state")?;
     sqlx::query("UPDATE sync_counter SET value = MAX(value, ?), updated_at = ? WHERE id = 1")
         .bind(counter_at_least)
         .bind(Utc::now())
@@ -169,6 +174,7 @@ mod tests {
             updated_at: used,
             has_original: false,
             origin_device_id: None,
+            sync_key: None,
             source_app_name: None,
             source_app_icon_file: None,
         }

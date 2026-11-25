@@ -377,8 +377,10 @@ fn build_tabs(portable: bool) -> Vec<Tab> {
             sections: vec![Section {
                 id: "lanSync",
                 settings: vec![
-                    Setting::new("sync.lan.devices", Control::LanSync)
-                        .keywords(&["sync", "lan", "network", "pair", "device", "ipv4", "ipv6"]),
+                    Setting::new("sync.lan.devices", Control::LanSync).keywords(&[
+                        "sync", "lan", "network", "pair", "device", "ipv4", "ipv6", "remote",
+                        "server", "docker", "cloud", "internet",
+                    ]),
                 ],
             }],
         },

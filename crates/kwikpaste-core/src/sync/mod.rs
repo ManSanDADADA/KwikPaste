@@ -8,6 +8,7 @@
 //! - [`engine`]：记录与线上格式互转、按水位线补齐、收到后入库和写剪贴板。
 //!
 //! 线上协议是 v2（1.x 的 v1 从未对外开放，不兼容），完整约定见同目录的 `PROTOCOL.md`。
+//! 经同步服务器的远程同步在 [`remote`]（协议见 `REMOTE.md`），与局域网共用设备身份、入库流程和回声过滤。
 //! 只同步本机采集的新记录：本机采集时分到一个递增的同步序号（`clipboard_items.sync_seq`），
 //! 从别的设备收到的、从备份导入的记录没有序号，不会再转给别人。
 //! 宿主调用 [`Core::start_lan_sync`] 后服务才按设置启停；本机身份与已配对设备在
@@ -19,6 +20,7 @@ mod identity;
 mod pairing;
 mod peers;
 pub(crate) mod protocol;
+pub(crate) mod remote;
 mod service;
 mod transport;
 
@@ -34,6 +36,10 @@ use protocol::Message;
 type LocalCapture = (Option<u64>, Option<ClipboardItem>, u64);
 
 pub(crate) use peers::PeerStore;
+pub use remote::{
+    RemoteDeviceView, RemoteImageCompress, RemoteImages, RemotePairingCode, RemotePolicy,
+    RemoteServer, RemoteServerView, RemoteStatus, RemoteSyncState,
+};
 pub(crate) use service::LanSyncService;
 pub use service::{
     LanDeviceView, LanNearbyView, LanSyncNetwork, LanSyncState, PairTarget, DEFAULT_PORT,
@@ -104,6 +110,7 @@ impl Core {
 
 /// 同步相关设置变了（或整份替换）：已启用时在后台按新设置启停 / 更新运行时。
 pub(crate) fn settings_changed(core: &CoreInner) {
+    remote::settings_changed(core);
     let Some(core) = core.sync.bound_core() else {
         return;
     };
@@ -113,25 +120,44 @@ pub(crate) fn settings_changed(core: &CoreInner) {
     });
 }
 
-/// core 关闭时停掉同步运行时：断开连接、撤销 mDNS 广播。
+/// core 关闭时停掉同步运行时：断开连接、撤销 mDNS 广播，停掉远程同步。
 pub(crate) async fn shutdown(core: &CoreInner) {
     core.sync.stop().await;
+    remote::shutdown(core).await;
 }
 
-/// 本机采集到一条记录后调用：在线设备实时收到，离线设备下次连上时补齐。`seq` 是这次采集分到的
-/// 本机序号；不需要推送的采集也要报给在线设备的检查点，对方的水位线才能越过它。
+/// 本机采集到一条记录后调用：在线设备实时收到，离线设备下次连上时补齐；远程同步运行中时也发给同步组。
+/// `seq` 是这次采集分到的本机序号；不需要推送的采集也要报给在线设备的检查点，对方的水位线才能越过它。
+/// 回声过滤对两条路只判断一次：同一次复制不会因为先判过一次而被另一条路当成回声。
 pub(crate) fn on_local_capture(core: &CoreInner, item: &ClipboardItem, seq: Option<i64>) {
-    let Some(shared) = core.sync.shared() else {
-        return;
-    };
-    if !shared.has_connections() {
+    let lan_shared = core.sync.shared().filter(|shared| shared.has_connections());
+    let remote = remote::accepts_capture(core, item);
+    if lan_shared.is_none() && !remote {
         return;
     }
 
-    let seq = seq.and_then(|seq| u64::try_from(seq).ok());
     let lan = core.settings.snapshot().sync.lan;
-    let item = (engine::is_syncable(item, &lan) && shared.should_send(&item.content_hash))
-        .then(|| item.clone());
+    let lan_wants = lan_shared.is_some() && engine::is_syncable(item, &lan);
+    let fresh = (lan_wants || remote)
+        && core
+            .sync
+            .echo()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .should_send(&item.content_hash);
+    if remote && fresh {
+        let skip = lan_shared
+            .as_ref()
+            .map(|shared| shared.connected_ids())
+            .unwrap_or_default();
+        remote::capture(core, item, skip);
+    }
+
+    let Some(shared) = lan_shared else {
+        return;
+    };
+    let seq = seq.and_then(|seq| u64::try_from(seq).ok());
+    let item = (lan_wants && fresh).then(|| item.clone());
     if shared
         .captures
         .try_send((seq, item, lan.max_image_bytes()))

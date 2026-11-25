@@ -238,6 +238,10 @@ fn customized_settings_round_trip_exactly() {
     expected["clipboard"]["window"]["groupBarKnowsLink"] = Value::Bool(true);
     expected["appearance"]["preferencesSidebarCollapsed"] = Value::from(false);
     expected["appearance"]["textSize"] = Value::from("standard");
+    expected["sync"]["remote"] = serde_json::json!({
+        "enabled": false, "text": true, "image": true, "settings": true, "writeClipboard": true,
+        "imageQuality": "high", "maxImageMb": 20, "fullHistory": false
+    });
     expected["extensions"] = serde_json::json!({
         "wetype":{"sendText":true,"sendImage":true,"writeClipboard":true},
         "translate":{"engine":"free","firstLanguage":"","secondLanguage":"","showOnCards":true,"auto":false}

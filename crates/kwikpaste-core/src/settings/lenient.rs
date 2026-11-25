@@ -339,7 +339,7 @@ impl<T: DeserializeOwned + Serialize + Default> Merger<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::{CaptureKind, ItemAction, RetentionUnit, Theme};
+    use crate::settings::{CaptureKind, ItemAction, RemoteImageQuality, RetentionUnit, Theme};
 
     #[test]
     fn panel_overrides_survive_unrelated_field_fallback() {
@@ -488,6 +488,29 @@ mod tests {
             ["clipboard.display.textMaxLines", "general.trayClick"]
         );
         assert!(!report.history_degraded());
+    }
+
+    #[test]
+    fn malformed_remote_sync_field_falls_back_without_resetting_other_remote_values() {
+        let (settings, report) = parse(
+            r#"{
+                "sync": {"remote": {
+                    "enabled": true,
+                    "text": false,
+                    "imageQuality": "unsupported",
+                    "maxImageMb": "large"
+                }}
+            }"#,
+        );
+
+        assert!(settings.sync.remote.enabled);
+        assert!(!settings.sync.remote.text);
+        assert_eq!(settings.sync.remote.image_quality, RemoteImageQuality::High);
+        assert_eq!(settings.sync.remote.max_image_mb, 20);
+        assert_eq!(
+            sorted(&report),
+            ["sync.remote.imageQuality", "sync.remote.maxImageMb"]
+        );
     }
 
     #[test]

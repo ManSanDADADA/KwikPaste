@@ -156,7 +156,7 @@ fn generate() -> anyhow::Result<DeviceIdentity> {
     })
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, bytes).with_context(|| format!("failed to write {tmp:?}"))?;
     fs::rename(&tmp, path).with_context(|| format!("failed to replace {path:?}"))?;

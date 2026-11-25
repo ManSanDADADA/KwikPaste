@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 
 use super::protocol::{Message, WireItem, MAX_HEADER_BYTES};
 use crate::clipboard::{
@@ -254,12 +254,15 @@ pub async fn receive(
             write_clipboard: lan.write_clipboard,
             max_image_bytes: lan.max_image_bytes(),
             allow_jpeg: false,
+            allow_webp: false,
+            captured_at: None,
         },
     )
     .await
+    .map(drop)
 }
 
-/// 接收策略独立于传输；LAN 与 WeType 共用构建、入库、回声和剪贴板写回。
+/// 接收策略独立于传输；LAN、远程同步与 WeType 共用构建、入库、回声和剪贴板写回。
 #[derive(Clone, Copy)]
 pub(crate) struct ReceiveOptions {
     pub text: bool,
@@ -267,8 +270,13 @@ pub(crate) struct ReceiveOptions {
     pub write_clipboard: bool,
     pub max_image_bytes: u64,
     pub allow_jpeg: bool,
+    /// 远程同步压缩过的图片是 WebP，存成 PNG。
+    pub allow_webp: bool,
+    /// 补齐的历史按来源设备的采集时间入库（远程同步的整个历史），`None` 用现在。
+    pub captured_at: Option<DateTime<Utc>>,
 }
 
+/// 同 [`receive`]，接收策略由调用方给。返回入库（或命中已有内容）的记录 id，按规则跳过时为 `None`。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn receive_with_options(
     core: &Arc<CoreInner>,
@@ -279,34 +287,36 @@ pub(crate) async fn receive_with_options(
     attachment: Vec<u8>,
     live: bool,
     options: ReceiveOptions,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<String>> {
     let settings = core.settings.snapshot();
     let payload = match wire.kind {
         ClipboardKind::Text if options.text => match text_payload(&wire) {
             Ok(payload) => payload,
             Err(err) => {
                 log::warn!("lan sync skips invalid text: {err:#}");
-                return Ok(());
+                return Ok(None);
             }
         },
         ClipboardKind::Image if options.image => {
             if attachment.len() as u64 > options.max_image_bytes {
                 log::info!("lan sync drops image over the size limit");
-                return Ok(());
+                return Ok(None);
             }
-            let allow_jpeg = options.allow_jpeg;
-            match tokio::task::spawn_blocking(move || received_image(attachment, allow_jpeg))
-                .await
-                .context("received image decode task failed")?
+            let (allow_jpeg, allow_webp) = (options.allow_jpeg, options.allow_webp);
+            match tokio::task::spawn_blocking(move || {
+                received_image(attachment, allow_jpeg, allow_webp)
+            })
+            .await
+            .context("received image decode task failed")?
             {
                 Ok(image) => ClipboardPayload::Image(image),
                 Err(err) => {
                     log::warn!("lan sync skips invalid image: {err:#}");
-                    return Ok(());
+                    return Ok(None);
                 }
             }
         }
-        _ => return Ok(()),
+        _ => return Ok(None),
     };
 
     let publication = core.cleanup.image_publication().await;
@@ -329,10 +339,14 @@ pub(crate) async fn receive_with_options(
         .context("build received item task failed")??
     };
     let Some(mut item) = built else {
-        return Ok(());
+        return Ok(None);
     };
     item.origin_device_id = Some(peer_id.to_owned());
     item.platform = peer_platform;
+    if let Some(at) = options.captured_at {
+        item.created_at = at;
+        item.updated_at = at;
+    }
 
     if !live {
         let pool = core.db.pool().await;
@@ -340,13 +354,13 @@ pub(crate) async fn receive_with_options(
             .await?
             .is_some()
         {
-            return Ok(());
+            return Ok(None);
         }
     }
 
     // 补齐的是历史记录，不代表对方剪贴板的现状，不参与回声判断，也不写剪贴板。
     // 实时记录先记回声再写剪贴板：写回被本机监听到时要能认出来。
-    crate::clipboard::persist::store_and_emit(core, &item).await?;
+    let stored = crate::clipboard::persist::store_and_emit(core, &item).await?;
     drop(publication);
 
     let fresh = live
@@ -371,11 +385,15 @@ pub(crate) async fn receive_with_options(
         .context("write received clipboard task failed")?;
     }
 
-    Ok(())
+    Ok(Some(stored.id))
 }
 
-/// PNG 保留原始字节；WeType 的 JPEG 受统一解码上限保护后转为本机 PNG 存储。
-fn received_image(bytes: Vec<u8>, allow_jpeg: bool) -> anyhow::Result<ImagePayload> {
+/// PNG 保留原始字节；WeType 的 JPEG、远程同步的 WebP 受统一解码上限保护后转为本机 PNG 存储。
+fn received_image(
+    bytes: Vec<u8>,
+    allow_jpeg: bool,
+    allow_webp: bool,
+) -> anyhow::Result<ImagePayload> {
     if let Some((width, height)) = png_dimensions(&bytes) {
         crate::imaging::check_rgba_size(width, height)?;
         return Ok(ImagePayload {
@@ -384,8 +402,13 @@ fn received_image(bytes: Vec<u8>, allow_jpeg: bool) -> anyhow::Result<ImagePaylo
             height,
         });
     }
-    if !allow_jpeg || image::guess_format(&bytes)? != image::ImageFormat::Jpeg {
-        return Err(anyhow!("received image must be PNG or JPEG"));
+    let allowed = match image::guess_format(&bytes)? {
+        image::ImageFormat::Jpeg => allow_jpeg,
+        image::ImageFormat::WebP => allow_webp,
+        _ => false,
+    };
+    if !allowed {
+        return Err(anyhow!("received image format is not accepted"));
     }
     let image = crate::imaging::from_bytes(&bytes)?.decode()?;
     let (width, height) = (image.width(), image.height());
@@ -554,6 +577,8 @@ mod tests {
                             write_clipboard: false,
                             max_image_bytes: u64::MAX,
                             allow_jpeg: true,
+                            allow_webp: true,
+                            captured_at: None,
                         },
                     )
                     .await

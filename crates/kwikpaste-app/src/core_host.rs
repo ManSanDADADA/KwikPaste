@@ -96,6 +96,7 @@ pub fn start() -> anyhow::Result<StartedCore> {
             lan_state.error.as_deref().unwrap_or("unknown error")
         );
     }
+    futures::executor::block_on(core.start_remote_sync());
     log::info!(
         "core started: {} {:?}, data in {}",
         identity.identifier,

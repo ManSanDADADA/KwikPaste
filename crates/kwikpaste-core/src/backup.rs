@@ -1554,6 +1554,7 @@ async fn overwrite_import(
         core.events.emit(CoreEvent::ClipboardReloaded);
         core.ocr.nudge();
     }
+    crate::sync::remote::after_import(core).await;
 
     let imported_settings = settings.is_some();
     if let Some(settings) = settings {
@@ -2028,6 +2029,7 @@ fn apply_imported_settings(
     if delta.touches("sync") {
         crate::sync::settings_changed(core);
     }
+    crate::sync::remote::settings_updated(core);
     core.events.emit(CoreEvent::SettingsUpdated {
         settings: Arc::new(settings),
         delta,

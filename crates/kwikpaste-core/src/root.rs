@@ -64,6 +64,8 @@ pub(crate) struct CoreInner {
     pub(crate) apps: AppsRegistry,
     /// 局域网同步：已配对设备随 core 读入，网络部分由宿主启用。
     pub(crate) sync: crate::sync::LanSyncService,
+    /// 远程同步：本机凭据随 core 读入，网络部分由宿主启用。
+    pub(crate) remote: crate::sync::remote::RemoteService,
     pub(crate) watcher_pause: WatcherPause,
     /// 去重入库串行执行，见 [`clipboard::persist::store_and_emit`]。
     pub(crate) upsert_lock: tokio::sync::Mutex<()>,
@@ -97,6 +99,7 @@ impl Core {
             let window_state = WindowStateStore::new(&paths)?;
             let extensions = crate::extensions::ExtensionStore::load(paths.extensions_dir());
             let peers = crate::sync::PeerStore::load(&paths.sync_dir());
+            let remote = crate::sync::remote::RemoteService::new(paths.sync_dir());
             let wetype = crate::wetype::WeTypeService::new(paths.extensions_dir().join("wetype"));
 
             let inner = Arc::new(CoreInner {
@@ -120,6 +123,7 @@ impl Core {
                 extensions,
                 apps: AppsRegistry::default(),
                 sync: crate::sync::LanSyncService::new(Arc::new(peers)),
+                remote,
                 watcher_pause: WatcherPause::default(),
                 upsert_lock: tokio::sync::Mutex::new(()),
                 quick_paste_running: AtomicBool::new(false),
@@ -131,6 +135,7 @@ impl Core {
             });
 
             inner.sync.bind(Arc::downgrade(&inner));
+            inner.remote.bind(Arc::downgrade(&inner));
             inner.ocr.bind(Arc::downgrade(&inner));
             inner.translate.bind(Arc::downgrade(&inner));
             inner.ocr.startup().await;
@@ -684,6 +689,7 @@ impl Core {
     }
 
     fn emit_settings(&self, settings: &Settings, delta: SettingsDelta) {
+        crate::sync::remote::settings_updated(&self.0);
         self.0.events.emit(CoreEvent::SettingsUpdated {
             settings: Arc::new(settings.clone()),
             delta,

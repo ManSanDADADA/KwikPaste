@@ -72,6 +72,9 @@ pub enum CoreEvent {
     /// 局域网同步状态变了（启停、设备上下线、配对码、附近设备，1.x `sync://lan-state`），
     /// 偏好页需要时用 [`crate::Core::lan_sync_state`] 重新取。
     LanSyncChanged,
+    /// 远程同步状态变了（启停、连接状态、设备、配对码、额度、历史上传进度、最近同步时间），
+    /// 偏好页需要时用 [`crate::Core::remote_sync_state`] 重新取。
+    RemoteSyncChanged,
     /// 别的设备用本机配对码配对成功（1.x `sync://lan-paired`）。
     LanDevicePaired {
         name: String,

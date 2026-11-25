@@ -60,5 +60,21 @@ pub fn label(key: Key) -> &'static str {
         Key::SyncNotPaired => "This device isn't paired yet. Pair it with a code first",
         Key::SyncDeviceNotFound => "This device is no longer in the nearby list",
         Key::SyncSelfPairing => "You can't pair this device with itself",
+        Key::RemoteNotConfigured => "This device hasn't joined a sync group",
+        Key::RemoteAlreadyConfigured => "This device is already in a sync group. Leave it first",
+        Key::RemoteInvalidUrl => "Enter a server address like https://sync.example.com",
+        Key::RemoteUnreachable => "Can't reach the sync server. Check the network and the server address",
+        Key::RemoteServerError => "The sync server ran into an error. Try again later",
+        Key::RemoteServerToken => "The server token is incorrect",
+        Key::RemoteRevoked => "This device is no longer in the sync group",
+        Key::RemoteCodeInvalid => "The pairing code is invalid or has expired",
+        Key::RemoteInviterOffline => "Keep the device showing the pairing code online",
+        Key::RemotePairingTimeout => "The device showing the pairing code didn't respond. Try again",
+        Key::RemoteGroupFull => "The sync group has reached its device limit",
+        Key::RemoteRateLimited => "Too many requests. Try again later",
+        Key::RemoteServerOutdated => "The sync server is outdated. Update the server first",
+        Key::RemoteIncompatible => {
+            "The sync server isn't compatible with this KwikPaste version. Update both to the latest"
+        }
     }
 }

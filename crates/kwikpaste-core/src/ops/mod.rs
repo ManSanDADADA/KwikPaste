@@ -17,6 +17,7 @@ mod tests;
 pub use crate::db::items::{ReorderAnchor, ReorderSection};
 pub use apps::{ClipboardAppView, HistoryApp};
 pub use groups::{ClipboardGroupInput, ClipboardGroupLayoutInput, DEFAULT_CLIPBOARD_GROUP_ICON};
+pub(crate) use items::delete_one;
 pub use items::{
     CapturedItem, CopyOutcome, ImageSave, MergedSelection, QuickPasteTicket, UpdateNoteResult,
 };

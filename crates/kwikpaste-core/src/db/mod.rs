@@ -6,6 +6,7 @@ pub mod items;
 pub mod models;
 pub mod overview;
 pub mod path;
+pub mod remote;
 pub mod retention;
 pub mod state;
 pub mod sync;

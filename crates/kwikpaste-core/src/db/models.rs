@@ -76,6 +76,11 @@ pub struct ClipboardItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin_device_id: Option<String>,
 
+    /// 远程同步使用的稳定条目键；本机首次采集的记录在同步时补写。
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub sync_key: Option<String>,
+
     /// 来源应用名称。仅 list 查询通过 LEFT JOIN `clipboard_apps` 填充；
     /// 单条 `SELECT_ITEM` 路径与 `INSERT` 不读不写，`#[sqlx(default)]` 保证缺列时为 `None`。
     #[sqlx(default)]

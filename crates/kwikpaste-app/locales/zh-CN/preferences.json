@@ -557,6 +557,81 @@
     "title": "导出为文件",
     "ungrouped": "包含未分组记录"
   },
+  "remoteSync": {
+    "deviceNameDescription": "在其他设备上显示的名称，局域网同步和远程同步共用。",
+    "devices": {
+      "add": "添加设备",
+      "alone": "组里还没有其他设备，点「添加设备」获取配对码。",
+      "remove": "移除",
+      "removeConfirmContent": "它之后不再收发同步内容，已经收到的记录会保留。",
+      "removeConfirmTitle": "把 {{name}} 移出同步组？",
+      "removed": "已移除",
+      "self": "本机",
+      "title": "同步组设备"
+    },
+    "enabledOfficial": "通过 KwikPaste 官方服务器同步，内容端到端加密。",
+    "enabledSelfHost": "通过你自己部署的服务器同步，内容端到端加密。",
+    "historyUploading": "正在上传全部历史：{{done}} / {{total}}",
+    "join": {
+      "description": "在组里的设备上打开「同步 → 远程同步」，点「添加设备」，再输入它显示的 6 位配对码。",
+      "joined": "已加入同步组",
+      "ok": "加入",
+      "placeholder": "6 位配对码",
+      "title": "用配对码加入"
+    },
+    "official": {
+      "imageNote": "压缩后只发给在线的设备",
+      "short": "文本保留 {{hours}} 小时，图片只实时转发，内容端到端加密",
+      "summary": "只同步新复制的内容和设置：文本保留 {{hours}} 小时，离线的设备上线后补收；图片压缩后实时转发，不保存。内容端到端加密，服务器读不到。"
+    },
+    "pairing": {
+      "code": "配对码 {{code}}",
+      "hint": "在另一台设备上选「加入同步组」并输入，{{time}} 前有效。"
+    },
+    "selfHost": {
+      "summary": "用 Docker 在自己的服务器或 NAS 上运行 KwikPaste 同步服务：图片质量和大小自己定，还可以同步全部历史。内容端到端加密。",
+      "token": "服务器令牌",
+      "tokenDescription": "在服务器的启动日志里，也存在它数据目录的 server-token 文件中。",
+      "tokenPlaceholder": "服务器第一次启动时生成",
+      "url": "服务器地址",
+      "urlPlaceholder": "https://sync.example.com",
+      "urlRequired": "请填写服务器地址"
+    },
+    "server": {
+      "leave": "退出同步组",
+      "leaveConfirmContent": "本机之后不再和组里的设备同步，已经收到的记录会保留。",
+      "leaveConfirmTitle": "退出同步组？",
+      "left": "已退出同步组",
+      "official": "官方服务器",
+      "selfHost": "自部署服务器",
+      "title": "服务器"
+    },
+    "setup": {
+      "create": "创建",
+      "createDescription": "在这台设备上新建同步组，再从其他设备用配对码加入。",
+      "created": "已创建同步组",
+      "createTitle": "创建同步组",
+      "join": "加入",
+      "joinDescription": "输入组里任意一台设备显示的配对码。",
+      "joinTitle": "加入同步组"
+    },
+    "starting": "正在启动远程同步",
+    "status": {
+      "connected": "已连接",
+      "connectedAt": "已连接 · {{time}} 同步过",
+      "connecting": "正在连接服务器",
+      "imageQuota": "今日图片额度已用完，{{time}} 恢复；文本照常同步。",
+      "offline": "连不上服务器：{{reason}}",
+      "paused": "远程同步已关闭",
+      "rateLimited": "请求太频繁，{{time}} 后重试",
+      "revoked": "本机已不在同步组里",
+      "serverToken": "服务器令牌不正确"
+    },
+    "views": {
+      "lan": "局域网同步",
+      "remote": "远程同步"
+    }
+  },
   "retentionConfirm": {
     "content": "此策略将永久删除 {{count}} 条记录，是否保存？",
     "title": "更改保留策略"
@@ -1364,6 +1439,40 @@
           },
           "writeClipboard": {
             "description": "关闭后，收到的内容只进历史记录。",
+            "title": "收到后写入剪贴板"
+          }
+        },
+        "remote": {
+          "enabled": {
+            "title": "远程同步"
+          },
+          "fullHistory": {
+            "description": "包括收藏、置顶、备注和删除；开启后先上传本机的全部历史。",
+            "title": "同步全部历史"
+          },
+          "image": {
+            "title": "同步图片"
+          },
+          "imageQuality": {
+            "description": "原图最清楚，省流最省空间和流量。",
+            "options": {
+              "high": "高质量",
+              "original": "原图",
+              "saver": "省流"
+            },
+            "title": "图片质量"
+          },
+          "maxImageMb": {
+            "title": "图片大小上限"
+          },
+          "settings": {
+            "description": "组里的设备使用同一套偏好设置；快捷键只在同一系统的设备之间同步。",
+            "title": "同步设置"
+          },
+          "text": {
+            "title": "同步文本"
+          },
+          "writeClipboard": {
             "title": "收到后写入剪贴板"
           }
         }
