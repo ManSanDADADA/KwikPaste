@@ -232,7 +232,8 @@ JSON `{"item": <WireItem，同 PROTOCOL.md §4>, "itemKey": "...", "capturedAt":
   `/extensions/wetype`，以及任何保存本机文件路径的项。
 - **只在同平台之间同步**（`scope` = 本机平台）：`/shortcuts`、`/general/trayIcon`、`/general/trayClick`、`/general/dockIcon`，
   以及保存应用 id 的列表（如 `/clipboard/filters/excludedAppIds`）。
-- 本机改设置后，对比「上次同步的值」，只上传变了的叶子。收到的叶子 HLC 更新时写进本机设置，写入不再回传。
+- 本机改设置后，对比「上次同步的值」，只上传变了的叶子。发出的叶子在服务器收下之前是待发的（`remote_sync_state` 里
+  `kind = pending`），每次补齐结束、设置再变时重发。收到的叶子 HLC 更新时写进本机设置，写入不再回传。
 - 建组设备上传全部叶子；新加入的设备先采用组里已有的值，再把组里没有的叶子传上去。
 - 本机版本不认识的叶子不记也不应用。客户端每次启动同步先用 `after=0&items=none` 收一遍设置（不动游标）再开正常的事件流：
   升级后补上当时不认识的叶子，「同步设置」重新打开时补上关着时跳过的。

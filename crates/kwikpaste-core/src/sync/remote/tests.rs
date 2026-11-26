@@ -46,7 +46,15 @@ fn incoming_settings_apply_without_echo() {
         let pool = core.0.db.pool().await;
         // 已经和组里同步过一轮。
         for (entry_id, entry) in settings::changed_leaves(&pool, &keys, &core.settings()).await? {
-            settings::record(&pool, &entry_id, &entry.path, &entry.value, &hlc(1)).await?;
+            settings::record(
+                &pool,
+                &entry_id,
+                &entry.path,
+                &entry.value,
+                &hlc(1),
+                settings::KIND,
+            )
+            .await?;
         }
         assert!(settings::changed_leaves(&pool, &keys, &core.settings())
             .await?
@@ -103,6 +111,28 @@ fn incoming_settings_apply_without_echo() {
         assert_eq!(changed.len(), 1);
         assert_eq!(changed[0].1.path, "/appearance/textSize");
         assert_eq!(changed[0].1.value, json!("large"));
+
+        // 发出去但服务器还没收下（断网、退出）时仍算要传的，收下之后才不再传。
+        let (entry_id, entry) = &changed[0];
+        settings::record(
+            &pool,
+            entry_id,
+            &entry.path,
+            &entry.value,
+            &hlc(4),
+            state::PENDING,
+        )
+        .await?;
+        assert_eq!(
+            settings::changed_leaves(&pool, &keys, &core.settings())
+                .await?
+                .len(),
+            1
+        );
+        state::confirm(&pool, entry_id, settings::KIND, &hlc(4)).await?;
+        assert!(settings::changed_leaves(&pool, &keys, &core.settings())
+            .await?
+            .is_empty());
         Ok(())
     });
 }
@@ -222,6 +252,29 @@ fn metadata_is_last_writer_wins_with_delete_and_resurrect() {
             !entries::apply_meta(&core.0, &keys, &hlc(45), meta("deleted", json!(true))).await?
         );
         assert!(find(&core, key).await?.is_some());
+
+        // 本机复制、还没记过 HLC 的同内容记录：比它早的删除（加入前别人删的）不删它，比它晚的删。
+        let local = core
+            .build_item(&crate::clipboard::ClipboardPayload::Text(
+                crate::clipboard::TextPayload {
+                    text: "copied before joining".into(),
+                    html: None,
+                    rtf: None,
+                },
+            ))?
+            .expect("text item");
+        core.store_item(local.clone(), None).await?;
+        let local_key = state::key_of(&local);
+        let tombstone = || MetaEntry {
+            item_key: local_key.clone(),
+            field: "deleted".into(),
+            value: json!(true),
+        };
+        assert!(!entries::apply_meta(&core.0, &keys, &hlc(60), tombstone()).await?);
+        assert!(find(&core, &local_key).await?.is_some());
+        let later = Hlc((Utc::now().timestamp_millis() as u64 + 60_000) << 16).wire("peer");
+        assert!(entries::apply_meta(&core.0, &keys, &later, tombstone()).await?);
+        assert!(find(&core, &local_key).await?.is_none());
         Ok(())
     });
 }

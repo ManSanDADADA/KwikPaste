@@ -74,6 +74,13 @@ pub struct DeviceInfo {
     pub listen_port: u16,
     /// 这台设备愿意接收的单条附件上限（字节），跟随它设置里的图片大小上限。
     pub max_attachment_bytes: u64,
+    /// 这台设备局域网收不收文本；旧版本没有这个字段，按收处理。
+    #[serde(default = "accepts_text_default")]
+    pub accepts_text: bool,
+}
+
+fn accepts_text_default() -> bool {
+    true
 }
 
 /// 发起方的连接目的。

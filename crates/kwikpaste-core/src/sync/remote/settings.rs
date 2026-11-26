@@ -157,19 +157,21 @@ pub(super) async fn changed_leaves(
         .collect())
 }
 
-/// 记下一个叶子的同步值与 HLC。
+/// 记下一个叶子的值与 HLC。`kind` 是 [`KIND`]（组里已经是这个值），或本机刚改、服务器还没收下的
+/// [`state::PENDING`]：待发的叶子不算同步过，下次差异检查（每次补齐结束、设置再变）会重发。
 pub(super) async fn record(
     pool: &sqlx::SqlitePool,
     entry_id: &str,
     pointer: &str,
     value: &Value,
     hlc: &str,
+    kind: &str,
 ) -> Result<()> {
     state::put(
         pool,
         &RemoteStateRow {
             entry_id: entry_id.to_owned(),
-            kind: KIND.to_owned(),
+            kind: kind.to_owned(),
             item_key: None,
             field: pointer.to_owned(),
             value: Some(value.to_string()),
@@ -204,7 +206,7 @@ pub(super) async fn apply_incoming(
 
     if *local != entry.value {
         // 先记同步值：写入设置会触发差异检查，看到的已经是这个值。
-        record(&pool, entry_id, &entry.path, &entry.value, hlc).await?;
+        record(&pool, entry_id, &entry.path, &entry.value, hlc, KIND).await?;
         let patch = patch_for(&entry.path, &entry.value, Some(local));
         if let Err(err) = Core(core.clone()).update_settings(patch).await {
             log::warn!("remote sync skips setting {}: {err}", entry.path);
@@ -215,7 +217,7 @@ pub(super) async fn apply_incoming(
     let actual = flatten(&serde_json::to_value(core.settings.snapshot()).unwrap_or_default())
         .remove(&entry.path)
         .unwrap_or(Value::Null);
-    record(&pool, entry_id, &entry.path, &actual, hlc).await?;
+    record(&pool, entry_id, &entry.path, &actual, hlc, KIND).await?;
     Ok(true)
 }
 

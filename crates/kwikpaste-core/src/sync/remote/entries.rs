@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::SqlitePool;
 
-use super::crypto::{hlc_newer, pack, unpack, GroupKeys};
+use super::crypto::{hlc_newer, pack, parse_hlc, unpack, GroupKeys};
 use super::image::{self, Compress};
 use super::RemotePolicy;
 use crate::db::items::{set_item_favorite, set_item_pinned, update_item_note};
@@ -433,25 +433,31 @@ pub(super) async fn apply_meta(
     }
     record_meta(&pool, keys, &entry, hlc, META).await?;
 
-    let ids: Vec<String> = state::find_by_item_key(&pool, &entry.item_key)
-        .await?
-        .into_iter()
-        .map(|(id, _)| id)
-        .collect();
+    let rows = state::find_by_item_key(&pool, &entry.item_key).await?;
     if entry.field == DELETED {
         if entry.value != Value::Bool(true) {
             return Ok(false);
         }
         let item = state::get(&pool, &keys.item_id(&entry.item_key)).await?;
-        if item.is_some_and(|row| !hlc_newer(hlc, &row.hlc)) {
+        if item.as_ref().is_some_and(|row| !hlc_newer(hlc, &row.hlc)) {
             // 删除之后又有人复制了这条记录。
             return Ok(false);
         }
-        for id in &ids {
-            crate::ops::delete_one(core, id).await?;
+        // 本机还没记过这条记录的 HLC（加入同步组之前复制、还没传上去的）：只删比这次删除早的，
+        // 删除之后本机又复制的留着。
+        let deleted_at = parse_hlc(hlc).map(|(clock, _)| (clock.0 >> 16) as i64);
+        let mut removed = false;
+        for (id, updated_at) in &rows {
+            let newer =
+                item.is_none() && deleted_at.is_some_and(|at| updated_at.timestamp_millis() >= at);
+            if !newer {
+                crate::ops::delete_one(core, id).await?;
+                removed = true;
+            }
         }
-        return Ok(!ids.is_empty());
+        return Ok(removed);
     }
+    let ids: Vec<String> = rows.into_iter().map(|(id, _)| id).collect();
 
     let mut changed = false;
     for id in &ids {

@@ -92,6 +92,7 @@ JSON 头是带 `type` 标签的对象，字段名 camelCase。消息类型：
 | `protocol` | `{ "min": u16, "max": u16 }` | 支持的协议版本范围（含两端） |
 | `listenPort` | u16 | 本机监听端口，对方据此记下「下次怎么连回来」 |
 | `maxAttachmentBytes` | u64 | 本机愿意接收的单条附件上限（§6.4） |
+| `acceptsText` | bool，可选 | 本机局域网收不收文本；缺省为真（旧版本没有这个字段）。远程同步据此决定能不能让服务器跳过这台设备 |
 
 `intent`：`{"kind":"sync"}`（已配对设备之间的同步会话）或 `{"kind":"pair","spake":"<hex>"}`（配对）。
 

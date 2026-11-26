@@ -773,7 +773,7 @@ impl RemoteService {
             .map_or_else(current_platform, |device| device.platform)
     }
 
-    /// 处理一批上传的结果（和发出的帧一一对应）：服务器收下的本机记录与元数据改动不再待发；
+    /// 处理一批上传的结果（和发出的帧一一对应）：服务器收下的本机记录、元数据与设置改动不再待发；
     /// 图片额度用完时图片暂停到 `retryAt`，文本的额度不影响图片。
     async fn upload_results(
         &self,
@@ -793,7 +793,11 @@ impl RemoteService {
                     result.entry_id,
                     error.unwrap_or("unknown")
                 ),
-                _ if matches!(frame.kind, entries::ITEM | entries::META) => {
+                _ if matches!(
+                    frame.kind,
+                    entries::ITEM | entries::META | remote_settings::KIND
+                ) =>
+                {
                     let confirmed =
                         crate::db::remote::confirm(&pool, &frame.entry_id, frame.kind, &frame.hlc)
                             .await;
@@ -1308,13 +1312,21 @@ async fn settings_nudged(core: &Arc<CoreInner>, run: &Arc<Run>, policy: &RemoteP
     }
 }
 
-/// 上传和上次同步的值不同的设置叶子。
+/// 上传和上次同步的值不同的设置叶子（含发出后服务器还没收下的）。
 async fn upload_settings(core: &Arc<CoreInner>, run: &Arc<Run>) -> anyhow::Result<()> {
     let pool = core.db.pool().await;
     let settings = core.settings.snapshot();
     for (entry_id, entry) in remote_settings::changed_leaves(&pool, &run.keys, &settings).await? {
         let hlc = core.remote.tick(&run.device_id);
-        remote_settings::record(&pool, &entry_id, &entry.path, &entry.value, &hlc).await?;
+        remote_settings::record(
+            &pool,
+            &entry_id,
+            &entry.path,
+            &entry.value,
+            &hlc,
+            crate::db::remote::PENDING,
+        )
+        .await?;
         let plain = super::crypto::pack(&serde_json::to_vec(&entry)?, &[])?;
         let body = run
             .keys

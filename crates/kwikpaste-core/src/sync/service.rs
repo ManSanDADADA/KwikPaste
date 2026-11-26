@@ -557,6 +557,8 @@ struct Connection {
     kill: Arc<watch::Sender<bool>>,
     /// 对方申报的附件上限，实时推送按它跳过放不下的图片。
     max_attachment: u64,
+    /// 对方局域网收不收文本。
+    accepts_text: bool,
     live: LiveCursor,
 }
 
@@ -671,6 +673,9 @@ impl Shared {
             protocol: self.supported,
             listen_port: self.port,
             max_attachment_bytes: self.max_attachment(),
+            accepts_text: self
+                .core()
+                .is_none_or(|core| core.settings.snapshot().sync.lan.text),
         }
     }
 
@@ -699,14 +704,20 @@ impl Shared {
             .contains_key(device_id)
     }
 
-    /// 在线、放得下 `attachment` 字节附件的已配对设备：本机复制经远程同步发出时让服务器跳过它们
-    /// （局域网已经直接送到）。
-    pub(super) fn connected_ids(&self, attachment: u64) -> Vec<String> {
+    /// 在线、收这条的已配对设备（文本看对方收不收文本，图片看放不放得下 `attachment` 字节）：
+    /// 本机复制经远程同步发出时让服务器跳过它们（局域网已经直接送到）。
+    pub(super) fn connected_ids(&self, text: bool, attachment: u64) -> Vec<String> {
         self.connections
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .iter()
-            .filter(|(_, connection)| attachment <= connection.max_attachment)
+            .filter(|(_, connection)| {
+                if text {
+                    connection.accepts_text
+                } else {
+                    attachment <= connection.max_attachment
+                }
+            })
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -1516,6 +1527,7 @@ async fn run_session(
             tx: tx.clone(),
             kill: kill_tx.clone(),
             max_attachment: device.max_attachment_bytes,
+            accepts_text: device.accepts_text,
             live: LiveCursor::default(),
         },
     );
@@ -2056,6 +2068,7 @@ mod tests {
             tx,
             kill: Arc::new(watch::channel(false).0),
             max_attachment,
+            accepts_text: true,
             live: LiveCursor::default(),
         };
         (connection, rx)
@@ -2357,6 +2370,23 @@ mod tests {
         assert!(small_rx.try_recv().is_err());
         assert!(matches!(large_rx.try_recv(), Ok((Message::Ping, _))));
         assert!(matches!(large_rx.try_recv(), Ok((Message::Unpair, _))));
+    }
+
+    /// 远程同步只跳过局域网真会送到的设备：关了局域网文本的设备不算，图片看它的上限。
+    #[test]
+    fn remote_skip_lists_only_devices_lan_delivers_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let shared = test_shared(dir.path());
+        let (texts, _texts_rx) = connection(1, 0);
+        let (mut images, _images_rx) = connection(2, 100);
+        images.accepts_text = false;
+        trust(&shared, "texts");
+        trust(&shared, "images");
+        assert!(shared.register("texts", "key", texts));
+        assert!(shared.register("images", "key", images));
+
+        assert_eq!(shared.connected_ids(true, 0), vec!["texts".to_owned()]);
+        assert_eq!(shared.connected_ids(false, 50), vec!["images".to_owned()]);
     }
 
     #[tokio::test]

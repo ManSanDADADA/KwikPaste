@@ -146,14 +146,14 @@ pub(crate) fn on_local_capture(core: &CoreInner, item: &ClipboardItem, seq: Opti
             .unwrap_or_else(|p| p.into_inner())
             .should_send(&item.content_hash);
     if remote && fresh {
-        // 只有局域网真会送到的设备才让服务器跳过：局域网要这条，图片也放得下本机和对方的上限。
+        // 只有局域网真会送到的设备才让服务器跳过：局域网要这条，对方收文本、图片也放得下本机和对方的上限。
         let attachment = match item.kind {
             ClipboardKind::Image => item.size.unwrap_or_default().max(0) as u64,
             _ => 0,
         };
         let skip = match &lan_shared {
             Some(shared) if lan_wants && attachment <= lan.max_image_bytes() => {
-                shared.connected_ids(attachment)
+                shared.connected_ids(item.kind == ClipboardKind::Text, attachment)
             }
             _ => Vec::new(),
         };
