@@ -1,7 +1,7 @@
 //! 远程同步运行时：连服务器、读事件流、串行上传，以及偏好页看到的状态（REMOTE.md §4.7、§7）。
 //!
 //! 已加入同步组且开着远程同步时跑一个运行时：主循环先 `GET /v1/info`，再开事件流逐帧处理，
-//! 断线按 5 秒到 5 分钟退避重连；上传另有一个任务串行执行，排队的帧合进下一个请求。
+//! 断线按 5 秒到 1 分钟退避重连；上传另有一个任务串行执行，排队的帧合进下一个请求。
 //! 设备令牌失效、服务器令牌不对、协议不兼容时停下，等设置变化或下次启动再试。
 
 use std::path::PathBuf;
@@ -40,7 +40,7 @@ use crate::sync::protocol::{from_hex, to_hex};
 use crate::sync::{current_platform, effective_device_name, identity};
 
 const BACKOFF_MIN: Duration = Duration::from_secs(5);
-const BACKOFF_MAX: Duration = Duration::from_secs(300);
+const BACKOFF_MAX: Duration = Duration::from_secs(60);
 const UPLOAD_QUEUE: usize = 256;
 /// 历史上传每页的记录数。
 const HISTORY_PAGE: usize = 50;
@@ -99,6 +99,8 @@ pub(super) struct Run {
     pub uploads: mpsc::Sender<Upload>,
     /// 设置变了：主循环检查设备名与设置差异。
     nudge: Notify,
+    /// 事件流连上了：正在退避的上传马上重试。
+    connected: Notify,
     /// 服务器策略，第一次连上后才有；上传任务等它。
     policy: watch::Sender<Option<RemotePolicy>>,
     /// 这次运行还没从头收过一遍设置：「同步设置」关着时、或旧版本不认识的设置项当时跳过了。
@@ -354,6 +356,7 @@ impl RemoteService {
             device_id,
             uploads,
             nudge: Notify::new(),
+            connected: Notify::new(),
             policy,
             settings_pass: AtomicBool::new(true),
         });
@@ -801,6 +804,22 @@ impl RemoteService {
                 _ => {}
             }
         }
+        // 服务器不把本机上传的条目发回来：序号正好接着游标时直接推进，否则重连时会把它们整份再补一遍。
+        // 中间隔着别的设备的条目就不动，那些还要从事件流收。
+        let stored: Vec<u64> = results
+            .iter()
+            .filter(|result| result.status == "stored")
+            .filter_map(|result| result.seq)
+            .collect();
+        if !stored.is_empty() {
+            self.update_file(|file| {
+                for seq in stored {
+                    if file.caught_up && seq == file.cursor + 1 {
+                        file.cursor = seq;
+                    }
+                }
+            });
+        }
         self.update_view(core, |view| {
             view.last_sync_at = Some(Utc::now());
             if quota.is_some() {
@@ -994,9 +1013,10 @@ async fn session(core: &Arc<CoreInner>, run: &Arc<Run>, backoff: &mut Duration) 
         Err(err) => return end_for(core, &err, *backoff),
     };
     core.remote.set_status(core, RemoteStatus::Connected);
+    run.connected.notify_waiters();
 
     let mut reader = frame_reader(&policy);
-    let mut synced = false;
+    let mut progressed = false;
     loop {
         tokio::select! {
             end = read_chunk(core, &mut response, &mut reader) => {
@@ -1017,11 +1037,12 @@ async fn session(core: &Arc<CoreInner>, run: &Arc<Run>, backoff: &mut Duration) 
                 Err(err) => return disconnected(core, &format!("{err:#}")),
             };
             if let Some(end) =
-                handle_frame(core, run, &policy, frame, &mut synced, &mut reload).await
+                handle_frame(core, run, &policy, frame, &mut progressed, &mut reload).await
             {
                 return end;
             }
-            if synced {
+            // 补齐有进展就不算连不上：服务器因为积压断开正在补齐的流时，下次马上接着补。
+            if progressed {
                 *backoff = BACKOFF_MIN;
             }
         }
@@ -1114,7 +1135,7 @@ async fn handle_frame(
     run: &Arc<Run>,
     policy: &RemotePolicy,
     (header, body): (Vec<u8>, Vec<u8>),
-    synced: &mut bool,
+    progressed: &mut bool,
     reload: &mut bool,
 ) -> Option<End> {
     let header: EventHeader = match serde_json::from_slice(&header) {
@@ -1133,7 +1154,10 @@ async fn handle_frame(
             // 补齐按序号从小到大发，实时条目要等 `synced` 之后才来：带序号的条目处理完就推进游标，
             // 补齐被打断（睡眠、断网、退出）时从这里接着补。
             match header.seq {
-                Some(seq) => core.remote.advance_cursor(core, seq, false),
+                Some(seq) => {
+                    core.remote.advance_cursor(core, seq, false);
+                    *progressed = true;
+                }
                 None if header.live => core
                     .remote
                     .update_view(core, |view| view.last_sync_at = Some(Utc::now())),
@@ -1143,7 +1167,7 @@ async fn handle_frame(
         "synced" => {
             core.remote
                 .advance_cursor(core, header.seq.unwrap_or_default(), true);
-            *synced = true;
+            *progressed = true;
             after_catch_up(core, run, policy).await;
         }
         "pairRequest" => answer_pairing(core, run, &header).await,
@@ -1454,7 +1478,8 @@ async fn upload_loop(core: Weak<CoreInner>, run: Arc<Run>, mut rx: mpsc::Receive
                     }
                 }
                 Upload::History => {
-                    if meta_active(&core.settings.snapshot().sync.remote, &policy) {
+                    let meta = meta_active(&core.settings.snapshot().sync.remote, &policy);
+                    if meta {
                         let pool = core.db.pool().await;
                         match entries::pending_meta(&pool, &run.keys).await {
                             Ok(pending) => frames.extend(pending),
@@ -1462,7 +1487,7 @@ async fn upload_loop(core: Weak<CoreInner>, run: Arc<Run>, mut rx: mpsc::Receive
                         }
                     }
                     if history.is_none() {
-                        match HistoryUpload::start(&core).await {
+                        match HistoryUpload::start(&core, meta).await {
                             Ok(upload) => history = Some(upload),
                             Err(err) => {
                                 log::warn!("remote sync history upload failed to start: {err:#}")
@@ -1546,8 +1571,10 @@ async fn post(core: &CoreInner, run: &Run, frames: Vec<Outgoing>) -> bool {
                 ApiError::Server { .. } => break,
                 ApiError::Network(_) | ApiError::Invalid(_) => backoff,
             };
-            tokio::time::sleep(wait).await;
-            backoff = (backoff * 2).min(BACKOFF_MAX);
+            tokio::select! {
+                () = tokio::time::sleep(wait) => backoff = (backoff * 2).min(BACKOFF_MAX),
+                () = run.connected.notified() => backoff = BACKOFF_MIN,
+            }
         }
     }
     true
@@ -1560,10 +1587,11 @@ struct HistoryUpload {
 }
 
 impl HistoryUpload {
-    async fn start(core: &CoreInner) -> anyhow::Result<Self> {
+    async fn start(core: &CoreInner, meta: bool) -> anyhow::Result<Self> {
         let remote = core.settings.snapshot().sync.remote;
         let pool = core.db.pool().await;
-        let ids = crate::db::remote::history_item_ids(&pool, remote.text, remote.image).await?;
+        let ids =
+            crate::db::remote::history_item_ids(&pool, remote.text, remote.image, meta).await?;
         if !ids.is_empty() {
             core.remote.update_view(core, |view| {
                 view.history_upload = Some((0, ids.len() as u64));

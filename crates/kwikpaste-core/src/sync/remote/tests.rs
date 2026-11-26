@@ -269,9 +269,37 @@ fn local_changes_stay_pending_until_the_server_takes_them() {
             hlc: hlc(6),
         };
         state::put(&pool, &row).await?;
-        assert_eq!(state::history_item_ids(&pool, true, true).await?.len(), 1);
+        assert_eq!(
+            state::history_item_ids(&pool, true, true, true)
+                .await?
+                .len(),
+            1
+        );
         state::confirm(&pool, &row.entry_id, "item", &row.hlc).await?;
-        assert!(state::history_item_ids(&pool, true, true).await?.is_empty());
+        assert!(state::history_item_ids(&pool, true, true, true)
+            .await?
+            .is_empty());
+
+        // 「同步全部历史」打开之前收藏的记录：服务器已有这条记录，收藏还要补传。
+        crate::db::items::set_item_favorite(&pool, &item.id, true).await?;
+        assert_eq!(
+            state::history_item_ids(&pool, true, true, true)
+                .await?
+                .len(),
+            1
+        );
+        assert!(state::history_item_ids(&pool, true, true, false)
+            .await?
+            .is_empty());
+        let favorite = MetaEntry {
+            item_key: state::key_of(&item),
+            field: "favorite".into(),
+            value: json!(true),
+        };
+        entries::local_meta(&pool, &keys, favorite, hlc(7)).await?;
+        assert!(state::history_item_ids(&pool, true, true, true)
+            .await?
+            .is_empty());
         Ok(())
     });
 }

@@ -175,17 +175,32 @@ pub async fn set_sync_key(pool: &SqlitePool, id: &str, item_key: &str) -> Result
     Ok(())
 }
 
-/// 还要作为历史上传的记录（同步的文本 / 图片、不是敏感内容、服务器还没收下），按最后使用时间从旧到新。
-pub async fn history_item_ids(pool: &SqlitePool, text: bool, image: bool) -> Result<Vec<String>> {
+/// 还要作为历史上传的记录（同步的文本 / 图片、不是敏感内容），按最后使用时间从旧到新：服务器还没收下的，
+/// 以及 `meta` 时收藏 / 置顶 / 备注还没记过的（「同步全部历史」打开之前实时同步过、之后才补元数据的记录）。
+pub async fn history_item_ids(
+    pool: &SqlitePool,
+    text: bool,
+    image: bool,
+    meta: bool,
+) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar(
-        "SELECT id FROM clipboard_items AS c \
-         WHERE ((kind = 'text' AND ?) OR (kind = 'image' AND ?)) AND is_sensitive = 0 \
-         AND NOT EXISTS (SELECT 1 FROM remote_sync_state AS s WHERE s.kind = 'item' \
-             AND s.item_key = COALESCE(c.sync_key, c.kind || ':' || c.content_hash)) \
+        "WITH c AS (SELECT id, updated_at, is_favorite, is_pinned, note, \
+             COALESCE(sync_key, kind || ':' || content_hash) AS item_key FROM clipboard_items \
+             WHERE ((kind = 'text' AND ?) OR (kind = 'image' AND ?)) AND is_sensitive = 0) \
+         SELECT id FROM c \
+         WHERE NOT EXISTS (SELECT 1 FROM remote_sync_state AS s \
+             WHERE s.kind = 'item' AND s.item_key = c.item_key) \
+         OR (? AND ((c.is_favorite AND NOT EXISTS (SELECT 1 FROM remote_sync_state AS s \
+                 WHERE s.item_key = c.item_key AND s.field = 'favorite')) \
+             OR (c.is_pinned AND NOT EXISTS (SELECT 1 FROM remote_sync_state AS s \
+                 WHERE s.item_key = c.item_key AND s.field = 'pinned')) \
+             OR (c.note IS NOT NULL AND NOT EXISTS (SELECT 1 FROM remote_sync_state AS s \
+                 WHERE s.item_key = c.item_key AND s.field = 'note')))) \
          ORDER BY updated_at ASC",
     )
     .bind(text)
     .bind(image)
+    .bind(meta)
     .fetch_all(pool)
     .await
     .context("failed to list history for remote sync")?)

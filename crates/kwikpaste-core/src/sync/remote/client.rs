@@ -24,6 +24,8 @@ pub(super) const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;
 pub(super) const STREAM_READ_TIMEOUT: Duration = Duration::from_secs(300);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// 上传超时按这个上行速度（字节 / 秒）给发送请求体留时间。
+const UPLOAD_MIN_RATE: usize = 64 * 1024;
 /// 加入请求在服务器上最多等邀请方 60 秒。
 const JOIN_TIMEOUT: Duration = Duration::from_secs(90);
 const FRAMES_CONTENT_TYPE: &str = "application/x-kwikpaste-frames";
@@ -157,6 +159,9 @@ pub(super) struct DeviceRow {
 pub(super) struct UploadResult {
     pub entry_id: String,
     pub status: String,
+    /// `stored` 时服务器分到的序号。
+    #[serde(default)]
+    pub seq: Option<u64>,
     #[serde(default)]
     pub error: Option<String>,
     #[serde(default)]
@@ -358,11 +363,12 @@ impl Client {
     }
 
     pub async fn upload(&self, body: Vec<u8>) -> Result<Vec<UploadResult>, ApiError> {
+        // 超时包含发送请求体：按最慢 64 KiB/s 放宽，自部署的大原图在慢上行上也能传完，不会超时后无限重传。
+        let sending = Duration::from_secs((body.len() / UPLOAD_MIN_RATE) as u64);
         let reply: UploadReply = Self::json(
             self.request(Method::POST, "/v1/entries")
                 .header(reqwest::header::CONTENT_TYPE, FRAMES_CONTENT_TYPE)
-                // 体积按 8 MiB 分批，慢网络上一批要多给点时间。
-                .timeout(REQUEST_TIMEOUT * 4)
+                .timeout(REQUEST_TIMEOUT * 4 + sending)
                 .body(body),
         )
         .await?;
