@@ -543,6 +543,15 @@ impl UpdaterUi for Ui {
         }
     }
 
+    /// 与全局触发同一个判断：前台全屏（设置开着时）或属于暂停列表的应用期间不弹，弹了也只会压在后面。
+    fn prompt_allowed(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        let paused = kwikpaste_os::win::trigger_pause::is_paused();
+        #[cfg(target_os = "macos")]
+        let paused = kwikpaste_os::mac::trigger_pause::is_paused();
+        !paused
+    }
+
     fn show_announcement(&self, prompt: AnnouncementPrompt) -> HostFuture<'_, AnnouncementOutcome> {
         let outcome = show_announcement(prompt);
         Box::pin(async move { outcome })

@@ -5,8 +5,9 @@
 //! core 的 tokio runtime 上执行，宿主（GPUI）在任何执行器里都可以直接 await 公开的 async 方法。
 //!
 //! 宿主要接的两个接口：
-//! - [`UpdaterUi`]（UI 线）：可静默更新时后台下载、等空闲后安装，不弹窗或显示更新提示；否则每版本提示一次；
-//!   宿主提供无可见窗口时的系统空闲时长，并处理公告与链接；
+//! - [`UpdaterUi`]（UI 线）：可静默更新时后台下载、等空闲后安装，不弹窗或显示更新提示，发布满 3 天还没装上
+//!   就改走提示；提示每个版本先弹一次，之后每 3 天再弹；宿主提供无可见窗口时的系统空闲时长、现在能不能弹窗，
+//!   并处理公告与链接；
 //! - [`HandoffHost`]（平台线）：安装交接时停输入、删托盘、释放单实例、退出进程。
 //!
 //! 与附录 E §5 相比按 v2 路线精简：没有分桶 / 灰度、闸门、canary 与演练渠道，没有自动降级、
@@ -71,8 +72,13 @@ pub trait UpdaterUi: Send + Sync + 'static {
     /// 发布面板提示状态（静默候选隐藏 update 字段），不自动打开更新窗。
     fn update_available(&self, status: UpdateStatus);
 
-    /// 不可静默更新时，首次发现该版本弹更新窗；关掉后只留徽标，同版本不再弹。
+    /// 不可静默更新时，首次发现该版本弹更新窗；关掉后只留徽标，同版本隔 3 天再弹。
     fn prompt_update(&self, _status: UpdateStatus) {}
+
+    /// 现在能不能弹更新窗；前台全屏或属于暂停列表时返回 false，这次不弹也不记，留给下次检查。
+    fn prompt_allowed(&self) -> bool {
+        true
+    }
 
     /// 显示一条公告并等用户响应。按 [`AnnouncementPrompt::buttons`] 的顺序摆按钮，点哪个按钮就返回
     /// [`ButtonRole::outcome`]；按 Esc、点标题栏关闭都返回 [`AnnouncementOutcome::Closed`]。
@@ -182,6 +188,7 @@ impl Updater {
             public_key,
         } = parts;
         let client = http::updater_client(&core.info().version)?;
+        let failed_silent_version = core.settings().update.failed_silent_version;
         let extensions = extensions::ExtensionManager::new(
             core.clone(),
             ui.clone(),
@@ -201,7 +208,7 @@ impl Updater {
             endpoints,
             public_key,
             pending: Mutex::new(None),
-            failed_silent_version: Mutex::new(None),
+            failed_silent_version: Mutex::new(failed_silent_version),
             installing: tokio::sync::Mutex::new(()),
             usage: Arc::default(),
             announcements: Arc::default(),
@@ -213,15 +220,22 @@ impl Updater {
         &self.0.kind
     }
 
-    /// 启动时消费交接结果；失败版本只在本进程内禁用静默安装，不显示任何完成通知。
+    /// 启动时消费交接结果；失败的版本以后只走提示（静默安装失败后安装包不会重启应用，反复重试会让应用
+    /// 一次次消失），不显示任何完成通知。
     pub fn record_handoff(&self, record: HandoffRecord) {
-        if !record.succeeded(&self.0.core.info().version) {
-            log::warn!(
-                "update to {} did not take; requiring manual confirmation",
-                record.to
-            );
-            *lock(&self.0.failed_silent_version) = Some(record.to);
+        if record.succeeded(&self.0.core.info().version) {
+            return;
         }
+        log::warn!(
+            "update to {} did not take; requiring manual confirmation",
+            record.to
+        );
+        // 先在本进程记下，紧接着的检查就能看到；设置在后台写。
+        *lock(&self.0.failed_silent_version) = Some(record.to.clone());
+        let updater = self.clone();
+        self.0.core.runtime().spawn(async move {
+            updater.0.mark_silent_failed(&record.to).await;
+        });
     }
 
     /// 扩展页使用的管理器；与应用更新器共用运行时、HTTP 客户端及 UI 宿主。
@@ -338,7 +352,11 @@ impl Updater {
             let failed = lock(&inner.failed_silent_version);
             if let Some(pending) = lock(&inner.pending).as_mut() {
                 pending.silent = silent
-                    && failed.as_deref() != Some(pending.candidate.version.to_string().as_str());
+                    && failed.as_deref() != Some(pending.candidate.version.to_string().as_str())
+                    && !scheduler::silent_overdue(
+                        pending.candidate.pub_date.as_deref(),
+                        Utc::now(),
+                    );
             }
         }
 
@@ -392,7 +410,7 @@ impl Updater {
                     pending.silent = false;
                 }
                 inner.publish_status();
-                self.prompt_once(inner.status()).await;
+                self.prompt(inner.status()).await;
                 return Ok(());
             }
             if inner
@@ -439,7 +457,7 @@ impl Updater {
             other_kind => Err(anyhow!("{other_kind:?} cannot install updates here")),
         };
         if installed.is_err() {
-            *lock(&inner.failed_silent_version) = Some(version.to_owned());
+            inner.mark_silent_failed(version).await;
             if let Some(pending) = lock(&inner.pending).as_mut()
                 && pending.candidate.version.to_string() == version
             {
@@ -450,7 +468,7 @@ impl Updater {
         installed.map_err(AppError::Other)
     }
 
-    /// 自动检查成功返回 true：可静默更新就后台下载验签，不记录提示版本或显示徽标；否则沿用每版本提示一次。
+    /// 自动检查成功返回 true：可静默更新就后台下载验签，不记录提示版本或显示徽标；否则按 [`Updater::prompt`] 提示。
     async fn run_auto_check(&self) -> bool {
         let status = match self.check_inner(true).await {
             Ok(status) => status,
@@ -472,23 +490,35 @@ impl Updater {
             }
             return true;
         }
-        self.prompt_once(status).await;
+        self.prompt(status).await;
         true
     }
 
-    /// 非静默路径沿用持久化的每版本提示标记。
-    async fn prompt_once(&self, status: UpdateStatus) {
+    /// 非静默路径：新版本先弹一次，之后按持久化的提示版本与时间每隔几天再弹；宿主说现在不宜弹窗
+    /// （前台全屏等）时这次不弹也不记，留给下次检查。
+    async fn prompt(&self, status: UpdateStatus) {
         let inner = &self.0;
-        if let Some(update) = &status.update
-            && inner.core.settings().update.prompted_version.as_deref()
-                != Some(update.version.as_str())
+        let Some(update) = &status.update else {
+            return;
+        };
+        let settings = inner.core.settings().update;
+        let now = Utc::now();
+        if !scheduler::prompt_due(
+            settings.prompted_version.as_deref(),
+            settings.prompted_at.as_deref(),
+            &update.version,
+            now,
+        ) || !inner.ui.prompt_allowed()
         {
-            let prompted = serde_json::json!({ "update": { "promptedVersion": update.version } });
-            if let Err(err) = inner.core.update_settings(prompted).await {
-                log::warn!("persist prompted update version failed: {err}");
-            }
-            inner.ui.prompt_update(status);
+            return;
         }
+        let prompted = serde_json::json!({
+            "update": { "promptedVersion": update.version, "promptedAt": now.to_rfc3339() }
+        });
+        if let Err(err) = inner.core.update_settings(prompted).await {
+            log::warn!("persist prompted update version failed: {err}");
+        }
+        inner.ui.prompt_update(status);
     }
 
     fn silent_ready_version(&self) -> Option<String> {
@@ -523,6 +553,15 @@ impl Updater {
 }
 
 impl Inner {
+    /// 记下没装成的版本：本次运行立即生效，写进设置后以后的运行也只走提示。
+    async fn mark_silent_failed(&self, version: &str) {
+        *lock(&self.failed_silent_version) = Some(version.to_owned());
+        let failed = serde_json::json!({ "update": { "failedSilentVersion": version } });
+        if let Err(err) = self.core.update_settings(failed).await {
+            log::warn!("persist failed silent update version failed: {err}");
+        }
+    }
+
     /// 手动查询仍能取得候选；仅发给面板的快照隐藏静默更新。
     fn publish_status(&self) {
         let mut status = self.status();

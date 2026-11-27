@@ -1164,8 +1164,11 @@ pub enum CopySoundTone {
 #[serde(default, rename_all = "camelCase")]
 pub struct Update {
     pub last_checked_at: Option<String>,
-    /// 已经弹过更新窗的版本：自动检查只在第一次发现某个版本时弹窗，之后只留面板徽标。
+    /// 最近一次弹更新窗的版本与时间（RFC 3339）：同一版本隔几天才再弹，其间只留面板徽标。
     pub prompted_version: Option<String>,
+    pub prompted_at: Option<String>,
+    /// 静默安装没成功的版本：这个版本以后只走提示，不再静默重试。
+    pub failed_silent_version: Option<String>,
 }
 
 /// 扩展的宿主设置，不包含身份或远程设备数据。

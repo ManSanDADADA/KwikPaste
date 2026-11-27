@@ -17,6 +17,8 @@ struct NullUi {
     available: Mutex<Vec<UpdateStatus>>,
     prompts: Mutex<Vec<UpdateStatus>>,
     idle: Mutex<Option<Duration>>,
+    /// 模拟前台全屏：不许弹更新窗。
+    paused: Mutex<bool>,
 }
 
 impl UpdaterUi for NullUi {
@@ -27,6 +29,10 @@ impl UpdaterUi for NullUi {
 
     fn prompt_update(&self, status: UpdateStatus) {
         self.prompts.lock().unwrap().push(status);
+    }
+
+    fn prompt_allowed(&self) -> bool {
+        !*self.paused.lock().unwrap()
     }
 
     fn update_available(&self, status: UpdateStatus) {
@@ -60,8 +66,17 @@ fn asset(kind: &InstallKind, version: &str) -> String {
     format!("KwikPaste{}", kind.asset_suffix(version).unwrap())
 }
 
-/// 一份清单：所有 Windows 平台键都指向同一个安装包地址。
+/// 一份刚发布的清单：所有 Windows 平台键都指向同一个安装包地址。
 fn manifest(version: &str, url: &str, signature: &str) -> Vec<u8> {
+    manifest_published(version, url, signature, Utc::now())
+}
+
+fn manifest_published(
+    version: &str,
+    url: &str,
+    signature: &str,
+    published: chrono::DateTime<Utc>,
+) -> Vec<u8> {
     let mut platforms = platform_keys();
     for value in platforms.as_object_mut().unwrap().values_mut() {
         *value = json!({ "url": url, "signature": signature });
@@ -69,7 +84,7 @@ fn manifest(version: &str, url: &str, signature: &str) -> Vec<u8> {
     serde_json::to_vec(&json!({
         "version": version,
         "notes": "notes",
-        "pub_date": "2027-04-05T08:00:00Z",
+        "pub_date": published.to_rfc3339(),
         "platforms": platforms,
     }))
     .unwrap()
@@ -207,10 +222,10 @@ fn silent_update_downloads_without_prompt_or_badge_and_waits_for_idle() {
 }
 
 #[test]
-fn non_writable_install_still_prompts_once_per_version_and_keeps_badge() {
+fn non_writable_install_prompts_every_three_days_and_keeps_badge() {
     let key = TestKey::generate();
     let body = manifest("2.0.1", "https://dl.example.com/setup.exe", "c2ln");
-    let server = Server::start(vec![Reply::ok(body.clone()), Reply::ok(body)]);
+    let server = Server::start(vec![Reply::ok(body); 4]);
     let Setup {
         test,
         updater,
@@ -242,10 +257,65 @@ fn non_writable_install_still_prompts_once_per_version_and_keeps_badge() {
     *ui.idle.lock().unwrap() = Some(Duration::from_secs(600));
     test.block_on(updater.install_when_idle()).unwrap();
     assert!(journal.lock().unwrap().is_empty());
+
+    // 三天后再弹；前台全屏时这次不弹也不记，下次检查再弹。
+    let earlier = (Utc::now() - chrono::TimeDelta::days(3)).to_rfc3339();
+    test.block_on(
+        test.core
+            .update_settings(json!({ "update": { "promptedAt": earlier } })),
+    )
+    .unwrap();
+    *ui.paused.lock().unwrap() = true;
+    assert!(test.block_on(updater.run_auto_check()));
+    assert_eq!(ui.prompts.lock().unwrap().len(), 1);
+    assert_eq!(
+        test.core.settings().update.prompted_at.as_deref(),
+        Some(earlier.as_str())
+    );
+    *ui.paused.lock().unwrap() = false;
+    assert!(test.block_on(updater.run_auto_check()));
+    assert_eq!(ui.prompts.lock().unwrap().len(), 2);
+    assert_ne!(
+        test.core.settings().update.prompted_at.as_deref(),
+        Some(earlier.as_str())
+    );
 }
 
 #[test]
-fn failed_handoff_version_falls_back_to_prompt_for_this_run() {
+fn silent_update_not_installed_three_days_after_release_falls_back_to_prompt() {
+    let key = TestKey::generate();
+    let published = Utc::now() - chrono::TimeDelta::days(3);
+    let body = manifest_published(
+        "2.0.1",
+        "https://dl.example.com/setup.exe",
+        "c2ln",
+        published,
+    );
+    let server = Server::start(vec![Reply::ok(body)]);
+    let Setup {
+        test,
+        updater,
+        journal,
+        ui,
+    } = setup_writable(
+        InstallKind::Nsis,
+        Url::parse(&server.url("/latest.json")).unwrap(),
+        &key,
+        false,
+        true,
+    );
+
+    assert!(test.block_on(updater.run_auto_check()));
+    assert_eq!(ui.prompts.lock().unwrap().len(), 1);
+    assert!(ui.available.lock().unwrap()[0].update.is_some());
+    assert!(updater.silent_ready_version().is_none());
+    *ui.idle.lock().unwrap() = Some(Duration::from_secs(600));
+    test.block_on(updater.install_when_idle()).unwrap();
+    assert!(journal.lock().unwrap().is_empty());
+}
+
+#[test]
+fn failed_handoff_version_falls_back_to_prompt_for_good() {
     let key = TestKey::generate();
     let installer = b"MZ installer";
     let files = Server::start(vec![Reply::ok(installer.to_vec())]);
@@ -278,9 +348,13 @@ fn failed_handoff_version_falls_back_to_prompt_for_this_run() {
     let record = take_handoff(test.core.paths()).unwrap();
     assert!(!record.succeeded(&test.core.info().version));
     assert!(take_handoff(test.core.paths()).is_none());
+    assert_eq!(
+        test.core.settings().update.failed_silent_version.as_deref(),
+        Some("2.0.1")
+    );
     remove_package(&updater);
 
-    // 新进程消费同一条交接记录，不增加任何持久化设置。
+    // 安装包启动后才失败时没人写设置：新进程从交接记录得知，立即改走提示。
     let Setup {
         test,
         updater,
