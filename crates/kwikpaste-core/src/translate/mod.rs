@@ -87,7 +87,7 @@ pub fn languages(settings: &TranslateSettings, ui: Language) -> (String, String)
 }
 
 /// 类型上能不能翻译；长度另算。
-fn eligible(item: &ClipboardItem) -> bool {
+pub(crate) fn eligible(item: &ClipboardItem) -> bool {
     if item.kind != ClipboardKind::Text || item.is_sensitive {
         return false;
     }
@@ -150,7 +150,11 @@ async fn save(
 }
 
 /// 读译文；`hash` 是记录现在的 `content_hash`，原文改过以后旧译文读不出来。
-async fn load(pool: &SqlitePool, id: &str, hash: &str) -> sqlx::Result<Option<ItemTranslation>> {
+pub(crate) async fn load(
+    pool: &SqlitePool,
+    id: &str,
+    hash: &str,
+) -> sqlx::Result<Option<ItemTranslation>> {
     let row: Option<(String, Option<String>, String, String)> = sqlx::query_as(
         "SELECT text, source_lang, target_lang, provider FROM item_translations WHERE item_id = ? AND source_hash = ?",
     )

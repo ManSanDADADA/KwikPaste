@@ -108,6 +108,8 @@ pub enum ClipboardFragment {
     Words { indices: Vec<usize> },
     /// 图片文字预览里选中的词序号，对应识别文本的 [`split_words`] 结果。
     ImageWords { indices: Vec<usize> },
+    /// 预览译文里选中的词序号，对应当前译文的 [`split_words`] 结果。
+    TranslationWords { indices: Vec<usize> },
     /// 图片识别原文的字符区间，按 Unicode 标量计数，包含起点但不包含终点。
     ImageTextRange { start: usize, end: usize },
     /// 图片里二维码的内容（有几个就按行连起来）。
@@ -489,8 +491,9 @@ pub fn resolve_fragment(item: &ClipboardItem, fragment: &ClipboardFragment) -> O
             (!text.is_empty() && source.contains(text.as_str())).then(|| text.clone())
         }
         ClipboardFragment::Words { indices } => select_words(source, indices),
-        // 图片识别文本来自派生表、二维码要解码原图，都由 core 的片段加载入口处理。
+        // 图片识别文本和译文来自派生表、二维码要解码原图，都由 core 的片段加载入口处理。
         ClipboardFragment::ImageWords { .. }
+        | ClipboardFragment::TranslationWords { .. }
         | ClipboardFragment::ImageTextRange { .. }
         | ClipboardFragment::ImageQrCode => None,
     }

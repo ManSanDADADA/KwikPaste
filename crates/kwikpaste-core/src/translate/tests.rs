@@ -122,6 +122,12 @@ fn translation_shows_only_for_the_current_content_while_enabled() {
         fixture.clipboard.snapshot().text.as_deref(),
         Some("剪贴板管理器会保存你复制的所有内容。")
     );
+    // 复制译文里选中的词：按译文的拆词序号取（汉字逐字成词）。
+    let words = crate::clipboard::ClipboardFragment::TranslationWords {
+        indices: vec![0, 1, 2],
+    };
+    block_on(core.copy_fragment(&id, words.clone())).unwrap();
+    assert_eq!(fixture.clipboard.snapshot().text.as_deref(), Some("剪贴板"));
 
     // 改了原文：旧译文不再显示，动作变回「翻译」；恢复原文后又对得上。
     block_on(core.update_text_content(&id, "Something else entirely.".into())).unwrap();
@@ -163,6 +169,7 @@ fn translation_shows_only_for_the_current_content_while_enabled() {
         TranslationView::default()
     );
     assert!(block_on(core.copy_translation(&id)).is_err());
+    assert!(block_on(core.copy_fragment(&id, words)).is_err());
     block_on(core.shutdown()).unwrap();
 }
 

@@ -19,7 +19,7 @@ use gpui::{
     px, size, uniform_list,
 };
 use kwikpaste_core::{
-    clipboard::SnippetKind,
+    clipboard::{SnippetKind, WordSpan},
     db::models::{ClipboardKind, ClipboardSubKind},
     presenter::{PreviewBlock, PreviewDocument, PreviewInline},
     translate::{TranslateFailure, TranslationState, TranslationView},
@@ -40,7 +40,7 @@ use crate::{
             preview::{
                 FILE_ROW_HEIGHT, HEADER_HEIGHT, RectF, SNIPPET_CHIP_HEIGHT, SNIPPET_CHIP_PADDING_X,
                 SNIPPET_PART_GAP, SNIPPETS_MAX_HEIGHT, SNIPPETS_PADDING_Y, TEXT_PADDING_X,
-                TEXT_ROW_HEIGHT, TRANSLATION_BAR_HEIGHT, TRANSLATION_MAX_ROWS,
+                TEXT_ROW_HEIGHT, TRANSLATION_BAR_HEIGHT, TRANSLATION_BODY_MAX_HEIGHT,
                 TRANSLATION_PADDING_BOTTOM, WORDS_BAR_HEIGHT, WordSelection, format_bytes,
                 utf16_range, wheel_zoom,
             },
@@ -59,7 +59,7 @@ pub enum PreviewEvent {
     Pointer(bool),
     /// 切换文本方式（写进设置）。
     TextView(PreviewTextView),
-    /// 选词后点了复制或粘贴。
+    /// 选词后（原文或译文）点了复制或粘贴。
     Words { paste: bool },
     /// 图片记录在「图片」和「图中文字」之间切换。
     ImageText(ImageTextView),
@@ -94,11 +94,30 @@ pub enum ImageTextView {
     Text,
 }
 
-/// 预览窗里和翻译有关的内容：core 给的译文与状态，加上译文按面板宽度折好的行。
+/// 预览窗里和翻译有关的内容：core 给的译文与状态，加上译文按面板宽度折好的行；选词视图里还有
+/// 译文的词区间（UTF-16，同正文的词），为空时译文按纯文本画。
 #[derive(Clone, Debug, PartialEq)]
 pub struct TranslationZone {
     pub view: TranslationView,
     pub rows: Vec<Range<usize>>,
+    pub words: Vec<WordSpan>,
+}
+
+impl TranslationZone {
+    pub fn text(&self) -> Option<&str> {
+        self.view
+            .translation
+            .as_ref()
+            .map(|done| done.text.as_str())
+    }
+}
+
+/// 选词选区在哪一段：原文或译文，两边不同时选。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WordArea {
+    #[default]
+    Original,
+    Translation,
 }
 
 /// 预览窗的内容视图。
@@ -109,6 +128,7 @@ pub struct PreviewPanel {
     text_view: PreviewTextView,
     rows: Rc<Vec<Range<usize>>>,
     selection: WordSelection,
+    selection_area: WordArea,
     /// 图片在面板里的显示尺寸（逻辑像素），由列表按面板尺寸算好。
     image_box: Option<(f32, f32)>,
     /// 图片有识别文字时的「图片 / 文字」切换；`Text` 时 `preview` 是识别文字的文本预览。
@@ -144,6 +164,7 @@ impl PreviewPanel {
             text_view: PreviewTextView::default(),
             rows: Rc::default(),
             selection: WordSelection::default(),
+            selection_area: WordArea::default(),
             image_box: None,
             image_text: None,
             translation: None,
@@ -175,12 +196,16 @@ impl PreviewPanel {
                 (&self.preview, &preview),
                 (Some(old), Some(new)) if old.payload.id == new.payload.id
             );
+        let same_translation = self.translation.as_ref().and_then(TranslationZone::text)
+            == translation.as_ref().and_then(TranslationZone::text);
         if !same_item {
             self.selection.clear();
             self.scroll.set_offset(point(px(0.), px(0.)));
             self.text_scroll
                 .scroll_to_item(0, gpui::ScrollStrategy::Top);
             self.translation_scroll.set_offset(point(px(0.), px(0.)));
+        } else if !same_translation && self.selection_area == WordArea::Translation {
+            self.selection.clear();
         }
         self.rows = Rc::new(rows);
         self.missing = preview.is_none();
@@ -198,12 +223,24 @@ impl PreviewPanel {
             .map(|preview| preview.payload.id.as_str())
     }
 
-    /// 选词视图里选中的词（序号升序）；不在选词视图或没选时为空。
-    pub fn selected_words(&self) -> Vec<usize> {
-        if !self.words_view() {
-            return Vec::new();
+    /// 选词视图里选中的词：在原文还是译文里，序号升序；不在选词视图或没选时为 `None`。
+    pub fn selected_words(&self) -> Option<(WordArea, Vec<usize>)> {
+        if !self.words_view() || self.selection.selected().is_empty() {
+            return None;
         }
-        self.selection.selected().iter().copied().collect()
+        Some((
+            self.selection_area,
+            self.selection.selected().iter().copied().collect(),
+        ))
+    }
+
+    /// `area` 里选中了几个词。
+    fn picked(&self, area: WordArea) -> usize {
+        if self.selection_area == area {
+            self.selection.selected().len()
+        } else {
+            0
+        }
     }
 
     /// 释放图片（预览关上时），关掉开着的快捷信息菜单。
@@ -289,6 +326,17 @@ impl PreviewPanel {
         };
         let pending = view.state == TranslationState::Pending;
         let failed = matches!(view.state, TranslationState::Failed { .. });
+        let words = self.words_view() && !zone.words.is_empty();
+        let picked = self.picked(WordArea::Translation);
+        let label = if picked > 0 {
+            t_count(
+                "preview:words.selected",
+                i64::try_from(picked).unwrap_or(i64::MAX),
+                &[],
+            )
+        } else {
+            label
+        };
         let button = |id: &'static str, key: &str, event: PreviewEvent, cx: &mut Context<Self>| {
             Button::new(id, t(key))
                 .small()
@@ -318,7 +366,34 @@ impl PreviewPanel {
                     .text_color(color)
                     .child(label),
             )
-            .when(view.translation.is_some(), |bar| {
+            // 选了译文里的词：和选词栏一样清除、复制、粘贴选中的词。
+            .when(picked > 0, |bar| {
+                bar.child(
+                    Button::new("preview-translation-words-clear", t("preview:words.clear"))
+                        .small()
+                        .ghost()
+                        .on_click(cx.listener(|panel, _, _, cx| {
+                            panel.selection.clear();
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("preview-translation-words-copy", t("preview:words.copy"))
+                        .small()
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            cx.emit(PreviewEvent::Words { paste: false });
+                        })),
+                )
+                .child(
+                    Button::new("preview-translation-words-paste", t("preview:words.paste"))
+                        .small()
+                        .primary()
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            cx.emit(PreviewEvent::Words { paste: true });
+                        })),
+                )
+            })
+            .when(picked == 0 && view.translation.is_some(), |bar| {
                 bar.child(button(
                     "preview-translation-copy",
                     "preview:translation.copy",
@@ -332,7 +407,7 @@ impl PreviewPanel {
                     cx,
                 ))
             })
-            .when(!pending, |bar| {
+            .when(picked == 0 && !pending, |bar| {
                 bar.child(button(
                     "preview-translation-again",
                     if failed {
@@ -345,34 +420,41 @@ impl PreviewPanel {
                 ))
             });
 
-        // 和纯文本视图一样按预先折好的行画（每行固定行高、不再自动折行），高度与
-        // `translation_height` 算的一致。
+        // 和纯文本视图一样按预先折好的行画（每行固定行高、不再自动折行），选词视图里画成词块；
+        // 高度与 `translation_height` 算的一致。
         let body = view.translation.as_ref().map(|done| {
             let text = done.text.as_str();
-            div()
+            let body = div()
                 .id("preview-translation-body")
                 .flex_none()
-                .max_h(space(
-                    ((TRANSLATION_MAX_ROWS as f64 * TEXT_ROW_HEIGHT + TRANSLATION_PADDING_BOTTOM)
-                        as f32)
-                        / 4.,
-                ))
+                .max_h(space((TRANSLATION_BODY_MAX_HEIGHT as f32) / 4.))
                 .overflow_y_scroll()
                 .track_scroll(&self.translation_scroll)
-                .pb(space((TRANSLATION_PADDING_BOTTOM as f32) / 4.))
-                .children(zone.rows.iter().map(|row| {
-                    let line = text
-                        .get(row.clone())
-                        .filter(|line| !line.is_empty())
-                        .unwrap_or(" ");
+                .pb(space((TRANSLATION_PADDING_BOTTOM as f32) / 4.));
+            if words {
+                return body.child(
                     div()
-                        .h(space((TEXT_ROW_HEIGHT as f32) / 4.))
+                        .flex()
+                        .flex_wrap()
+                        .content_start()
+                        .gap(space(1.))
                         .px(space((TEXT_PADDING_X as f32) / 4.))
-                        .kp_text(TextSize::Sm)
-                        .line_height(space((TEXT_ROW_HEIGHT as f32) / 4.))
-                        .whitespace_nowrap()
-                        .child(SharedString::from(line.to_owned()))
-                }))
+                        .children(self.word_chips(WordArea::Translation, text, &zone.words, cx)),
+                );
+            }
+            body.children(zone.rows.iter().map(|row| {
+                let line = text
+                    .get(row.clone())
+                    .filter(|line| !line.is_empty())
+                    .unwrap_or(" ");
+                div()
+                    .h(space((TEXT_ROW_HEIGHT as f32) / 4.))
+                    .px(space((TEXT_PADDING_X as f32) / 4.))
+                    .kp_text(TextSize::Sm)
+                    .line_height(space((TEXT_ROW_HEIGHT as f32) / 4.))
+                    .whitespace_nowrap()
+                    .child(SharedString::from(line.to_owned()))
+            }))
         });
 
         Some(
@@ -953,26 +1035,36 @@ impl PreviewPanel {
         )
     }
 
-    fn words(&self, preview: &Preview, cx: &mut Context<Self>) -> AnyElement {
+    /// 一段文字的词块：隔着换行的另起一行，按下、拖过选词。`area` 分开原文和译文：按下另一段的词
+    /// 先清掉这一段的选区。
+    fn word_chips(
+        &self,
+        area: WordArea,
+        text: &str,
+        spans: &[WordSpan],
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
         let tokens = theme::semantic(cx);
-        let payload = &preview.payload;
-        let text = payload.text.as_deref().unwrap_or_default();
-        let mut chips: Vec<AnyElement> = Vec::with_capacity(payload.words.len() + 8);
+        let id = match area {
+            WordArea::Original => "preview-word",
+            WordArea::Translation => "preview-translation-word",
+        };
+        let mut chips: Vec<AnyElement> = Vec::with_capacity(spans.len() + 8);
         let mut previous_end = 0;
 
-        for (index, span) in payload.words.iter().enumerate() {
+        for (index, span) in spans.iter().enumerate() {
             let range = utf16_range(text, span.0, span.1);
             let between = text.get(previous_end.min(range.start)..range.start);
             if index > 0 && between.is_some_and(|between| between.contains('\n')) {
                 chips.push(div().w_full().h(px(0.)).into_any_element());
             }
             previous_end = range.end;
-            let selected = self.selection.is_selected(index);
+            let selected = self.selection_area == area && self.selection.is_selected(index);
             let word = SharedString::from(text.get(range).unwrap_or_default().to_owned());
 
             chips.push(
                 div()
-                    .id(("preview-word", index))
+                    .id((id, index))
                     .min_w(space((24.) / 4.))
                     .max_w_full()
                     .px(space((6.) / 4.))
@@ -993,12 +1085,17 @@ impl PreviewPanel {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |panel, _: &MouseDownEvent, _, cx| {
+                            if panel.selection_area != area {
+                                panel.selection.clear();
+                                panel.selection_area = area;
+                            }
                             panel.selection.press(index);
                             cx.notify();
                         }),
                     )
                     .on_mouse_move(cx.listener(move |panel, event: &MouseMoveEvent, _, cx| {
                         if event.pressed_button == Some(MouseButton::Left)
+                            && panel.selection_area == area
                             && panel.selection.dragging()
                         {
                             panel.selection.extend(index);
@@ -1009,7 +1106,15 @@ impl PreviewPanel {
             );
         }
 
-        let count = self.selection.selected().len();
+        chips
+    }
+
+    fn words(&self, preview: &Preview, cx: &mut Context<Self>) -> AnyElement {
+        let tokens = theme::semantic(cx);
+        let payload = &preview.payload;
+        let text = payload.text.as_deref().unwrap_or_default();
+        let chips = self.word_chips(WordArea::Original, text, &payload.words, cx);
+        let count = self.picked(WordArea::Original);
         div()
             .flex()
             .flex_col()

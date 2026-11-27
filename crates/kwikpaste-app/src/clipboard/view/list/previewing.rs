@@ -18,7 +18,10 @@ use gpui::{
     AnyElement, AnyWindowHandle, AsyncApp, Bounds, Context, IntoElement as _, Pixels, Point,
     ScrollDelta, Styled as _, Subscription, Task, Window, canvas,
 };
-use kwikpaste_core::{clipboard::ClipboardFragment, settings::PreviewHoverDelayMs};
+use kwikpaste_core::{
+    clipboard::{ClipboardFragment, word_spans},
+    settings::PreviewHoverDelayMs,
+};
 use kwikpaste_ui::theme;
 
 use super::{ClipboardList, Pointer, ops::error_toast};
@@ -30,7 +33,7 @@ use crate::{
         },
         source::{Preview, PreviewContentMetrics, PreviewTextView, TranslationView},
         view::preview::{
-            ImageTextView, PreviewEvent, PreviewWindow, TranslationZone,
+            ImageTextView, PreviewEvent, PreviewWindow, TranslationZone, WordArea,
             native::{self, NativePreview},
             snippet_label,
         },
@@ -698,15 +701,22 @@ impl ClipboardList {
         }
     }
 
-    /// 预览里选中的词（Enter / Mod+C 作用于它们，1.x `getPreviewWordsFragment`）。
-    pub fn preview_words(&self, cx: &gpui::App) -> Option<(Arc<str>, Vec<usize>)> {
+    /// 预览里选中的词，原文或译文（Enter / Mod+C 作用于它们，1.x `getPreviewWordsFragment`）。
+    pub fn preview_words(&self, cx: &gpui::App) -> Option<(Arc<str>, ClipboardFragment)> {
         let (id, _) = self.previewing.session.as_ref()?;
         let panel = self.previewing.window.as_ref()?.panel.read(cx);
         if panel.item_id() != Some(&**id) {
             return None;
         }
-        let words = panel.selected_words();
-        (!words.is_empty()).then(|| (id.clone(), words))
+        let (area, indices) = panel.selected_words()?;
+        let fragment = match area {
+            WordArea::Translation => ClipboardFragment::TranslationWords { indices },
+            WordArea::Original if self.previewing.image_text.as_ref() == Some(id) => {
+                ClipboardFragment::ImageWords { indices }
+            }
+            WordArea::Original => ClipboardFragment::Words { indices },
+        };
+        Some((id.clone(), fragment))
     }
 
     /// 按住 / 松开修饰键：预览快捷信息里的链接、邮箱跟着变成可点的链接或复原。
@@ -747,13 +757,8 @@ impl ClipboardList {
 
     /// 粘贴或复制预览里选中的词，然后关掉预览（1.x `pasteSelection` / `copySelection`）。
     pub fn use_preview_words(&mut self, paste: bool, cx: &mut Context<Self>) {
-        let Some((id, indices)) = self.preview_words(cx) else {
+        let Some((id, fragment)) = self.preview_words(cx) else {
             return;
-        };
-        let fragment = if self.previewing.image_text.as_ref() == Some(&id) {
-            ClipboardFragment::ImageWords { indices }
-        } else {
-            ClipboardFragment::Words { indices }
         };
         if paste {
             log::info!("preview words paste requested for {id}");
@@ -885,7 +890,7 @@ impl ClipboardList {
             Some(preview)
                 if matches!(measured_metrics, Some(PreviewContentMetrics::Text { .. })) =>
             {
-                let content_width = preview::snippets_content_width(&place.monitor, text_scale);
+                let content_width = preview::chips_content_width(&place.monitor, text_scale);
                 let chips: Vec<(f64, usize)> = preview
                     .payload
                     .snippets
@@ -910,20 +915,47 @@ impl ClipboardList {
             }
             _ => 0.,
         };
-        // 译文和正文同宽、同字号，折行用同一个函数；高度按面板实际收到的译文区算，两边一致。
+        // 译文和正文同宽、同字号，折行用同一个函数；选词视图里译文也拆成词块（太长、只拆得了开头的
+        // 仍按纯文本）。高度按面板实际收到的译文区算，两边一致。
+        let words_view = matches!(measured_metrics, Some(PreviewContentMetrics::Words { .. }));
         let zone = (translation.translatable || translation.translation.is_some()).then(|| {
-            let rows = translation
+            let text = translation
                 .translation
                 .as_ref()
-                .map(|done| preview::text_rows(&done.text, wrap_width, text_scale, cx))
+                .map(|done| done.text.as_str());
+            let rows = text
+                .map(|text| preview::text_rows(text, wrap_width, text_scale, cx))
+                .unwrap_or_default();
+            let words = text
+                .filter(|_| words_view)
+                .map(word_spans)
+                .and_then(|(words, truncated)| (!truncated).then_some(words))
                 .unwrap_or_default();
             TranslationZone {
                 view: translation,
                 rows,
+                words,
             }
         });
         let translation_height = zone.as_ref().map_or(0., |zone| {
-            preview::translation_height(&zone.view, zone.rows.len())
+            let text = zone.text().unwrap_or_default();
+            let body = if zone.words.is_empty() {
+                preview::translation_rows_height(zone.rows.len())
+            } else if let PreviewContentMetrics::Words { chips } = preview::measure_metrics(
+                &preview::words_metrics(text, &zone.words),
+                Some(text),
+                &zone.words,
+                text_scale,
+                window,
+            ) {
+                preview::translation_words_height(
+                    &chips,
+                    preview::chips_content_width(&place.monitor, text_scale),
+                )
+            } else {
+                0.
+            };
+            preview::translation_height(&zone.view, body)
         });
         let zoom = self.previewing.zoom.unwrap_or(1.);
         let geometry = preview::geometry(

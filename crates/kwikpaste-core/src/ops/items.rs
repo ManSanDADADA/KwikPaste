@@ -427,6 +427,15 @@ async fn load_fragment_text(
                 _ => None,
             })
         }
+        ClipboardFragment::TranslationWords { indices }
+            if crate::translate::eligible(&item)
+                && core.extensions.resolve("translate").is_some() =>
+        {
+            crate::translate::load(pool, id, &item.content_hash)
+                .await
+                .map_err(anyhow::Error::from)?
+                .and_then(|translation| select_words(&translation.text, indices))
+        }
         ClipboardFragment::ImageQrCode => {
             let path = original_image_path(core, &item)?;
             let codes = tokio::task::spawn_blocking(move || clipboard::qr::decode_qr_codes(&path))

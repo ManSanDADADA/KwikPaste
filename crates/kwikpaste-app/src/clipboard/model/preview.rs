@@ -66,6 +66,9 @@ pub const TRANSLATION_BAR_HEIGHT: f64 = 40.;
 pub const TRANSLATION_MAX_ROWS: usize = 8;
 /// 译文正文下方的内边距。
 pub const TRANSLATION_PADDING_BOTTOM: f64 = 12.;
+/// 译文正文最高这么多（纯文本 [`TRANSLATION_MAX_ROWS`] 行），选词视图的词块区也一样，超出在区内滚动。
+pub const TRANSLATION_BODY_MAX_HEIGHT: f64 =
+    TRANSLATION_MAX_ROWS as f64 * TEXT_ROW_HEIGHT + TRANSLATION_PADDING_BOTTOM;
 
 /// 逻辑像素的矩形。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -307,8 +310,8 @@ fn panel_size(
     )
 }
 
-/// 快捷信息小块折行的内容宽度（设计 px）：与纯文本同宽，再扣掉两侧边框和取整余量。
-pub fn snippets_content_width(monitor: &RectF, scale: f64) -> f64 {
+/// 快捷信息小块和译文词块折行的内容宽度（设计 px）：与纯文本同宽，再扣掉两侧边框和取整余量。
+pub fn chips_content_width(monitor: &RectF, scale: f64) -> f64 {
     (MAX_WIDTH * scale).min(monitor.inset(MARGIN).width) / scale - TEXT_PADDING_X * 2. - WORDS_EDGE
 }
 
@@ -389,18 +392,29 @@ pub fn snippets_height(chips: &[(f64, usize)], content_width: f64) -> f64 {
         .min(SNIPPETS_MAX_HEIGHT)
 }
 
-/// 译文区的高度（含顶部 1px 分隔线）。`rows` 是译文按面板宽度折出的行数。
-/// 没有译文、也不在翻译中或失败时没有译文区，高度为 0。
-pub fn translation_height(view: &TranslationView, rows: usize) -> f64 {
+/// 译文区的高度（含顶部 1px 分隔线）。`body` 是译文正文的高度（[`translation_rows_height`] 或
+/// [`translation_words_height`]），没有译文时不算。没有译文、也不在翻译中或失败时没有译文区，高度为 0。
+pub fn translation_height(view: &TranslationView, body: f64) -> f64 {
     if view.translation.is_none() && view.state == TranslationState::Idle {
         return 0.;
     }
-    let body = if view.translation.is_some() {
-        rows.clamp(1, TRANSLATION_MAX_ROWS) as f64 * TEXT_ROW_HEIGHT + TRANSLATION_PADDING_BOTTOM
-    } else {
-        0.
-    };
+    let body = if view.translation.is_some() { body } else { 0. };
     1. + TRANSLATION_BAR_HEIGHT + body
+}
+
+/// 纯文本译文的高度：`rows` 是译文按面板宽度折出的行数。
+pub fn translation_rows_height(rows: usize) -> f64 {
+    rows.clamp(1, TRANSLATION_MAX_ROWS) as f64 * TEXT_ROW_HEIGHT + TRANSLATION_PADDING_BOTTOM
+}
+
+/// 选词视图里译文词块区的高度：和正文词块一样折行，上方紧贴工具栏、下方留同样的内边距。
+pub fn translation_words_height(chips: &[PreviewWordChip], content_width: f64) -> f64 {
+    let chips: Vec<(f64, bool)> = chips
+        .iter()
+        .map(|chip| (chip.width, chip.line_break))
+        .collect();
+    (chip_rows_height(&chips, content_width) + TRANSLATION_PADDING_BOTTOM)
+        .min(TRANSLATION_BODY_MAX_HEIGHT)
 }
 
 fn text_height(rows: u32) -> f64 {
@@ -414,6 +428,14 @@ fn text_height(rows: u32) -> f64 {
 fn words_height(chips: &[(f64, bool)], content_width: f64) -> f64 {
     if chips.is_empty() || content_width <= 0. {
         return EMPTY_HEIGHT;
+    }
+    chip_rows_height(chips, content_width) + WORDS_PADDING * 2.
+}
+
+/// 词块折行后的高度，不含内边距；没有词块时为 0。
+fn chip_rows_height(chips: &[(f64, bool)], content_width: f64) -> f64 {
+    if chips.is_empty() || content_width <= 0. {
+        return 0.;
     }
 
     let mut rows = 0_u32;
@@ -441,7 +463,6 @@ fn words_height(chips: &[(f64, bool)], content_width: f64) -> f64 {
     f64::from(rows) * WORD_CHIP_HEIGHT
         + f64::from(rows - 1 + breaks) * WORD_GAP
         + wrapped_lines * WORD_LINE_HEIGHT
-        + WORDS_PADDING * 2.
 }
 
 fn files_height(shown: u32, total: u32) -> f64 {
@@ -988,15 +1009,15 @@ mod tests {
             ..TranslationView::default()
         };
         // 可翻译但还没翻：没有译文区。
-        assert_eq!(translation_height(&view, 0), 0.);
+        assert_eq!(translation_height(&view, 50.), 0.);
         // 翻译中、失败：分隔线加一行工具栏。
         view.state = TranslationState::Pending;
-        assert_eq!(translation_height(&view, 0), 1. + TRANSLATION_BAR_HEIGHT);
+        assert_eq!(translation_height(&view, 50.), 1. + TRANSLATION_BAR_HEIGHT);
         view.state = TranslationState::Failed {
             kind: TranslateFailure::Network,
             message: String::new(),
         };
-        assert_eq!(translation_height(&view, 0), 1. + TRANSLATION_BAR_HEIGHT);
+        assert_eq!(translation_height(&view, 50.), 1. + TRANSLATION_BAR_HEIGHT);
         // 有译文：再加正文，最多 8 行。
         view.state = TranslationState::Idle;
         view.translation = Some(ItemTranslation {
@@ -1005,14 +1026,25 @@ mod tests {
             target_lang: "zh-Hans".into(),
             provider: "volc".into(),
         });
-        let body = |rows: f64| rows * TEXT_ROW_HEIGHT + TRANSLATION_PADDING_BOTTOM;
         assert_eq!(
-            translation_height(&view, 3),
-            1. + TRANSLATION_BAR_HEIGHT + body(3.)
+            translation_height(&view, 50.),
+            1. + TRANSLATION_BAR_HEIGHT + 50.
+        );
+        let body = |rows: f64| rows * TEXT_ROW_HEIGHT + TRANSLATION_PADDING_BOTTOM;
+        assert_eq!(translation_rows_height(3), body(3.));
+        assert_eq!(translation_rows_height(40), TRANSLATION_BODY_MAX_HEIGHT);
+        // 选词视图：两个词块一行，词块多了同样封顶。
+        let chip = |width: f64| PreviewWordChip {
+            width,
+            line_break: false,
+        };
+        assert_eq!(
+            translation_words_height(&[chip(40.), chip(40.)], 300.),
+            WORD_CHIP_HEIGHT + TRANSLATION_PADDING_BOTTOM
         );
         assert_eq!(
-            translation_height(&view, 40),
-            1. + TRANSLATION_BAR_HEIGHT + body(TRANSLATION_MAX_ROWS as f64)
+            translation_words_height(&vec![chip(40.); 200], 300.),
+            TRANSLATION_BODY_MAX_HEIGHT
         );
     }
 
