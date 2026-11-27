@@ -42,7 +42,9 @@ use kwikpaste_core::{
     CoreEvent,
     clipboard::SnippetKind,
     ops::{ReorderAnchor, ReorderSection},
-    settings::{AutoPaste, MiddleClickAction, PanelAction, Settings, effective_panel_keys},
+    settings::{
+        AutoPaste, MiddleClickAction, PanelAction, Settings, SmoothScroll, effective_panel_keys,
+    },
 };
 use kwikpaste_ui::{
     ListScrollbar, TextAreaInput, close_dialog, context_menu, dismiss_menu,
@@ -78,7 +80,7 @@ use crate::{
 
 /// 列表上下各多排版的距离（px）。
 const OVERDRAW: f32 = 200.;
-/// 平滑滚动与平滑 reveal 的指数缓动时间常数（r2-02 §3.5：τ = 30 ms）。
+/// 平滑 reveal 的指数缓动时间常数（r2-02 §3.5：τ = 30 ms）；滚轮按设置的档位走 [`wheel_tau`]。
 const TAU_S: f32 = 0.030;
 /// 滚轮一行的距离（设计 px）：与 Chromium 在 Windows 上相同（100/3 px，默认每格 3 行 = 100 px）。
 const WHEEL_LINE: f32 = 100. / 3.;
@@ -898,7 +900,8 @@ impl ClipboardList {
         }
 
         if self.motion.wheel.abs() > 0.5 {
-            let step = eased_step(self.motion.wheel, fraction);
+            let tau = wheel_tau(self.settings.clipboard.window.smooth_scroll).unwrap_or(TAU_S);
+            let step = eased_step(self.motion.wheel, 1. - (-self.motion.dt / tau).exp());
             self.state.scroll_by(px(step));
             self.motion.applied += step;
             self.motion.wheel -= step;
@@ -1439,7 +1442,9 @@ impl ClipboardList {
     pub(super) fn on_wheel_lines(&mut self, lines: f32, cx: &mut Context<Self>) {
         self.close_pointer_preview(cx);
         let distance = -lines * px_rems(WHEEL_LINE).to_pixels(self.rem).as_f32();
-        if self.reduce_motion(cx) {
+        if wheel_tau(self.settings.clipboard.window.smooth_scroll).is_none()
+            || self.reduce_motion(cx)
+        {
             self.state.scroll_by(px(distance));
         } else {
             self.motion.wheel += distance;
@@ -1790,6 +1795,16 @@ impl ClipboardList {
             timing.placeholders_rendered += u32::from(placeholder);
         }
         element
+    }
+}
+
+/// 滚轮平滑滚动各档的缓动时间常数（秒），约 3τ 走完一格；关闭时为 `None`，每格直接跳到位。
+fn wheel_tau(speed: SmoothScroll) -> Option<f32> {
+    match speed {
+        SmoothScroll::Off => None,
+        SmoothScroll::Fast => Some(0.030),
+        SmoothScroll::Standard => Some(0.070),
+        SmoothScroll::Slow => Some(0.120),
     }
 }
 

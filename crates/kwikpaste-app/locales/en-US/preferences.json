@@ -1531,6 +1531,16 @@
             "preserve": "Keep Last Selection"
           },
           "title": "Range on Open"
+        },
+        "smoothScroll": {
+          "description": "How the list glides when you turn the mouse wheel; slower feels smoother. Off when the system turns animations off.",
+          "options": {
+            "fast": "Fast",
+            "off": "Off",
+            "slow": "Slow",
+            "standard": "Default"
+          },
+          "title": "Smooth Scrolling"
         }
       }
     },

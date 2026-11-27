@@ -236,6 +236,7 @@ fn customized_settings_round_trip_exactly() {
     expected["clipboard"]["window"]["groupBar"] =
         serde_json::json!(["favorite", "text", "image", "files", "link"]);
     expected["clipboard"]["window"]["groupBarKnowsLink"] = Value::Bool(true);
+    expected["clipboard"]["window"]["smoothScroll"] = Value::from("standard");
     expected["appearance"]["preferencesSidebarCollapsed"] = Value::from(false);
     expected["appearance"]["textSize"] = Value::from("standard");
     expected["sync"]["remote"] = serde_json::json!({

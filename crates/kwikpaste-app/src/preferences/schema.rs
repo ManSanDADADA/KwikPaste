@@ -286,6 +286,7 @@ const LIST_ITEM_GAPS: &[u64] = &[0, 2, 4, 6, 8, 12];
 const LIST_PADDINGS_Y: &[u64] = &[2, 4, 6, 8];
 const DISPLAY_COUNTS: &[u64] = &[1, 2, 3, 4, 5];
 const WINDOW_POSITIONS: &[&str] = &["followCursor", "center", "remember"];
+const SMOOTH_SCROLLS: &[&str] = &["off", "fast", "standard", "slow"];
 const OPEN_RANGES: &[&str] = &["preserve", "all", "favorite"];
 const OPEN_CATEGORIES: &[&str] = &["preserve", "all", "text", "image", "files", "link"];
 const HOVER_DELAYS: &[&str] = &["ms300", "ms500", "ms1000"];
@@ -806,6 +807,14 @@ fn window_sections() -> Vec<Section> {
                 Setting::new("search.defaultFocus", Control::Switch)
                     .path("clipboard.search.defaultFocus")
                     .keywords(&["search", "focus", "open"]),
+                Setting::new(
+                    "window.smoothScroll",
+                    Control::Segmented(Options::Values(SMOOTH_SCROLLS)),
+                )
+                .path("clipboard.window.smoothScroll")
+                .keywords(&[
+                    "scroll", "smooth", "wheel", "mouse", "speed", "滚动", "滚轮", "平滑", "速度",
+                ]),
                 Setting::new("window.scrollToTopOnOpen", Control::Switch)
                     .path("clipboard.window.scrollToTopOnOpen")
                     .keywords(&["window", "scroll", "top", "open"])

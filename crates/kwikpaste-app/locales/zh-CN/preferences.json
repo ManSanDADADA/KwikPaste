@@ -1520,6 +1520,16 @@
             "preserve": "保持上次选择"
           },
           "title": "打开时选中的范围"
+        },
+        "smoothScroll": {
+          "description": "鼠标滚轮滚动列表时的过渡，越慢越顺滑。系统关闭了动画效果时不生效。",
+          "options": {
+            "fast": "快",
+            "off": "关闭",
+            "slow": "慢",
+            "standard": "标准"
+          },
+          "title": "平滑滚动"
         }
       }
     },

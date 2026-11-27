@@ -911,6 +911,8 @@ pub struct Window {
     pub position: WindowPosition,
     /// 打开剪贴板窗口时把历史列表回到顶部。
     pub scroll_to_top_on_open: bool,
+    /// 鼠标滚轮滚动列表时的平滑过渡速度；旧配置没有这个字段，按「标准」读取。
+    pub smooth_scroll: SmoothScroll,
     /// 打开剪贴板窗口时切换到指定范围；`Preserve` 表示保持上次状态。
     pub select_range_on_open: WindowOpenRangeSelection,
     /// 打开剪贴板窗口时切换到指定分类；`Preserve` 表示保持上次状态。
@@ -935,6 +937,7 @@ impl Default for Window {
         Self {
             position: WindowPosition::FollowCursor,
             scroll_to_top_on_open: true,
+            smooth_scroll: SmoothScroll::Standard,
             select_range_on_open: WindowOpenRangeSelection::All,
             select_category_on_open: WindowOpenCategorySelection::All,
             select_group_on_open: WINDOW_OPEN_SELECTION_ALL.to_owned(),
@@ -960,6 +963,17 @@ impl Window {
         }
         self.group_bar_knows_link = true;
     }
+}
+
+/// 鼠标滚轮的平滑滚动：关闭时每格直接跳到位，其余档位越慢过渡越长。
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SmoothScroll {
+    Off,
+    Fast,
+    #[default]
+    Standard,
+    Slow,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
