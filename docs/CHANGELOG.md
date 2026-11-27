@@ -2,6 +2,11 @@
 
 All notable changes to KwikPaste are documented here.
 
+## 2.0.12 - 2026-11-27
+
+- On Windows, fixed images bouncing endlessly between two computers that both run remote sync and the official WeType app. What WeType writes to the clipboard was sent from another device, so it is still recorded but no longer sent out again.
+- When remote sync delivers a compressed image first and the original then arrives over LAN sync or WeType, it is treated as the same image instead of being recorded twice.
+
 ## 2.0.11 - 2026-11-27
 
 - Added remote sync: create a sync group under Sync → Remote Sync and let other devices join with an 8-digit pairing code, so new copies and preferences sync even when the devices aren't on the same LAN. Content is end-to-end encrypted and the server can't read it. Use the official server (text is kept for 24 hours so offline devices catch up; images are compressed and forwarded live, never stored) or run your own with Docker (choose image quality and size limits, and optionally sync the whole history, including favorites, pins, notes and deletions).
