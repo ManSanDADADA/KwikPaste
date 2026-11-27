@@ -25,7 +25,7 @@ KwikPaste keeps everything you copy — plain text, rich text, images and files 
 
 KwikPaste 2.0 is rewritten from scratch as a pure Rust native app: the interface is drawn on the GPU with [GPUI](https://www.gpui.rs), with no embedded WebView. Clipboard capture, storage, search, system integration and rendering all run in one native process.
 
-- **Tiny memory footprint**: under 20 MB in the background on Windows (measured in Task Manager), versus about 370 MB for 1.x — roughly a twentieth.
+- **Tiny memory footprint**: under 15 MB in the background on Windows with the window hidden (measured), versus about 370 MB for 1.x — roughly a twentieth.
 - **Opens instantly**: the window appears the moment you press the shortcut, with no web engine to start.
 - **Native on both platforms**: Direct3D 11 rendering with Mica / frosted glass on Windows, Metal rendering with a native panel on macOS, and it never steals focus from the app you are in.
 
