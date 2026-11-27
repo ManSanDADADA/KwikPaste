@@ -2,6 +2,16 @@
 
 All notable changes to KwikPaste are documented here.
 
+## 2.0.11 - 2026-11-27
+
+- Added remote sync: create a sync group under Sync → Remote Sync and let other devices join with an 8-digit pairing code, so new copies and preferences sync even when the devices aren't on the same LAN. Content is end-to-end encrypted and the server can't read it. Use the official server (text is kept for 24 hours so offline devices catch up; images are compressed and forwarded live, never stored) or run your own with Docker (choose image quality and size limits, and optionally sync the whole history, including favorites, pins, notes and deletions).
+- The Translation extension can use a chosen service: Google, Microsoft, Volcano or Tencent TranSmart. Auto-translate also handles short foreign text and re-copied older items.
+- Translations can be picked word by word in the words view.
+- A single copied image file shows as an image in the preview, and Ctrl+wheel (Cmd+wheel on macOS) over a preview image zooms it in place.
+- On Windows, images sent from a phone through the official WeType app are recorded as images instead of a file that soon disappears.
+- WeType sync errors are localized, and pairing codes may contain spaces.
+- In Preferences, enabled and disabled extensions are easier to tell apart, and the Extensions menu in the sidebar can be collapsed.
+
 ## 2.0.10 - 2026-11-23
 
 - Added the Translation extension: once installed from Extensions in Preferences, text items can be translated from the context menu or with a shortcut, and the translation shows on the card and in the preview, ready to copy or paste on its own. It uses free translation by default, works with OpenAI-compatible AI APIs, and can translate new foreign-language copies automatically.

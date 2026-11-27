@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "kwikpaste-ext-protocol"
-version = "2.0.10"
+version = "2.0.11"
 dependencies = [
  "serde",
  "serde_json",
