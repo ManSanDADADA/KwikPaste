@@ -144,6 +144,24 @@ fn sync_numbers(core: &Core, id: &str) -> (i64, Option<i64>) {
 }
 
 #[test]
+fn official_wetype_writes_are_recorded_without_a_sync_number() {
+    let fixture = Fixture::new();
+    let core = fixture.start();
+    fixture.platform.set_frontmost(
+        r"C:\Program Files\Tencent\WeType\3.0.3.11\wetype_server.exe",
+        "wetype_server",
+    );
+    let relayed = copy_in(&core, text("sent from the phone")).unwrap();
+    fixture
+        .platform
+        .set_frontmost("C:/Apps/Editor.exe", "Editor");
+    let local = copy_in(&core, text("copied here")).unwrap();
+
+    assert_eq!(sync_numbers(&core, &relayed).1, None);
+    assert_eq!(sync_numbers(&core, &local), (1, Some(1)));
+}
+
+#[test]
 fn one_copy_takes_one_sync_number() {
     let fixture = Fixture::new();
     let core = fixture.start();

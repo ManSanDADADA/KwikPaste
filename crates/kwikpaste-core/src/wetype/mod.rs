@@ -555,7 +555,7 @@ pub(crate) fn official_client_running(core: &CoreInner) -> bool {
     core.platform().process_running(OFFICIAL_CLIENT_PROCESS)
 }
 
-fn is_official_client_exe(path: &Path) -> bool {
+pub(crate) fn is_official_client_exe(path: &Path) -> bool {
     path.to_string_lossy()
         .to_ascii_lowercase()
         .replace('/', "\\")

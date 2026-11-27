@@ -1,6 +1,8 @@
 //! 采集到的记录去重入库并通知宿主。剪贴板监听、手动读取和局域网同步收到的记录都走这里，
 //! 保证几条入口的入库语义与事件一致。
 
+use std::path::Path;
+
 use crate::db::apps::upsert_app;
 use crate::db::items::{upsert_item, UpsertResult};
 use crate::db::models::{ClipboardApp, ClipboardItem};
@@ -8,7 +10,8 @@ use crate::error::Result;
 use crate::events::CoreEvent;
 use crate::root::CoreInner;
 
-/// 先写来源应用再去重入库，然后通知清理与宿主、推给在线的同步设备，最后按设置播放复制提示音。
+/// 先写来源应用再去重入库，然后通知清理与宿主、推给在线的同步设备（官方微信输入法写入的除外），
+/// 最后按设置播放复制提示音。
 /// 本机复制（监听、手动读取）走这里；局域网同步收到的记录走 [`store_and_emit`]，不放提示音。
 ///
 /// 应用 upsert 失败不阻断条目入库——清掉 `source_app_id` 后继续，避免单次系统调用抽风丢内容。
@@ -40,16 +43,24 @@ pub(crate) async fn persist_and_notify(
     }
 
     let result = store_and_emit(core, &item_to_write).await?;
-    // 本机复制的记录才有同步序号：对端补齐时按它取「上次之后本机复制过的」。
-    let seq = match crate::db::sync::assign_sync_seq(&core.db.pool().await, &result.id).await {
-        Ok(seq) => seq,
-        Err(err) => {
-            log::warn!("assign sync sequence failed: {err}");
-            None
-        }
-    };
-    crate::sync::on_local_capture(core, &item_to_write, seq);
-    crate::wetype::on_local_capture(core, &item_to_write, seq);
+    // 官方微信输入法写进剪贴板的是设备组里别的设备发来的内容，和同步收到的记录一样不分序号、不转发：
+    // 两台电脑都开着它和同步时会经两条路互相转发，图片每压缩一次指纹都变，回声过滤挡不住。
+    let relayed = item
+        .source_app_id
+        .as_deref()
+        .is_some_and(|id| crate::wetype::is_official_client_exe(Path::new(id)));
+    if !relayed {
+        // 本机复制的记录才有同步序号：对端补齐时按它取「上次之后本机复制过的」。
+        let seq = match crate::db::sync::assign_sync_seq(&core.db.pool().await, &result.id).await {
+            Ok(seq) => seq,
+            Err(err) => {
+                log::warn!("assign sync sequence failed: {err}");
+                None
+            }
+        };
+        crate::sync::on_local_capture(core, &item_to_write, seq);
+        crate::wetype::on_local_capture(core, &item_to_write, seq);
+    }
     let feedback = core.settings.snapshot().clipboard.feedback;
     if feedback.copy_sound {
         core.platform().play_copy_sound(
