@@ -68,7 +68,8 @@ pub(crate) const PUBLISHED: [(i64, &str, &str); 12] = [
 /// 把另一个平台写下的已发布迁移校验和改成本平台的值，返回改了几条。
 ///
 /// 迁移账按检出字节算校验和：macOS 建的库记的是 LF 版本，Windows 记的是 CRLF 版本。
-/// 跨平台覆盖导入备份时原样打开会因校验和不符而迁移失败，这里只改那些恰好等于
+/// 跨平台覆盖导入备份、或本地构建（检出换行与 CI 不同）用过的库，原样打开会因校验和不符而迁移失败，
+/// 所以启动和导入时都先换算。这里只改那些恰好等于
 /// 「已发布迁移的另一平台版本」的行，其它不认识的值保持原样，仍由迁移检查报错。
 pub(crate) async fn adopt_published_checksums(pool: &SqlitePool) -> Result<u64> {
     let has_ledger: Option<i64> = sqlx::query_scalar(
@@ -145,6 +146,10 @@ pub async fn init(paths: &CorePaths, max_connections: u32) -> Result<SqlitePool>
         .await
         .with_context(|| format!("failed to open sqlite database at {path:?}"))?;
 
+    let adopted = adopt_published_checksums(&pool).await?;
+    if adopted > 0 {
+        log::info!("adopted {adopted} migration checksum(s) written with the other line endings");
+    }
     MIGRATOR
         .run(&pool)
         .await
@@ -298,6 +303,37 @@ mod tests {
         assert!(expected.is_file());
         assert_eq!(applied, MIGRATOR.iter().count() as i64);
 
+        fs::remove_dir_all(&root).ok();
+    }
+
+    /// 库里记的是另一种换行的已发布校验和（本地构建写的）时，启动照常完成。
+    #[tokio::test]
+    async fn init_adopts_checksums_of_the_other_line_endings() {
+        let root =
+            std::env::temp_dir().join(format!("kwikpaste-db-adopt-{}", uuid::Uuid::new_v4()));
+        let local = root.join("local");
+        let paths = CorePaths::new(AppEnv::Prod, local.clone(), local.join("logs"), None);
+        let (version, lf, crlf) = PUBLISHED[PUBLISHED.len() - 1];
+        let embedded = MIGRATOR
+            .iter()
+            .find(|migration| migration.version == version)
+            .unwrap();
+        let other = if hex(&embedded.checksum) == lf {
+            crlf
+        } else {
+            lf
+        };
+
+        let pool = init(&paths, 1).await.unwrap();
+        sqlx::query("UPDATE _sqlx_migrations SET checksum = unhex(?) WHERE version = ?")
+            .bind(other)
+            .bind(version)
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        init(&paths, 1).await.unwrap().close().await;
         fs::remove_dir_all(&root).ok();
     }
 }
