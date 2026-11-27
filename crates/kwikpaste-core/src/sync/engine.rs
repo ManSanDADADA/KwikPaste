@@ -360,6 +360,13 @@ pub(crate) async fn receive_with_options(
         {
             return Ok(None);
         }
+    } else if item.kind == ClipboardKind::Image {
+        // 远程同步先送到的同一张图压缩过、指纹不同：局域网 / 微信输入法再送来原图时当作再次收到那一行。
+        let pool = core.db.pool().await;
+        let key = crate::db::remote::key_of(&item);
+        if let Some(copy) = crate::db::remote::find_item_by_sync_key(&pool, &key).await? {
+            item = copy;
+        }
     }
 
     // 补齐的是历史记录，不代表对方剪贴板的现状，不参与回声判断，也不写剪贴板。
@@ -638,6 +645,62 @@ mod tests {
                     )
                     .is_ok());
                 }
+                Ok(())
+            }
+        }))
+        .unwrap();
+        block_on(core.shutdown()).unwrap();
+    }
+
+    #[test]
+    fn live_original_after_a_remote_copy_reuses_the_copy() {
+        let fixture = Fixture::new();
+        let core = fixture.start();
+        let image = |bytes: Vec<u8>, side: u32| {
+            core.build_item(&ClipboardPayload::Image(ImagePayload {
+                bytes,
+                width: side,
+                height: side,
+            }))
+            .unwrap()
+            .unwrap()
+        };
+        let original = sample_png(3, 3);
+        let mut copy = image(sample_png(2, 2), 2);
+        copy.sync_key = Some(crate::db::remote::key_of(&image(original.clone(), 3)));
+        block_on(core.store_item(copy.clone(), None)).unwrap();
+
+        block_on(core.hop({
+            let core = core.clone();
+            async move {
+                let mut image = wire(None, "", None);
+                image.kind = ClipboardKind::Image;
+                let id = receive_with_options(
+                    &core.0,
+                    &std::sync::Mutex::new(EchoFilter::default()),
+                    "wetype:1",
+                    Platform::Windows,
+                    image,
+                    original,
+                    true,
+                    ReceiveOptions {
+                        text: true,
+                        image: true,
+                        write_clipboard: false,
+                        max_image_bytes: u64::MAX,
+                        allow_jpeg: true,
+                        allow_webp: false,
+                        captured_at: None,
+                    },
+                )
+                .await
+                .unwrap();
+                assert_eq!(id, Some(copy.id));
+                let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM clipboard_items")
+                    .fetch_one(&core.0.db.pool().await)
+                    .await
+                    .unwrap();
+                assert_eq!(count, 1);
                 Ok(())
             }
         }))

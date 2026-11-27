@@ -137,6 +137,23 @@ pub async fn find_by_item_key(
     .context("failed to find clipboard item by sync key")?)
 }
 
+/// 来源指纹是 `item_key` 的收到的记录：远程同步压缩过的图片，自己的指纹和来源不同。
+pub async fn find_item_by_sync_key(
+    pool: &SqlitePool,
+    item_key: &str,
+) -> Result<Option<ClipboardItem>> {
+    let id: Option<String> =
+        sqlx::query_scalar("SELECT id FROM clipboard_items WHERE sync_key = ? LIMIT 1")
+            .bind(item_key)
+            .fetch_optional(pool)
+            .await
+            .context("failed to find clipboard item by sync key")?;
+    match id {
+        Some(id) => crate::db::items::find_item_by_id(pool, &id).await,
+        None => Ok(None),
+    }
+}
+
 /// 一条记录跨设备的键：收到的是来源设备的 `sync_key`，本机采集的是自己的 `kind:content_hash`。
 pub fn key_of(item: &ClipboardItem) -> String {
     item.sync_key.clone().unwrap_or_else(|| {
